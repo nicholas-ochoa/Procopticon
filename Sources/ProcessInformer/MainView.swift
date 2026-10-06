@@ -31,7 +31,6 @@ struct MainView: View {
     @State private var processSearch = ""
     @State private var otherSearch = ""
     @State private var elevationRevision = 0
-    @FocusState private var searchFocused: Bool
     @Environment(\.openSettings) private var openSettings
 
     var body: some View {
@@ -55,16 +54,11 @@ struct MainView: View {
         .navigationTitle("Process Informer")
         .toolbar(id: "main") { toolbar }
         .toolbar(removing: .title)
-        .searchable(text: tab == .processes ? $processSearch : $otherSearch, placement: .toolbar,
-                    prompt: (tab == .processes ? "Search processes" : "Search \(tab.rawValue.lowercased())")
-                        + (settings.searchUsesRegex ? " (regex)" : ""))
-        .searchFocused($searchFocused)
         .onChange(of: processSearch) { _, new in store.filter.text = new }
         .onChange(of: tab) { otherSearch = "" }
         .onReceive(NotificationCenter.default.publisher(for: .showTab)) { n in
             if let t = n.object as? MainTab { tab = t }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .focusSearch)) { _ in searchFocused = true }
         .onReceive(NotificationCenter.default.publisher(for: Elevation.didChangeNotification)) { _ in
             elevationRevision &+= 1
         }
@@ -91,15 +85,22 @@ struct MainView: View {
         }
     }
 
-    /// Customizable toolbar (View ▸ Customize Toolbar…). The title and tab picker stay fixed on
-    /// the left; everything else can be removed, reordered or added from the palette.
+    /// Customizable toolbar (View ▸ Customize Toolbar…).
+    ///
+    /// The title and tab picker stay fixed on the left. By default a flexible space follows them so the
+    /// buttons sit on the right, arranged in logical groups. Every group and every individual button is
+    /// also offered in the customization palette, along with fixed and flexible spaces.
     @ToolbarContentBuilder
     private var toolbar: some CustomizableToolbarContent {
         fixedToolbarItems
-        filterToolbarItems
-        actionToolbarItems
-        optionalToolbarItems
-        moreOptionalToolbarItems
+        ToolbarSpacer(.flexible, placement: .primaryAction)
+        defaultGroupItems
+        searchToolbarItem
+        optionalGroupItems
+        individualFilterItems
+        individualActionItems
+        individualProcessItems
+        individualToolItems
     }
 
     @ToolbarContentBuilder
@@ -114,6 +115,8 @@ struct MainView: View {
             .fixedSize()
             .padding(.horizontal, 6)
         }
+        // Plain title text, not a glass toolbar "bubble".
+        .sharedBackgroundVisibility(.hidden)
         .customizationBehavior(.disabled)
         ToolbarItem(id: "tabs", placement: .navigation) {
             Picker("View", selection: $tab) {
@@ -127,144 +130,260 @@ struct MainView: View {
         .customizationBehavior(.disabled)
     }
 
-    /// Process quick filters (enabled on the Processes tab).
+    /// Explicit search field item (instead of `.searchable`, which inserts its own flexible space and
+    /// would center the buttons).
     @ToolbarContentBuilder
-    private var filterToolbarItems: some CustomizableToolbarContent {
-        ToolbarItem(id: "apps", placement: .primaryAction) {
-            Toggle(isOn: $settings.onlyApplications) { Label("Apps", systemImage: "macwindow.on.rectangle") }
-                .help("Show only GUI applications (⌥⌘A)")
-                .disabled(tab != .processes)
+    private var searchToolbarItem: some CustomizableToolbarContent {
+        ToolbarSpacer(.fixed, placement: .primaryAction)
+        ToolbarItem(id: "search", placement: .primaryAction) {
+            ToolbarSearchField(
+                text: tab == .processes ? $processSearch : $otherSearch,
+                prompt: (tab == .processes ? "Search processes" : "Search \(tab.rawValue.lowercased())")
+                    + (settings.searchUsesRegex ? " (regex)" : ""))
+                .frame(minWidth: 180, idealWidth: 260, maxWidth: 360)
         }
-        ToolbarItem(id: "mine", placement: .primaryAction) {
-            Toggle(isOn: $settings.hideOtherUsers) { Label("Mine", systemImage: "person.crop.circle") }
-                .help("Show only my processes (⌥⌘U)")
-                .disabled(tab != .processes)
-        }
-        ToolbarItem(id: "treeList", placement: .primaryAction) {
-            Toggle(isOn: $settings.treeView) {
-                Label(settings.treeView ? "Tree" : "List", systemImage: settings.treeView ? "list.bullet.indent" : "list.bullet")
+    }
+
+    // MARK: Groups
+
+    /// Groups shown by default (in this order, right-aligned).
+    @ToolbarContentBuilder
+    private var defaultGroupItems: some CustomizableToolbarContent {
+        ToolbarItem(id: "group.filters", placement: .primaryAction) {
+            ControlGroup {
+                appsToggle
+                mineToggle
+                treeToggle
+                FiltersMenu()
+            } label: {
+                Label("Quick Filters", systemImage: "line.3.horizontal.decrease")
             }
-            .help(settings.treeView ? "Showing hierarchy — click for a flat list (⌥⌘T)" : "Showing a flat list — click for the hierarchy (⌥⌘T)")
+            .controlGroupStyle(ToolbarClusterStyle())
             .disabled(tab != .processes)
         }
-        ToolbarItem(id: "filters", placement: .primaryAction) {
-            FiltersMenu().disabled(tab != .processes)
+        ToolbarSpacer(.fixed, placement: .primaryAction)
+        ToolbarItem(id: "group.updates", placement: .primaryAction) {
+            ControlGroup {
+                refreshButton
+                pauseToggle
+            } label: {
+                Label("Updates", systemImage: "arrow.clockwise")
+            }
+            .controlGroupStyle(ToolbarClusterStyle())
+        }
+        ToolbarSpacer(.fixed, placement: .primaryAction)
+        ToolbarItem(id: "group.tools", placement: .primaryAction) {
+            ControlGroup {
+                sysinfoButton
+                findButton
+            } label: {
+                Label("Tools", systemImage: "wrench.and.screwdriver")
+            }
+            .controlGroupStyle(ToolbarClusterStyle())
+        }
+        ToolbarSpacer(.fixed, placement: .primaryAction)
+        ToolbarItem(id: "group.search", placement: .primaryAction) {
+            ControlGroup {
+                RegexToggle()
+                fontToggle
+            } label: {
+                Label("Search & Display", systemImage: "textformat")
+            }
+            .controlGroupStyle(ToolbarClusterStyle())
+        }
+        ToolbarSpacer(.fixed, placement: .primaryAction)
+        ToolbarItem(id: "group.privileges", placement: .primaryAction) {
+            ControlGroup {
+                ElevationButton(revision: elevationRevision)
+                settingsButton
+            } label: {
+                Label("Privileges & Settings", systemImage: "lock.shield")
+            }
+            .controlGroupStyle(ToolbarClusterStyle())
         }
     }
 
+    /// Additional groups available from Customize Toolbar.
     @ToolbarContentBuilder
-    private var actionToolbarItems: some CustomizableToolbarContent {
-        ToolbarItem(id: "refresh", placement: .primaryAction) {
-            Button { store.refreshNow(); if tab == .services { ServiceStore.shared.refresh() } } label: {
-                Label("Refresh", systemImage: "arrow.clockwise")
+    private var optionalGroupItems: some CustomizableToolbarContent {
+        ToolbarItem(id: "group.process", placement: .primaryAction, showsByDefault: false) {
+            ControlGroup {
+                propertiesButton
+                terminateButton
+                killButton
+            } label: {
+                Label("Process Actions", systemImage: "app.badge")
             }
-            .help("Refresh now (⌘R)")
+            .controlGroupStyle(ToolbarClusterStyle())
         }
-        ToolbarItem(id: "pause", placement: .primaryAction) {
-            Toggle(isOn: $store.paused) {
-                Label(store.paused ? "Resume" : "Pause", systemImage: store.paused ? "play.fill" : "pause.fill")
+        ToolbarItem(id: "group.windows", placement: .primaryAction, showsByDefault: false) {
+            ControlGroup {
+                logButton
+                windowsButton
+                usersButton
+                hiddenButton
+            } label: {
+                Label("Inspection Windows", systemImage: "rectangle.stack")
             }
-            .help(store.paused ? "Resume updates" : "Pause updates")
+            .controlGroupStyle(ToolbarClusterStyle())
         }
-        ToolbarItem(id: "sysinfo", placement: .primaryAction) {
-            Button { SystemInfoWindow.open() } label: {
-                Label("System Information", systemImage: "chart.xyaxis.line")
+        ToolbarItem(id: "group.files", placement: .primaryAction, showsByDefault: false) {
+            ControlGroup {
+                inspectButton
+                runButton
+                exportButton
+            } label: {
+                Label("Files & Programs", systemImage: "doc.on.doc")
             }
-            .help("System information (⌘I)")
-        }
-        ToolbarItem(id: "find", placement: .primaryAction) {
-            Button { FindWindow.open() } label: {
-                Label("Find Files", systemImage: "doc.text.magnifyingglass")
-            }
-            .help("Find open files or loaded libraries (⇧⌘F)")
-        }
-        ToolbarItem(id: "elevate", placement: .primaryAction) {
-            ElevationButton(revision: elevationRevision)
-        }
-        ToolbarItem(id: "regex", placement: .primaryAction) {
-            RegexToggle()
-        }
-        ToolbarItem(id: "settings", placement: .primaryAction) {
-            Button { openSettings() } label: {
-                Label("Settings", systemImage: "gearshape")
-            }
-            .help("Settings (⌘,)")
+            .controlGroupStyle(ToolbarClusterStyle())
         }
     }
 
-    /// Optional items, available from Customize Toolbar.
+    // MARK: Individual items (palette only)
+
     @ToolbarContentBuilder
-    private var optionalToolbarItems: some CustomizableToolbarContent {
-        ToolbarItem(id: "properties", placement: .primaryAction, showsByDefault: false) {
-            Button { if let p = ProcessSelection.shared.items.first { PropertiesWindow.open(p) } } label: {
-                Label("Properties", systemImage: "info.circle")
-            }
-            .help("Properties of the selected process (⌘↩)")
-        }
-        ToolbarItem(id: "terminate", placement: .primaryAction, showsByDefault: false) {
-            Button { ProcessActions.terminate(ProcessSelection.shared.items) } label: {
-                Label("Terminate", systemImage: "xmark.circle")
-            }
-            .help("Terminate the selected processes (⌘⌫)")
-        }
-        ToolbarItem(id: "kill", placement: .primaryAction, showsByDefault: false) {
-            Button { ProcessActions.forceKill(ProcessSelection.shared.items) } label: {
-                Label("Force Kill", systemImage: "bolt.circle")
-            }
-            .help("Force kill the selected processes (⌥⌘⌫)")
-        }
-        ToolbarItem(id: "inspect", placement: .primaryAction, showsByDefault: false) {
-            Button { InspectorWindow.choose() } label: {
-                Label("Inspect", systemImage: "doc.viewfinder")
-            }
-            .help("Inspect an executable (⌘O)")
-        }
-        ToolbarItem(id: "run", placement: .primaryAction, showsByDefault: false) {
-            Button { RunWindow.open(asRoot: false) } label: {
-                Label("Run", systemImage: "play.rectangle")
-            }
-            .help("Run a program (⌘N)")
-        }
-        ToolbarItem(id: "log", placement: .primaryAction, showsByDefault: false) {
-            Button { EventLogWindow.open() } label: {
-                Label("Event Log", systemImage: "list.bullet.rectangle")
-            }
-            .help("Event log (⌥⌘L)")
-        }
+    private var individualFilterItems: some CustomizableToolbarContent {
+        ToolbarItem(id: "apps", placement: .primaryAction, showsByDefault: false) { appsToggle.disabled(tab != .processes) }
+        ToolbarItem(id: "mine", placement: .primaryAction, showsByDefault: false) { mineToggle.disabled(tab != .processes) }
+        ToolbarItem(id: "treeList", placement: .primaryAction, showsByDefault: false) { treeToggle.disabled(tab != .processes) }
+        ToolbarItem(id: "filters", placement: .primaryAction, showsByDefault: false) { FiltersMenu().disabled(tab != .processes) }
+        ToolbarItem(id: "regex", placement: .primaryAction, showsByDefault: false) { RegexToggle() }
+        ToolbarItem(id: "font", placement: .primaryAction, showsByDefault: false) { fontToggle }
     }
 
     @ToolbarContentBuilder
-    private var moreOptionalToolbarItems: some CustomizableToolbarContent {
-        ToolbarItem(id: "windows", placement: .primaryAction, showsByDefault: false) {
-            Button { WindowFinder.open() } label: {
-                Label("Find Window", systemImage: "macwindow.badge.plus")
-            }
-            .help("Find a process by its window")
+    private var individualActionItems: some CustomizableToolbarContent {
+        ToolbarItem(id: "refresh", placement: .primaryAction, showsByDefault: false) { refreshButton }
+        ToolbarItem(id: "pause", placement: .primaryAction, showsByDefault: false) { pauseToggle }
+        ToolbarItem(id: "elevate", placement: .primaryAction, showsByDefault: false) { ElevationButton(revision: elevationRevision) }
+        ToolbarItem(id: "settings", placement: .primaryAction, showsByDefault: false) { settingsButton }
+    }
+
+    @ToolbarContentBuilder
+    private var individualProcessItems: some CustomizableToolbarContent {
+        ToolbarItem(id: "properties", placement: .primaryAction, showsByDefault: false) { propertiesButton }
+        ToolbarItem(id: "terminate", placement: .primaryAction, showsByDefault: false) { terminateButton }
+        ToolbarItem(id: "kill", placement: .primaryAction, showsByDefault: false) { killButton }
+        ToolbarItem(id: "export", placement: .primaryAction, showsByDefault: false) { exportButton }
+        ToolbarItem(id: "inspect", placement: .primaryAction, showsByDefault: false) { inspectButton }
+        ToolbarItem(id: "run", placement: .primaryAction, showsByDefault: false) { runButton }
+    }
+
+    @ToolbarContentBuilder
+    private var individualToolItems: some CustomizableToolbarContent {
+        ToolbarItem(id: "sysinfo", placement: .primaryAction, showsByDefault: false) { sysinfoButton }
+        ToolbarItem(id: "find", placement: .primaryAction, showsByDefault: false) { findButton }
+        ToolbarItem(id: "log", placement: .primaryAction, showsByDefault: false) { logButton }
+        ToolbarItem(id: "windows", placement: .primaryAction, showsByDefault: false) { windowsButton }
+        ToolbarItem(id: "users", placement: .primaryAction, showsByDefault: false) { usersButton }
+        ToolbarItem(id: "hidden", placement: .primaryAction, showsByDefault: false) { hiddenButton }
+    }
+
+    // MARK: Controls (shared by groups and individual items)
+
+    private var appsToggle: some View {
+        Toggle(isOn: $settings.onlyApplications) { Label("Apps", systemImage: "macwindow.on.rectangle") }
+            .help("Show only GUI applications (⌥⌘A)")
+    }
+
+    private var mineToggle: some View {
+        Toggle(isOn: $settings.hideOtherUsers) { Label("Mine", systemImage: "person.crop.circle") }
+            .help("Show only my processes (⌥⌘U)")
+    }
+
+    private var treeToggle: some View {
+        Toggle(isOn: $settings.treeView) {
+            Label(settings.treeView ? "Tree" : "List", systemImage: settings.treeView ? "list.bullet.indent" : "list.bullet")
         }
-        ToolbarItem(id: "users", placement: .primaryAction, showsByDefault: false) {
-            Button { UsersWindow.open() } label: {
-                Label("Users", systemImage: "person.2")
-            }
-            .help("Logged-in users")
-        }
-        ToolbarItem(id: "hidden", placement: .primaryAction, showsByDefault: false) {
-            Button { HiddenProcessesWindow.open() } label: {
-                Label("Hidden Scan", systemImage: "eye.trianglebadge.exclamationmark")
-            }
-            .help("Scan for hidden processes")
-        }
-        ToolbarItem(id: "export", placement: .primaryAction, showsByDefault: false) {
-            Button { Alerts.save(text: ProcessSelection.shared.table.exportText(), suggestedName: "Processes.txt") } label: {
-                Label("Export", systemImage: "square.and.arrow.up")
-            }
-            .help("Export the process list (⌘S)")
-        }
-        ToolbarItem(id: "font", placement: .primaryAction, showsByDefault: false) {
-            Toggle(isOn: $settings.processListMonospaced) {
-                Label("Fixed Width", systemImage: "textformat.size")
-            }
+        .help(settings.treeView ? "Showing hierarchy — click for a flat list (⌥⌘T)" : "Showing a flat list — click for the hierarchy (⌥⌘T)")
+    }
+
+    private var fontToggle: some View {
+        Toggle(isOn: $settings.processListMonospaced) { Label("Fixed Width", systemImage: "textformat.size") }
             .help("Fixed-width font in the process list")
+    }
+
+    private var refreshButton: some View {
+        Button { store.refreshNow(); if tab == .services { ServiceStore.shared.refresh() } } label: {
+            Label("Refresh", systemImage: "arrow.clockwise")
         }
+        .help("Refresh now (⌘R)")
+    }
+
+    private var pauseToggle: some View {
+        Toggle(isOn: $store.paused) {
+            Label(store.paused ? "Resume" : "Pause", systemImage: store.paused ? "play.fill" : "pause.fill")
+        }
+        .help(store.paused ? "Resume updates" : "Pause updates")
+    }
+
+    private var sysinfoButton: some View {
+        Button { SystemInfoWindow.open() } label: { Label("System Information", systemImage: "chart.xyaxis.line") }
+            .help("System information (⌘I)")
+    }
+
+    private var findButton: some View {
+        Button { FindWindow.open() } label: { Label("Find Files", systemImage: "doc.text.magnifyingglass") }
+            .help("Find open files or loaded libraries (⇧⌘F)")
+    }
+
+    private var settingsButton: some View {
+        Button { openSettings() } label: { Label("Settings", systemImage: "gearshape") }
+            .help("Settings (⌘,)")
+    }
+
+    private var propertiesButton: some View {
+        Button { if let p = ProcessSelection.shared.items.first { PropertiesWindow.open(p) } } label: {
+            Label("Properties", systemImage: "info.circle")
+        }
+        .help("Properties of the selected process (⌘↩)")
+    }
+
+    private var terminateButton: some View {
+        Button { ProcessActions.terminate(ProcessSelection.shared.items) } label: { Label("Terminate", systemImage: "xmark.circle") }
+            .help("Terminate the selected processes (⌘⌫)")
+    }
+
+    private var killButton: some View {
+        Button { ProcessActions.forceKill(ProcessSelection.shared.items) } label: { Label("Force Kill", systemImage: "bolt.circle") }
+            .help("Force kill the selected processes (⌥⌘⌫)")
+    }
+
+    private var inspectButton: some View {
+        Button { InspectorWindow.choose() } label: { Label("Inspect", systemImage: "doc.viewfinder") }
+            .help("Inspect an executable (⌘O)")
+    }
+
+    private var runButton: some View {
+        Button { RunWindow.open(asRoot: false) } label: { Label("Run", systemImage: "play.rectangle") }
+            .help("Run a program (⌘N)")
+    }
+
+    private var logButton: some View {
+        Button { EventLogWindow.open() } label: { Label("Event Log", systemImage: "list.bullet.rectangle") }
+            .help("Event log (⌥⌘L)")
+    }
+
+    private var windowsButton: some View {
+        Button { WindowFinder.open() } label: { Label("Find Window", systemImage: "macwindow.badge.plus") }
+            .help("Find a process by its window")
+    }
+
+    private var usersButton: some View {
+        Button { UsersWindow.open() } label: { Label("Users", systemImage: "person.2") }
+            .help("Logged-in users")
+    }
+
+    private var hiddenButton: some View {
+        Button { HiddenProcessesWindow.open() } label: { Label("Hidden Scan", systemImage: "eye.trianglebadge.exclamationmark") }
+            .help("Scan for hidden processes")
+    }
+
+    private var exportButton: some View {
+        Button { Alerts.save(text: ProcessSelection.shared.table.exportText(), suggestedName: "Processes.txt") } label: {
+            Label("Export", systemImage: "square.and.arrow.up")
+        }
+        .help("Export the process list (⌘S)")
     }
 }
 
@@ -421,3 +540,86 @@ enum SettingsOpener {
     }
 }
 
+
+/// Lays a toolbar group's controls out side by side so the toolbar draws them as one cluster,
+/// while the group's label still names it in the Customize Toolbar palette.
+struct ToolbarClusterStyle: ControlGroupStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: 0) {
+            // Zero-size copy of the group's label: the toolbar palette names an item after the first
+            // label it contains, so this makes the palette show "Quick Filters" rather than "Apps".
+            configuration.label
+                .labelStyle(.titleOnly)
+                .frame(width: 0, height: 0)
+                .clipped()
+                .accessibilityHidden(true)
+            configuration.content
+                .labelStyle(.iconOnly)
+                .buttonStyle(.borderless)
+                .toggleStyle(.button)
+                .frame(minWidth: 30, minHeight: 26)
+        }
+        .padding(.horizontal, 4)
+    }
+}
+
+/// Native search field for the toolbar (⌘F focuses it).
+struct ToolbarSearchField: NSViewRepresentable {
+    @Binding var text: String
+    var prompt: String
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    func makeNSView(context: Context) -> NSSearchField {
+        let field = NSSearchField()
+        field.delegate = context.coordinator
+        field.sendsSearchStringImmediately = true
+        field.sendsWholeSearchString = false
+        field.placeholderString = prompt
+        field.stringValue = text
+        context.coordinator.focusObserver = NotificationCenter.default.addObserver(
+            forName: .focusSearch, object: nil, queue: .main) { [weak field] _ in
+            guard let field else { return }
+            field.window?.makeFirstResponder(field)
+        }
+        return field
+    }
+
+    func updateNSView(_ field: NSSearchField, context: Context) {
+        context.coordinator.parent = self
+        if field.stringValue != text {
+            field.stringValue = text
+        }
+        if field.placeholderString != prompt {
+            field.placeholderString = prompt
+        }
+    }
+
+    final class Coordinator: NSObject, NSSearchFieldDelegate {
+        var parent: ToolbarSearchField
+        var focusObserver: NSObjectProtocol?
+
+        init(_ parent: ToolbarSearchField) {
+            self.parent = parent
+        }
+
+        deinit {
+            if let focusObserver { NotificationCenter.default.removeObserver(focusObserver) }
+        }
+
+        func controlTextDidChange(_ obj: Notification) {
+            guard let field = obj.object as? NSSearchField else { return }
+            parent.text = field.stringValue
+        }
+
+        func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+            // Escape clears the search, like the standard toolbar search field.
+            if selector == #selector(NSResponder.cancelOperation(_:)) {
+                (control as? NSSearchField)?.stringValue = ""
+                parent.text = ""
+                return true
+            }
+            return false
+        }
+    }
+}

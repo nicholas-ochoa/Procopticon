@@ -28,8 +28,10 @@ also CPU, memory and disk history graph columns.
 * **Saved filters** store a search plus filter settings under a name. Apply one from the Filters menu or
   from *View ▸ Saved Filters* (⌃⌘1–9). Manage them in *Settings ▸ Filters*: create one from the current
   state, edit, duplicate, reorder or delete.
-* **Customizable toolbar**: *View ▸ Customize Toolbar…*. Optional items include Properties, Terminate,
-  Force Kill, Inspect, Run, Event Log, Find Window, Users, Hidden Scan, Export and Fixed Width.
+* **Customizable toolbar**: *View ▸ Customize Toolbar…*. By default the buttons are right-aligned and
+  arranged in groups: Quick Filters, Updates, Tools, Search & Display, and Privileges & Settings. More
+  groups are available in the palette: Process Actions, Inspection Windows, Files & Programs. So is every
+  individual button, plus Space, Flexible Space and the search field.
 * An optional **fixed-width font** (and font size) for the process list. You can also hide other users' processes,
   system processes, Apple-signed processes or zombies, or switch to a flat list.
 * Actions:
@@ -122,7 +124,7 @@ but `sample`, `vmmap` and libproc data remain available for them when you run as
 
 ## Building
 
-You need Xcode 26 or later (the project was developed with Xcode 27 on macOS 27).
+You need Xcode 26 or later and macOS 26 or later (the project was developed with Xcode 27 on macOS 27).
 
 ```sh
 ./scripts/build-app.sh               # release build → build/Process Informer.app (ad-hoc signed)

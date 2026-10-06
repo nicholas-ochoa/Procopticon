@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "ProcessInformer",
-    platforms: [.macOS(.v15)],
+    platforms: [.macOS("26.0")],
     products: [
         .executable(name: "ProcessInformer", targets: ["ProcessInformer"]),
         .executable(name: "informer-helper", targets: ["informer-helper"]),
