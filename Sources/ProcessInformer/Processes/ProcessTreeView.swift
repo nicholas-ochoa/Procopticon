@@ -41,7 +41,8 @@ struct ProcessTreeView: View {
             onDoubleClick: { PropertiesWindow.open($0) },
             onSelectionChange: { ProcessSelection.shared.items = $0 },
             onDeleteKey: { ProcessActions.terminate($0) },
-            controller: ProcessSelection.shared.table
+            controller: ProcessSelection.shared.table,
+            font: settings.processListFont
         )
         .onReceive(NotificationCenter.default.publisher(for: .highlightsChanged)) { _ in highlightRevision &+= 1 }
         .onReceive(NotificationCenter.default.publisher(for: SigningCache.didUpdateNotification)) { _ in highlightRevision &+= 1 }

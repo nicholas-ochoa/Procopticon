@@ -21,7 +21,16 @@ also CPU, memory and disk history graph columns.
 * Search by name, PID, path, command line, user or bundle ID. Every search and filter field accepts
   **regular expressions**. Toggle `.*` in the toolbar or use *View ▸ Use Regular Expressions in Search*
   (⌥⌘R), or write `/pattern/` at any time. Patterns are case-insensitive; `/pattern/c` makes one
-  case-sensitive. An invalid pattern is reported in the status bar. You can also hide other users' processes,
+  case-sensitive. An invalid pattern is reported in the status bar.
+* **Quick filters** in the toolbar: **Apps** (GUI applications only), **Mine** (your processes only),
+  **Tree/List**, and a **Filters** menu (hide root/system, Apple-signed or zombie processes). While a
+  filter is active, the status bar shows "Showing N of M" with a **Clear Filters** link.
+* **Saved filters** store a search plus filter settings under a name. Apply one from the Filters menu or
+  from *View ▸ Saved Filters* (⌃⌘1–9). Manage them in *Settings ▸ Filters*: create one from the current
+  state, edit, duplicate, reorder or delete.
+* **Customizable toolbar**: *View ▸ Customize Toolbar…*. Optional items include Properties, Terminate,
+  Force Kill, Inspect, Run, Event Log, Find Window, Users, Hidden Scan, Export and Fixed Width.
+* An optional **fixed-width font** (and font size) for the process list. You can also hide other users' processes,
   system processes, Apple-signed processes or zombies, or switch to a flat list.
 * Actions:
   * Terminate, Terminate Tree, Force Kill, Suspend/Resume (also for a whole tree), Restart.
@@ -84,6 +93,18 @@ well-known service names. New and closed connections are highlighted.
 * **Export.** Saves the process list as text.
 
 A **menu bar graph** (CPU, memory, network or disk) opens a popover showing the top processes.
+
+## Responsiveness
+
+Sampling, delta computation, filtering and tree building run on a background queue. Each update
+publishes immutable snapshots, so the main thread only swaps them in. Tables sort on a background queue
+and update incrementally: flat lists rebind row slots, and trees apply moves, inserts and removes instead
+of reloading. Tied rows sort stably so they don't jitter. Icons, bundle metadata and code-signing checks
+load asynchronously.
+
+Memory-region scans of other processes (the Memory and Modules tabs, and library search in Find Files)
+run in a disposable child process. On recent macOS releases the kernel can kill the *caller* of that
+query with `EXC_GUARD` for some targets.
 
 ## Privileges
 

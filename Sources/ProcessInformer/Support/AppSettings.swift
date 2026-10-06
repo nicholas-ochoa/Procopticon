@@ -26,6 +26,15 @@ final class AppSettings: ObservableObject {
     @Published var menuBarGraph: MenuBarGraphKind { didSet { save("menuBarGraph", menuBarGraph.rawValue) } }
     @Published var searchEngineURL: String { didSet { save("searchEngineURL", searchEngineURL) } }
     @Published var searchUsesRegex: Bool { didSet { save("searchUsesRegex", searchUsesRegex); apply() } }
+    @Published var processListMonospaced: Bool { didSet { save("processListMonospaced", processListMonospaced) } }
+    @Published var processListFontSize: Double { didSet { save("processListFontSize", processListFontSize) } }
+    @Published var savedFilters: [SavedFilter] {
+        didSet {
+            if let data = try? JSONEncoder().encode(savedFilters) {
+                defaults.set(data, forKey: "savedFilters")
+            }
+        }
+    }
     @Published var highlights: [HighlightRule: HighlightSetting] { didSet { saveHighlights() } }
 
     enum MenuBarGraphKind: String, CaseIterable, Identifiable {
@@ -59,6 +68,13 @@ final class AppSettings: ObservableObject {
         menuBarGraph = MenuBarGraphKind(rawValue: defaults.string(forKey: "menuBarGraph") ?? "") ?? .cpu
         searchEngineURL = defaults.string(forKey: "searchEngineURL") ?? "https://duckduckgo.com/?q=%s"
         searchUsesRegex = b("searchUsesRegex", false)
+        processListMonospaced = b("processListMonospaced", false)
+        processListFontSize = d("processListFontSize", Double(NSFont.systemFontSize(for: .small) + 1))
+        if let data = defaults.data(forKey: "savedFilters"), let list = try? JSONDecoder().decode([SavedFilter].self, from: data) {
+            savedFilters = list
+        } else {
+            savedFilters = SavedFilter.defaults
+        }
         var h: [HighlightRule: HighlightSetting] = [:]
         let saved = defaults.dictionary(forKey: "highlights") as? [String: [String: Any]] ?? [:]
         for rule in HighlightRule.allCases {
@@ -275,5 +291,15 @@ enum ApplicationPids {
             }
         }
         return pids
+    }
+}
+
+extension AppSettings {
+    /// Font for the process list (fixed-width when enabled).
+    var processListFont: NSFont {
+        let size = CGFloat(processListFontSize)
+        return processListMonospaced
+            ? .monospacedSystemFont(ofSize: size, weight: .regular)
+            : .monospacedDigitSystemFont(ofSize: size, weight: .regular)
     }
 }

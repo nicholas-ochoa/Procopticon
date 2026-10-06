@@ -80,6 +80,8 @@ struct OutlineTable<Item>: NSViewRepresentable {
     var expandByDefault = true
     var rowHeight: CGFloat = 20
     var controller: OutlineTableController?
+    /// Font for text cells; nil uses the standard list font.
+    var font: NSFont?
 
     func makeCoordinator() -> OutlineTableCoordinator<Item> {
         OutlineTableCoordinator(self)
@@ -124,6 +126,7 @@ struct OutlineTable<Item>: NSViewRepresentable {
             coordinator?.refreshVisibleRows()
         }
         scroll.documentView = outline
+        coordinator.applyFont()
         coordinator.reload(force: true)
         coordinator.bindController()
         return scroll
@@ -140,6 +143,7 @@ struct OutlineTable<Item>: NSViewRepresentable {
         let coordinator = context.coordinator
         let previousRevision = coordinator.parent.revision
         coordinator.parent = self
+        coordinator.applyFont()
         if previousRevision != revision {
             coordinator.reload(force: false)
         }
@@ -207,6 +211,24 @@ final class OutlineTableCoordinator<Item>: NSObject, NSOutlineViewDataSource, NS
             sortColumn = d.column
             sortAscending = d.ascending
         }
+    }
+
+    private var appliedFont: NSFont?
+
+    /// Applies a font change: adjusts row height and restyles existing cells.
+    func applyFont() {
+        guard let outline else { return }
+        let font = parent.font ?? TextCellView.defaultFont
+        guard font != appliedFont else { return }
+        appliedFont = font
+        let line = ceil(font.ascender - font.descender + font.leading)
+        outline.rowHeight = max(parent.rowHeight, line + 5)
+        outline.enumerateAvailableRowViews { rowView, _ in
+            for i in 0..<rowView.numberOfColumns {
+                (rowView.view(atColumn: i) as? TextCellView)?.setFont(font)
+            }
+        }
+        outline.noteHeightOfRows(withIndexesChanged: IndexSet(integersIn: 0..<outline.numberOfRows))
     }
 
     func bindController() {
@@ -745,6 +767,7 @@ final class OutlineTableCoordinator<Item>: NSObject, NSOutlineViewDataSource, NS
             let withImage = spec.image != nil
             let id = NSUserInterfaceItemIdentifier(withImage ? "textImage" : "text")
             view = outlineView.makeView(withIdentifier: id, owner: nil) ?? TextCellView.make(identifier: id, withImage: withImage)
+            (view as? TextCellView)?.setFont(appliedFont ?? TextCellView.defaultFont)
         }
         configure(view, column: tableColumn, node: node)
         return view
@@ -955,8 +978,8 @@ final class ColoredRowView: NSTableRowView {
 /// Table cell with optional icon. Uses manual frame layout (no Auto Layout) because cells are
 /// created and reconfigured constantly while lists refresh.
 final class TextCellView: NSTableCellView, NSViewToolTipOwner {
-    private static let font = NSFont.monospacedDigitSystemFont(ofSize: NSFont.systemFontSize(for: .small) + 1, weight: .regular)
-    private static let lineHeight = ceil(font.ascender - font.descender + font.leading) + 1
+    static let defaultFont = NSFont.monospacedDigitSystemFont(ofSize: NSFont.systemFontSize(for: .small) + 1, weight: .regular)
+    private var lineHeight = ceil(defaultFont.ascender - defaultFont.descender + defaultFont.leading) + 1
     private let hasImage: Bool
     private var tipTag: NSView.ToolTipTag?
 
@@ -976,7 +999,7 @@ final class TextCellView: NSTableCellView, NSViewToolTipOwner {
         let field = NSTextField(labelWithString: "")
         field.lineBreakMode = .byTruncatingTail
         field.cell?.truncatesLastVisibleLine = true
-        field.font = Self.font
+        field.font = Self.defaultFont
         field.textColor = .labelColor
         addSubview(field)
         textField = field
@@ -992,6 +1015,13 @@ final class TextCellView: NSTableCellView, NSViewToolTipOwner {
         fatalError("init(coder:) has not been implemented")
     }
 
+    func setFont(_ font: NSFont) {
+        guard textField?.font != font else { return }
+        textField?.font = font
+        lineHeight = ceil(font.ascender - font.descender + font.leading) + 1
+        needsLayout = true
+    }
+
     static func make(identifier: NSUserInterfaceItemIdentifier, withImage: Bool) -> TextCellView {
         TextCellView(identifier: identifier, withImage: withImage)
     }
@@ -1004,7 +1034,7 @@ final class TextCellView: NSTableCellView, NSViewToolTipOwner {
             imageView.frame = NSRect(x: 1, y: floor((b.height - 16) / 2), width: 16, height: 16)
             x = 21
         }
-        let h = Self.lineHeight
+        let h = lineHeight
         textField?.frame = NSRect(x: x, y: floor((b.height - h) / 2), width: max(0, b.width - x - 2), height: h)
         if let tipTag {
             removeToolTip(tipTag)

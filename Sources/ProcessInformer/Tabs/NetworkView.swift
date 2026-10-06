@@ -159,7 +159,8 @@ struct DiskView: View {
                 rowStyle: { Highlighter.style(for: $0) },
                 menu: { ProcessMenu.build(for: $0) },
                 onDoubleClick: { PropertiesWindow.open($0) },
-                defaultSort: (column: "total", ascending: false))
+                defaultSort: (column: "total", ascending: false),
+                font: settings.processListFont)
         }
     }
 

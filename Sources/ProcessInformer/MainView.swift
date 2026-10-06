@@ -53,8 +53,8 @@ struct MainView: View {
             }
         }
         .navigationTitle("Process Informer")
-        .navigationSubtitle(subtitle)
-        .toolbar { toolbar }
+        .toolbar(id: "main") { toolbar }
+        .toolbar(removing: .title)
         .searchable(text: tab == .processes ? $processSearch : $otherSearch, placement: .toolbar,
                     prompt: (tab == .processes ? "Search processes" : "Search \(tab.rawValue.lowercased())")
                         + (settings.searchUsesRegex ? " (regex)" : ""))
@@ -91,14 +91,31 @@ struct MainView: View {
         }
     }
 
+    /// Customizable toolbar (View ▸ Customize Toolbar…). The title and tab picker stay fixed on
+    /// the left; everything else can be removed, reordered or added from the palette.
     @ToolbarContentBuilder
-    private var toolbar: some ToolbarContent {
-        if tab == .processes {
-            ToolbarItem(placement: .primaryAction) {
-                ProcessFilterControls()
+    private var toolbar: some CustomizableToolbarContent {
+        fixedToolbarItems
+        filterToolbarItems
+        actionToolbarItems
+        optionalToolbarItems
+        moreOptionalToolbarItems
+    }
+
+    @ToolbarContentBuilder
+    private var fixedToolbarItems: some CustomizableToolbarContent {
+        ToolbarItem(id: "title", placement: .navigation) {
+            VStack(alignment: .leading, spacing: 0) {
+                Text("Process Informer").font(.headline)
+                if !subtitle.isEmpty {
+                    Text(subtitle).font(.caption).foregroundStyle(.secondary)
+                }
             }
+            .fixedSize()
+            .padding(.horizontal, 6)
         }
-        ToolbarItem(placement: .navigation) {
+        .customizationBehavior(.disabled)
+        ToolbarItem(id: "tabs", placement: .navigation) {
             Picker("View", selection: $tab) {
                 ForEach(MainTab.allCases) { t in
                     Label(t.rawValue, systemImage: t.symbol).tag(t)
@@ -107,30 +124,179 @@ struct MainView: View {
             .pickerStyle(.segmented)
             .labelStyle(.titleOnly)
         }
-        ToolbarItemGroup(placement: .primaryAction) {
+        .customizationBehavior(.disabled)
+    }
+
+    /// Process quick filters (enabled on the Processes tab).
+    @ToolbarContentBuilder
+    private var filterToolbarItems: some CustomizableToolbarContent {
+        ToolbarItem(id: "apps", placement: .primaryAction) {
+            Toggle(isOn: $settings.onlyApplications) { Label("Apps", systemImage: "macwindow.on.rectangle") }
+                .help("Show only GUI applications (⌥⌘A)")
+                .disabled(tab != .processes)
+        }
+        ToolbarItem(id: "mine", placement: .primaryAction) {
+            Toggle(isOn: $settings.hideOtherUsers) { Label("Mine", systemImage: "person.crop.circle") }
+                .help("Show only my processes (⌥⌘U)")
+                .disabled(tab != .processes)
+        }
+        ToolbarItem(id: "treeList", placement: .primaryAction) {
+            Toggle(isOn: $settings.treeView) {
+                Label(settings.treeView ? "Tree" : "List", systemImage: settings.treeView ? "list.bullet.indent" : "list.bullet")
+            }
+            .help(settings.treeView ? "Showing hierarchy — click for a flat list (⌥⌘T)" : "Showing a flat list — click for the hierarchy (⌥⌘T)")
+            .disabled(tab != .processes)
+        }
+        ToolbarItem(id: "filters", placement: .primaryAction) {
+            FiltersMenu().disabled(tab != .processes)
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var actionToolbarItems: some CustomizableToolbarContent {
+        ToolbarItem(id: "refresh", placement: .primaryAction) {
             Button { store.refreshNow(); if tab == .services { ServiceStore.shared.refresh() } } label: {
                 Label("Refresh", systemImage: "arrow.clockwise")
             }
-            .help("Refresh now")
+            .help("Refresh now (⌘R)")
+        }
+        ToolbarItem(id: "pause", placement: .primaryAction) {
             Toggle(isOn: $store.paused) {
-                Label("Pause", systemImage: store.paused ? "play.fill" : "pause.fill")
+                Label(store.paused ? "Resume" : "Pause", systemImage: store.paused ? "play.fill" : "pause.fill")
             }
             .help(store.paused ? "Resume updates" : "Pause updates")
+        }
+        ToolbarItem(id: "sysinfo", placement: .primaryAction) {
             Button { SystemInfoWindow.open() } label: {
                 Label("System Information", systemImage: "chart.xyaxis.line")
             }
-            .help("System information")
+            .help("System information (⌘I)")
+        }
+        ToolbarItem(id: "find", placement: .primaryAction) {
             Button { FindWindow.open() } label: {
-                Label("Find Files or Libraries", systemImage: "doc.text.magnifyingglass")
+                Label("Find Files", systemImage: "doc.text.magnifyingglass")
             }
-            .help("Find open files or loaded libraries")
+            .help("Find open files or loaded libraries (⇧⌘F)")
+        }
+        ToolbarItem(id: "elevate", placement: .primaryAction) {
             ElevationButton(revision: elevationRevision)
+        }
+        ToolbarItem(id: "regex", placement: .primaryAction) {
             RegexToggle()
+        }
+        ToolbarItem(id: "settings", placement: .primaryAction) {
             Button { openSettings() } label: {
                 Label("Settings", systemImage: "gearshape")
             }
             .help("Settings (⌘,)")
         }
+    }
+
+    /// Optional items, available from Customize Toolbar.
+    @ToolbarContentBuilder
+    private var optionalToolbarItems: some CustomizableToolbarContent {
+        ToolbarItem(id: "properties", placement: .primaryAction, showsByDefault: false) {
+            Button { if let p = ProcessSelection.shared.items.first { PropertiesWindow.open(p) } } label: {
+                Label("Properties", systemImage: "info.circle")
+            }
+            .help("Properties of the selected process (⌘↩)")
+        }
+        ToolbarItem(id: "terminate", placement: .primaryAction, showsByDefault: false) {
+            Button { ProcessActions.terminate(ProcessSelection.shared.items) } label: {
+                Label("Terminate", systemImage: "xmark.circle")
+            }
+            .help("Terminate the selected processes (⌘⌫)")
+        }
+        ToolbarItem(id: "kill", placement: .primaryAction, showsByDefault: false) {
+            Button { ProcessActions.forceKill(ProcessSelection.shared.items) } label: {
+                Label("Force Kill", systemImage: "bolt.circle")
+            }
+            .help("Force kill the selected processes (⌥⌘⌫)")
+        }
+        ToolbarItem(id: "inspect", placement: .primaryAction, showsByDefault: false) {
+            Button { InspectorWindow.choose() } label: {
+                Label("Inspect", systemImage: "doc.viewfinder")
+            }
+            .help("Inspect an executable (⌘O)")
+        }
+        ToolbarItem(id: "run", placement: .primaryAction, showsByDefault: false) {
+            Button { RunWindow.open(asRoot: false) } label: {
+                Label("Run", systemImage: "play.rectangle")
+            }
+            .help("Run a program (⌘N)")
+        }
+        ToolbarItem(id: "log", placement: .primaryAction, showsByDefault: false) {
+            Button { EventLogWindow.open() } label: {
+                Label("Event Log", systemImage: "list.bullet.rectangle")
+            }
+            .help("Event log (⌥⌘L)")
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var moreOptionalToolbarItems: some CustomizableToolbarContent {
+        ToolbarItem(id: "windows", placement: .primaryAction, showsByDefault: false) {
+            Button { WindowFinder.open() } label: {
+                Label("Find Window", systemImage: "macwindow.badge.plus")
+            }
+            .help("Find a process by its window")
+        }
+        ToolbarItem(id: "users", placement: .primaryAction, showsByDefault: false) {
+            Button { UsersWindow.open() } label: {
+                Label("Users", systemImage: "person.2")
+            }
+            .help("Logged-in users")
+        }
+        ToolbarItem(id: "hidden", placement: .primaryAction, showsByDefault: false) {
+            Button { HiddenProcessesWindow.open() } label: {
+                Label("Hidden Scan", systemImage: "eye.trianglebadge.exclamationmark")
+            }
+            .help("Scan for hidden processes")
+        }
+        ToolbarItem(id: "export", placement: .primaryAction, showsByDefault: false) {
+            Button { Alerts.save(text: ProcessSelection.shared.table.exportText(), suggestedName: "Processes.txt") } label: {
+                Label("Export", systemImage: "square.and.arrow.up")
+            }
+            .help("Export the process list (⌘S)")
+        }
+        ToolbarItem(id: "font", placement: .primaryAction, showsByDefault: false) {
+            Toggle(isOn: $settings.processListMonospaced) {
+                Label("Fixed Width", systemImage: "textformat.size")
+            }
+            .help("Fixed-width font in the process list")
+        }
+    }
+}
+
+/// Toolbar menu with the less common filters and the saved filters.
+struct FiltersMenu: View {
+    @ObservedObject private var settings = AppSettings.shared
+
+    var body: some View {
+        Menu {
+            Toggle("Hide Root & System Processes", isOn: $settings.hideSystemProcesses)
+            Toggle("Hide Apple-Signed Processes", isOn: $settings.hideAppleProcesses)
+            Toggle("Hide Zombie Processes", isOn: $settings.hideZombies)
+            Divider()
+            Toggle("Only Applications", isOn: $settings.onlyApplications)
+            Toggle("Only My Processes", isOn: $settings.hideOtherUsers)
+            Button("Reset Filters") {
+                settings.resetProcessFilters()
+                ProcessStore.shared.filter.text = ""
+            }
+            .disabled(!settings.hasProcessFilters && ProcessStore.shared.filter.text.isEmpty)
+            Divider()
+            Section("Saved Filters") {
+                SavedFiltersMenuItems()
+            }
+        } label: {
+            Label("Filters", systemImage: active ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+        }
+        .help("Filters and saved filters")
+    }
+
+    private var active: Bool {
+        settings.hideSystemProcesses || settings.hideAppleProcesses || settings.hideZombies || settings.activeSavedFilter != nil
     }
 }
 
@@ -186,6 +352,9 @@ struct StatusBarView: View {
             stat("Network", "↓\(Fmt.rate(sys.netInRate).ifEmpty("0")) ↑\(Fmt.rate(sys.netOutRate).ifEmpty("0"))")
             Spacer()
             if showFilterSummary, store.filter.isFiltering {
+                if let saved = AppSettings.shared.activeSavedFilter {
+                    Label(saved.name, systemImage: "line.3.horizontal.decrease.circle.fill").foregroundStyle(.secondary)
+                }
                 Text("Showing \(Fmt.count(store.matchCount)) of \(Fmt.count(store.processCount)) processes")
                     .foregroundStyle(.secondary)
                 Button("Clear Filters") {
@@ -243,47 +412,12 @@ struct WindowAccessor: NSViewRepresentable {
 @MainActor
 enum SettingsOpener {
     static var action: (() -> Void)?
-}
 
-/// Quick filter presets for the process list.
-struct ProcessFilterControls: View {
-    @ObservedObject private var settings = AppSettings.shared
-
-    var body: some View {
-        ControlGroup {
-            Toggle(isOn: $settings.onlyApplications) {
-                Label("Apps", systemImage: "macwindow.on.rectangle")
-            }
-            .help("Show only GUI applications (⌥⌘A)")
-            Toggle(isOn: $settings.hideOtherUsers) {
-                Label("Mine", systemImage: "person.crop.circle")
-            }
-            .help("Show only my processes (⌥⌘U)")
-            Toggle(isOn: $settings.treeView) {
-                Label(settings.treeView ? "Tree" : "List", systemImage: settings.treeView ? "list.bullet.indent" : "list.bullet")
-            }
-            .help(settings.treeView ? "Showing hierarchy — click for a flat list (⌥⌘T)" : "Showing a flat list — click for the hierarchy (⌥⌘T)")
-            Menu {
-                Toggle("Hide Root & System Processes", isOn: $settings.hideSystemProcesses)
-                Toggle("Hide Apple-Signed Processes", isOn: $settings.hideAppleProcesses)
-                Toggle("Hide Zombie Processes", isOn: $settings.hideZombies)
-                Divider()
-                Toggle("Only Applications", isOn: $settings.onlyApplications)
-                Toggle("Only My Processes", isOn: $settings.hideOtherUsers)
-                Divider()
-                Button("Reset Filters") { settings.resetProcessFilters() }
-                    .disabled(!settings.hasProcessFilters)
-            } label: {
-                Label("Filters", systemImage: moreFiltersActive
-                    ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
-            }
-            .help("More filters")
+    static func open(tab: SettingsTab? = nil) {
+        if let tab {
+            UserDefaults.standard.set(tab.rawValue, forKey: "settingsTab")
         }
-        .toggleStyle(.button)
-        .labelStyle(.titleAndIcon)
-    }
-
-    private var moreFiltersActive: Bool {
-        settings.hideSystemProcesses || settings.hideAppleProcesses || settings.hideZombies
+        action?()
     }
 }
+

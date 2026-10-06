@@ -2,17 +2,29 @@ import AppKit
 import InformerCore
 import SwiftUI
 
+enum SettingsTab: String, Hashable {
+    case general, filters, highlighting, privileges
+}
+
 struct SettingsView: View {
+    @AppStorage("settingsTab") private var tab: SettingsTab = .general
+
     var body: some View {
-        TabView {
+        TabView(selection: $tab) {
             GeneralSettings()
                 .tabItem { Label("General", systemImage: "gearshape") }
+                .tag(SettingsTab.general)
+            SavedFiltersSettings()
+                .tabItem { Label("Filters", systemImage: "line.3.horizontal.decrease.circle") }
+                .tag(SettingsTab.filters)
             HighlightSettings()
                 .tabItem { Label("Highlighting", systemImage: "paintpalette") }
+                .tag(SettingsTab.highlighting)
             PrivilegeSettings()
                 .tabItem { Label("Privileges", systemImage: "lock.shield") }
+                .tag(SettingsTab.privileges)
         }
-        .frame(width: 560, height: 470)
+        .frame(width: 620, height: 500)
     }
 }
 
@@ -39,6 +51,10 @@ struct GeneralSettings: View {
                     Text("Percent of one core (100% per core)").tag(false)
                 }
                 Toggle("Show processes as a tree", isOn: $settings.treeView)
+                Toggle("Fixed-width font in the process list", isOn: $settings.processListMonospaced)
+                Picker("Process list font size", selection: $settings.processListFontSize) {
+                    ForEach([10.0, 11, 12, 13, 14, 15, 16], id: \.self) { Text("\(Int($0)) pt").tag($0) }
+                }
                 Toggle("Confirm before terminating or changing processes", isOn: $settings.confirmActions)
                 TextField("Online search URL (%s = name)", text: $settings.searchEngineURL)
                 Toggle("Treat search text as a regular expression", isOn: $settings.searchUsesRegex)

@@ -66,6 +66,10 @@ struct AppCommands: Commands {
             Divider()
             ViewMenuWindowItems()
         }
+        ToolbarCommands()
+        CommandGroup(after: .toolbar) {
+            Menu("Saved Filters") { SavedFiltersMenuItems(shortcuts: true) }
+        }
         CommandMenu("Process") { ProcessMenuItems() }
         CommandMenu("Tools") { ToolsMenuItems() }
     }
@@ -154,6 +158,7 @@ struct ViewMenuWindowItems: View {
     @ObservedObject private var settings = AppSettings.shared
 
     var body: some View {
+        Toggle("Fixed-Width Font in Process List", isOn: $settings.processListMonospaced)
         Toggle("Show Status Bar", isOn: $settings.showStatusBar)
         Toggle("Show in Menu Bar", isOn: $settings.showMenuBarExtra)
         Toggle("Always on Top", isOn: $settings.alwaysOnTop)
