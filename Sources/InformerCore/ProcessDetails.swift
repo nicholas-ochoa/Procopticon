@@ -248,12 +248,13 @@ public struct OpenFileMatch: Codable, Sendable, Identifiable, Hashable {
 
 public enum ProcessDetails {
     /// Searches open file descriptors (and optionally mapped images) of every accessible process.
-    public static func searchOpenFiles(query: String, includeLibraries: Bool) -> [OpenFileMatch] {
-        let needle = query.lowercased()
+    public static func searchOpenFiles(query: String, includeLibraries: Bool, regex: Bool = false) -> [OpenFileMatch] {
+        let matcher = SearchMatcher(query, regex: regex)
+        guard matcher.isValid, !matcher.isEmpty else { return [] }
         var results: [OpenFileMatch] = []
         for (pid, name) in ProcessSampler.lightweightList() {
             if case .success(let fds) = fileDescriptors(pid: pid) {
-                for f in fds where f.name.lowercased().contains(needle) {
+                for f in fds where matcher.matches(f.name) {
                     results.append(OpenFileMatch(pid: pid, processName: name, type: f.type, fd: f.fd, name: f.name))
                 }
             }
@@ -261,7 +262,7 @@ public enum ProcessDetails {
                 var seen = Set<String>()
                 for r in regions where !r.path.isEmpty && !seen.contains(r.path) {
                     seen.insert(r.path)
-                    if r.path.lowercased().contains(needle) {
+                    if matcher.matches(r.path) {
                         results.append(OpenFileMatch(pid: pid, processName: name, type: r.protection & 4 != 0 ? "Image" : "Mapped file", fd: nil, name: r.path))
                     }
                 }

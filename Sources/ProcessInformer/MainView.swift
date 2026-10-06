@@ -47,14 +47,16 @@ struct MainView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             if settings.showStatusBar {
                 Divider()
-                StatusBarView(elevationRevision: elevationRevision)
+                StatusBarView(elevationRevision: elevationRevision,
+                              searchError: tab == .processes ? store.filterError : settings.matcher(otherSearch).error)
             }
         }
         .navigationTitle("Process Informer")
         .navigationSubtitle(subtitle)
         .toolbar { toolbar }
         .searchable(text: tab == .processes ? $processSearch : $otherSearch, placement: .toolbar,
-                    prompt: tab == .processes ? "Search processes" : "Search \(tab.rawValue.lowercased())")
+                    prompt: (tab == .processes ? "Search processes" : "Search \(tab.rawValue.lowercased())")
+                        + (settings.searchUsesRegex ? " (regex)" : ""))
         .searchFocused($searchFocused)
         .onChange(of: processSearch) { _, new in store.filter.text = new }
         .onChange(of: tab) { otherSearch = "" }
@@ -117,6 +119,7 @@ struct MainView: View {
             }
             .help("Find open files or loaded libraries")
             ElevationButton(revision: elevationRevision)
+            RegexToggle()
         }
     }
 }
@@ -154,6 +157,7 @@ struct ElevationButton: View {
 struct StatusBarView: View {
     @ObservedObject private var store = ProcessStore.shared
     var elevationRevision: Int
+    var searchError: String?
 
     var body: some View {
         let sys = store.system
@@ -170,6 +174,9 @@ struct StatusBarView: View {
             stat("Disk", "↓\(Fmt.rate(sys.diskReadRate).ifEmpty("0")) ↑\(Fmt.rate(sys.diskWriteRate).ifEmpty("0"))")
             stat("Network", "↓\(Fmt.rate(sys.netInRate).ifEmpty("0")) ↑\(Fmt.rate(sys.netOutRate).ifEmpty("0"))")
             Spacer()
+            if let searchError {
+                Label(searchError, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red)
+            }
             if store.paused {
                 Label("Paused", systemImage: "pause.circle.fill").foregroundStyle(.orange)
             }

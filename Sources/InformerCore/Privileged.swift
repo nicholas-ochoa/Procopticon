@@ -16,7 +16,7 @@ public enum PrivilegedRequest: Codable, Sendable {
     case arguments(pid: Int32)
     case workingDirectory(pid: Int32)
     case connections
-    case searchOpenFiles(query: String, includeLibraries: Bool)
+    case searchOpenFiles(query: String, includeLibraries: Bool, regex: Bool)
     case runTool(tool: String, arguments: [String])
     case launch(path: String, arguments: [String])
     case shutdown
@@ -199,8 +199,8 @@ public final class PrivilegedExecutor: @unchecked Sendable {
             return .text(String(cString: buf))
         case .connections:
             return .connections(ProcessDetails.allConnections())
-        case let .searchOpenFiles(query, includeLibraries):
-            return .openFiles(ProcessDetails.searchOpenFiles(query: query, includeLibraries: includeLibraries))
+        case let .searchOpenFiles(query, includeLibraries, regex):
+            return .openFiles(ProcessDetails.searchOpenFiles(query: query, includeLibraries: includeLibraries, regex: regex))
         case let .runTool(tool, arguments):
             if restrictTools, !AllowedTools.paths.contains(tool) {
                 return .failure(PrivilegedError(code: EPERM, message: "\(tool) is not an allowed tool."))

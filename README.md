@@ -18,7 +18,10 @@ also CPU, memory and disk history graph columns.
 * Row highlighting: new/terminated, stopped, zombie, traced, Rosetta,
   elevated (setuid/sudo), unsigned, sandboxed, applications, own, root and service-account
   processes. Colors and priorities are configurable.
-* Search by name, PID, path, command line, user or bundle ID. You can also hide other users' processes,
+* Search by name, PID, path, command line, user or bundle ID. Every search and filter field accepts
+  **regular expressions**. Toggle `.*` in the toolbar or use *View ▸ Use Regular Expressions in Search*
+  (⌥⌘R), or write `/pattern/` at any time. Patterns are case-insensitive; `/pattern/c` makes one
+  case-sensitive. An invalid pattern is reported in the status bar. You can also hide other users' processes,
   system processes, Apple-signed processes or zombies, or switch to a flat list.
 * Actions:
   * Terminate, Terminate Tree, Force Kill, Suspend/Resume (also for a whole tree), Restart.
@@ -112,6 +115,7 @@ Launch arguments are useful for scripting and testing:
 
 ```text
 --elevate                    authorize at startup
+--search <text>              pre-fill the process search (e.g. '/^mdworker/')
 --tab processes|services|network|disk
 --show-properties <pid>      [--properties-tab General|Threads|Modules|Memory|Files|…]
 --show-sysinfo summary|cpu|memory|disk|network|gpu|power

@@ -137,6 +137,9 @@ struct ViewMenuFilterItems: View {
         Toggle("Hide System Processes", isOn: $settings.hideSystemProcesses)
         Toggle("Hide Apple-Signed Processes", isOn: $settings.hideAppleProcesses)
         Toggle("Hide Zombie Processes", isOn: $settings.hideZombies)
+        Divider()
+        Toggle("Use Regular Expressions in Search", isOn: $settings.searchUsesRegex)
+            .keyboardShortcut("r", modifiers: [.command, .option])
     }
 }
 
@@ -237,7 +240,7 @@ struct ToolsMenuItems: View {
 }
 
 /// Optional command line switches, e.g. `--tab network`, `--show-properties 1 --properties-tab files`,
-/// `--elevate`, `--show-sysinfo cpu`, `--show-find dyld`, `--inspect /bin/ls`, `--show-service com.apple.Finder`.
+/// `--elevate`, `--search <text>`, `--show-sysinfo cpu`, `--show-find dyld`, `--inspect /bin/ls`, `--show-service com.apple.Finder`.
 @MainActor
 enum LaunchArguments {
     static func value(_ name: String) -> String? {
@@ -292,6 +295,10 @@ enum LaunchArguments {
         }
         if CommandLine.arguments.contains("--show-log") { EventLogWindow.open() }
         if CommandLine.arguments.contains("--show-windows") { WindowFinder.open() }
+        if let text = value("--search") {
+            NotificationCenter.default.post(name: .showTab, object: MainTab.processes)
+            ProcessStore.shared.filter.text = text
+        }
         if let pidText = value("--select"), let pid = Int32(pidText) {
             ProcessSelection.shared.reveal(pid: pid)
         }

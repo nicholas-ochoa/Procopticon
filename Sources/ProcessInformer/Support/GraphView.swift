@@ -206,3 +206,49 @@ struct UsageBar: View {
         .frame(height: 6)
     }
 }
+
+/// Text field used for list filters: shows a regex toggle and flags invalid patterns.
+struct FilterField: View {
+    @Binding var text: String
+    var prompt: String = "Filter"
+    var width: CGFloat = 220
+    @ObservedObject private var settings = AppSettings.shared
+
+    init(_ text: Binding<String>, prompt: String = "Filter", width: CGFloat = 220) {
+        _text = text
+        self.prompt = prompt
+        self.width = width
+    }
+
+    var body: some View {
+        let matcher = settings.matcher(text)
+        HStack(spacing: 4) {
+            TextField(settings.searchUsesRegex ? prompt + " (regex)" : prompt, text: $text)
+                .textFieldStyle(.roundedBorder)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 5)
+                        .strokeBorder(matcher.isValid ? Color.clear : Color.red, lineWidth: 1.5))
+                .help(matcher.error ?? "Plain text matches anywhere. Enable .* or type /pattern/ for a regular expression (/pattern/c is case-sensitive).")
+            RegexToggle()
+            if let error = matcher.error {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.red)
+                    .help(error)
+            }
+        }
+        .frame(maxWidth: width + 50)
+    }
+}
+
+/// ".*" button that toggles regular-expression search globally.
+struct RegexToggle: View {
+    @ObservedObject private var settings = AppSettings.shared
+
+    var body: some View {
+        Toggle(isOn: $settings.searchUsesRegex) {
+            Text(".*").font(.system(.body, design: .monospaced).weight(.semibold))
+        }
+        .toggleStyle(.button)
+        .help(settings.searchUsesRegex ? "Regular expressions on" : "Use regular expressions")
+    }
+}

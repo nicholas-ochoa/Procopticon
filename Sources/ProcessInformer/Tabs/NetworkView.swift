@@ -33,7 +33,7 @@ struct NetworkView: View {
             OutlineTable(
                 roots: filtered,
                 children: nil,
-                revision: store.revision &+ search.hashValue &+ protocolFilter.hashValue &+ (hideListening ? 1 : 0) &+ (hideLoopback ? 2 : 0),
+                revision: store.revision &+ search.hashValue &+ (settings.searchUsesRegex ? 4 : 0) &+ protocolFilter.hashValue &+ (hideListening ? 1 : 0) &+ (hideLoopback ? 2 : 0),
                 columns: Self.columns,
                 autosaveName: "NetworkTable",
                 key: { AnyHashable($0.id) },
@@ -49,7 +49,7 @@ struct NetworkView: View {
     }
 
     private var filtered: [ConnectionItem] {
-        let needle = search.trimmingCharacters(in: .whitespaces)
+        let m = settings.matcher(search)
         return store.items.filter { item in
             let e = item.connection.endpoint
             switch protocolFilter {
@@ -59,14 +59,10 @@ struct NetworkView: View {
             }
             if hideListening, e.isListening || (e.proto == IPPROTO_UDP && e.remotePort == 0) { return false }
             if hideLoopback, isLoopback(e.localAddress), isLoopback(e.remoteAddress) || e.remoteAddress == "*" { return false }
-            if !needle.isEmpty {
-                return item.connection.processName.localizedCaseInsensitiveContains(needle)
-                    || e.localAddress.contains(needle) || e.remoteAddress.contains(needle)
-                    || "\(e.localPort)" == needle || "\(e.remotePort)" == needle
-                    || "\(item.connection.pid)" == needle
-                    || item.remoteHost.localizedCaseInsensitiveContains(needle)
-            }
-            return true
+            if m.isEmpty { return true }
+            return m.matchesAny(item.connection.processName, e.localAddress, e.remoteAddress, item.remoteHost, item.remoteService)
+                || m.matchesIdentifier("\(e.localPort)") || m.matchesIdentifier("\(e.remotePort)")
+                || m.matchesIdentifier("\(item.connection.pid)")
         }
     }
 
@@ -137,6 +133,7 @@ struct NetworkView: View {
 
 struct DiskView: View {
     @ObservedObject private var store = ProcessStore.shared
+    @ObservedObject private var settings = AppSettings.shared
     @Binding var search: String
     @State private var activeOnly = true
 
@@ -155,7 +152,7 @@ struct DiskView: View {
             OutlineTable(
                 roots: rows,
                 children: nil,
-                revision: store.revision &+ (activeOnly ? 1 : 0) &+ search.hashValue,
+                revision: store.revision &+ (activeOnly ? 1 : 0) &+ search.hashValue &+ (settings.searchUsesRegex ? 4 : 0),
                 columns: Self.columns,
                 autosaveName: "DiskTable",
                 key: { AnyHashable($0.key) },
@@ -167,11 +164,11 @@ struct DiskView: View {
     }
 
     private var rows: [ProcessItem] {
-        let needle = search.trimmingCharacters(in: .whitespaces)
+        let m = settings.matcher(search)
         return store.items.values.filter { p in
             guard !p.isRemoved, p.stats != nil else { return false }
             if activeOnly, p.ioTotalRate == 0, !p.ioHistory.ordered.suffix(10).contains(where: { $0 > 0 }) { return false }
-            if !needle.isEmpty, !p.name.localizedCaseInsensitiveContains(needle), "\(p.pid)" != needle { return false }
+            if !m.isEmpty, !m.matchesAny(p.name, p.record.path), !m.matchesIdentifier("\(p.pid)") { return false }
             return true
         }
     }

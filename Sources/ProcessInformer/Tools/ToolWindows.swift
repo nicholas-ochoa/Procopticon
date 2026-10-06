@@ -25,9 +25,10 @@ struct FindView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                TextField("File, directory, socket path or library name", text: $query)
+                TextField(AppSettings.shared.searchUsesRegex ? "Regular expression for file, socket or library paths" : "File, directory, socket path or library name (or /regex/)", text: $query)
                     .textFieldStyle(.roundedBorder)
                     .onSubmit(search)
+                RegexToggle()
                 Toggle("Include libraries & mapped files", isOn: $includeLibraries).toggleStyle(.checkbox)
                 Button("Find", action: search)
                     .keyboardShortcut(.defaultAction)
@@ -73,11 +74,18 @@ struct FindView: View {
     private func search() {
         let q = query.trimmingCharacters(in: .whitespaces)
         guard !q.isEmpty else { return }
+        let regex = AppSettings.shared.searchUsesRegex
+        if let error = SearchMatcher(q, regex: regex).error {
+            message = error
+            results = []
+            revision &+= 1
+            return
+        }
         searching = true
         message = "Searching…"
         let libs = includeLibraries
         Task {
-            let response = await Task.detached { Elevation.shared.perform(.searchOpenFiles(query: q, includeLibraries: libs)) }.value
+            let response = await Task.detached { Elevation.shared.perform(.searchOpenFiles(query: q, includeLibraries: libs, regex: regex)) }.value
             if case .openFiles(let h) = response {
                 results = h
                 message = "\(h.count) results in \(Set(h.map(\.pid)).count) processes"

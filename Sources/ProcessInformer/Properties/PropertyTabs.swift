@@ -13,12 +13,13 @@ struct PrivilegedListView<Row>: View {
     var deniedMessage: String
     var menu: (([Row]) -> NSMenu?)?
     var onDoubleClick: ((Row) -> Void)?
-    var filter: ((Row, String) -> Bool)?
+    var filter: ((Row, SearchMatcher) -> Bool)?
     var header: (([Row]) -> AnyView)?
     var defaultSort: (String, Bool)?
     var onSelection: (([Row]) -> Void)?
 
     @StateObject private var loader = PrivilegedLoader<[Row]>()
+    @ObservedObject private var settings = AppSettings.shared
     @State private var revision = 0
     @State private var search = ""
 
@@ -38,7 +39,7 @@ struct PrivilegedListView<Row>: View {
                     Spacer()
                     if loader.loading { ProgressView().controlSize(.small) }
                     if filter != nil {
-                        TextField("Filter", text: $search).textFieldStyle(.roundedBorder).frame(maxWidth: 200)
+                        FilterField($search, width: 200)
                     }
                     Button { reload() } label: { Image(systemName: "arrow.clockwise") }
                         .help("Refresh")
@@ -68,14 +69,15 @@ struct PrivilegedListView<Row>: View {
             }
         }
         .onChange(of: search) { revision &+= 1 }
+        .onChange(of: settings.searchUsesRegex) { revision &+= 1 }
         .onReceive(loader.$value) { _ in revision &+= 1 }
     }
 
     private var filteredRows: [Row] {
         let rows = loader.value ?? []
-        let needle = search.trimmingCharacters(in: .whitespaces)
-        guard !needle.isEmpty, let filter else { return rows }
-        return rows.filter { filter($0, needle) }
+        let m = settings.matcher(search)
+        guard !m.isEmpty, let filter else { return rows }
+        return rows.filter { filter($0, m) }
     }
 
     private func reload() {
@@ -108,7 +110,7 @@ struct ThreadsTab: View {
                     return m
                 },
                 onDoubleClick: { showStack($0) },
-                filter: { t, s in t.name.localizedCaseInsensitiveContains(s) || "\(t.threadId)".contains(s) },
+                filter: { t, m in m.matches(t.name) || m.matchesIdentifier("\(t.threadId)") || m.matches(t.stateName) },
                 header: { rows in AnyView(Text("\(rows.count) threads").foregroundStyle(.secondary)) },
                 defaultSort: ("cpu", false),
                 onSelection: { selected = $0 })
@@ -207,7 +209,7 @@ struct ModulesTab: View {
                 return m
             },
             onDoubleClick: { InspectorWindow.open(path: $0.path) },
-            filter: { m, s in m.path.localizedCaseInsensitiveContains(s) },
+            filter: { mod, m in m.matches(mod.path) },
             header: { rows in AnyView(Text("\(rows.count) images").foregroundStyle(.secondary)) },
             defaultSort: nil)
     }
@@ -265,7 +267,7 @@ struct MemoryTab: View {
                     }
                     return m
                 },
-                filter: { r, s in r.path.localizedCaseInsensitiveContains(s) || r.typeName.localizedCaseInsensitiveContains(s) || Fmt.hexAddress(r.address).contains(s.lowercased()) },
+                filter: { r, m in m.matchesAny(r.path, r.typeName, Fmt.hexAddress(r.address), r.protectionDescription, r.shareModeName) },
                 header: { rows in
                     let resident = rows.reduce(0) { $0 + $1.residentBytes }
                     let dirty = rows.reduce(0) { $0 + $1.dirtyBytes }
@@ -299,6 +301,7 @@ struct MemoryTab: View {
 struct EnvironmentTab: View {
     let item: ProcessItem
     @StateObject private var loader = PrivilegedLoader<ProcessArguments>()
+    @ObservedObject private var settings = AppSettings.shared
     @State private var search = ""
 
     struct Variable: Hashable {
@@ -327,7 +330,7 @@ struct EnvironmentTab: View {
                     HStack {
                         Text("Environment (\(args.environment.count))").font(.headline)
                         Spacer()
-                        TextField("Filter", text: $search).textFieldStyle(.roundedBorder).frame(maxWidth: 200)
+                        FilterField($search, width: 200)
                     }
                 }
                 .padding(8)
@@ -338,7 +341,7 @@ struct EnvironmentTab: View {
                     OutlineTable(
                         roots: variables(args),
                         children: nil,
-                        revision: search.hashValue,
+                        revision: search.hashValue &+ (settings.searchUsesRegex ? 1 : 0),
                         columns: Self.columns,
                         autosaveName: "EnvironmentTable",
                         key: { AnyHashable($0.name) },
@@ -367,9 +370,9 @@ struct EnvironmentTab: View {
             }
             return Variable(name: entry, value: "")
         }
-        let needle = search.trimmingCharacters(in: .whitespaces)
-        guard !needle.isEmpty else { return vars }
-        return vars.filter { $0.name.localizedCaseInsensitiveContains(needle) || $0.value.localizedCaseInsensitiveContains(needle) }
+        let m = settings.matcher(search)
+        guard !m.isEmpty else { return vars }
+        return vars.filter { m.matchesAny($0.name, $0.value, "\($0.name)=\($0.value)") }
     }
 
     static let columns: [TableColumnSpec<Variable>] = [
@@ -401,7 +404,7 @@ struct FilesTab: View {
                 m.add("Copy Name") { ProcessActions.copy(rows.map(\.name).joined(separator: "\n")) }
                 return m
             },
-            filter: { f, s in f.name.localizedCaseInsensitiveContains(s) || f.type.localizedCaseInsensitiveContains(s) },
+            filter: { f, m in m.matchesAny(f.name, f.type) || m.matchesIdentifier("\(f.fd)") },
             header: { rows in AnyView(Text("\(rows.count) descriptors").foregroundStyle(.secondary)) },
             defaultSort: ("fd", true))
     }
@@ -440,7 +443,7 @@ struct ProcessNetworkTab: View {
             key: { AnyHashable($0.fd) },
             refreshInterval: 2,
             deniedMessage: "Sockets of processes owned by other users require administrator privileges.",
-            filter: { f, s in f.name.localizedCaseInsensitiveContains(s) },
+            filter: { f, m in m.matchesAny(f.name, f.socket?.protocolName, f.socket?.stateName) },
             header: { rows in AnyView(Text("\(rows.count) sockets").foregroundStyle(.secondary)) },
             defaultSort: ("fd", true))
     }

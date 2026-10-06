@@ -112,16 +112,10 @@ public final class ProcessItem: Identifiable {
     }
 
     /// Text used by the search filter.
-    func matches(_ needle: String) -> Bool {
-        if String(record.pid) == needle { return true }
-        if name.localizedCaseInsensitiveContains(needle) { return true }
-        if let p = record.path, p.localizedCaseInsensitiveContains(needle) { return true }
-        if let c = record.commandLine, c.localizedCaseInsensitiveContains(needle) { return true }
-        if userName.localizedCaseInsensitiveContains(needle) { return true }
-        if let b = bundleInfo {
-            if b.displayName?.localizedCaseInsensitiveContains(needle) == true { return true }
-            if b.bundleIdentifier?.localizedCaseInsensitiveContains(needle) == true { return true }
-        }
+    public func matches(_ m: SearchMatcher) -> Bool {
+        if m.matchesIdentifier(String(record.pid)) { return true }
+        if m.matchesAny(name, record.path, record.commandLine, userName) { return true }
+        if let b = bundleInfo, m.matchesAny(b.displayName, b.bundleIdentifier) { return true }
         return false
     }
 
@@ -137,6 +131,8 @@ public struct ProcessFilterOptions: Equatable {
     public var hideSystemProcesses = false
     public var hideAppleProcesses = false
     public var hideZombies = false
+    /// Treat the whole search text as a regular expression (`/pattern/` always is).
+    public var regex = false
 
     public init() {}
 }
@@ -155,6 +151,8 @@ public final class ProcessStore: ObservableObject {
     public private(set) var structureChanged = true
     public let system = SystemMonitor()
     public private(set) var lastError: String?
+    /// Set when the search text is an invalid regular expression.
+    @Published public private(set) var filterError: String?
 
     public var interval: TimeInterval = 1.0 {
         didSet { if oldValue != interval { schedule() } }
@@ -279,7 +277,10 @@ public final class ProcessStore: ObservableObject {
             a.record.startMicros > b.record.startMicros ? a : b
         })
         let f = filter
-        let needle = f.text.trimmingCharacters(in: .whitespaces)
+        let matcher = SearchMatcher(f.text, regex: f.regex)
+        if filterError != matcher.error {
+            filterError = matcher.error
+        }
         let me = Elevation.interactiveUid
 
         func passesOptions(_ item: ProcessItem) -> Bool {
@@ -307,7 +308,7 @@ public final class ProcessStore: ObservableObject {
 
         // Determine visibility: options filter + text filter (ancestors of matches stay visible).
         var visible = Set<ProcessKey>()
-        for item in items.values where passesOptions(item) && (needle.isEmpty || item.matches(needle)) {
+        for item in items.values where passesOptions(item) && (matcher.isEmpty || item.matches(matcher)) {
             var node: ProcessItem? = item
             while let n = node, !visible.contains(n.key) {
                 visible.insert(n.key)

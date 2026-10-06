@@ -16,6 +16,7 @@ enum EventLogWindow {
 
 struct EventLogView: View {
     @ObservedObject private var log = EventLog.shared
+    @ObservedObject private var settings = AppSettings.shared
     @State private var search = ""
 
     var body: some View {
@@ -23,7 +24,7 @@ struct EventLogView: View {
             HStack {
                 Toggle("Record events", isOn: $log.enabled).toggleStyle(.checkbox)
                 Spacer()
-                TextField("Filter", text: $search).textFieldStyle(.roundedBorder).frame(maxWidth: 240)
+                FilterField($search, width: 240)
                 Button("Copy") {
                     ProcessActions.copy(rows.map { "\(Fmt.date($0.date.timeIntervalSince1970))\t\($0.kind.rawValue)\t\($0.message)" }.joined(separator: "\n"))
                 }
@@ -34,7 +35,7 @@ struct EventLogView: View {
             OutlineTable(
                 roots: rows,
                 children: nil,
-                revision: log.entries.count &+ (log.entries.last?.id ?? 0) &+ search.hashValue,
+                revision: log.entries.count &+ (log.entries.last?.id ?? 0) &+ search.hashValue &+ (settings.searchUsesRegex ? 1 : 0),
                 columns: [
                     .number("time", "Time", width: 150, value: { $0.date }, text: { Fmt.date($0.date.timeIntervalSince1970) }),
                     .string("kind", "Event", width: 120) { $0.kind.rawValue },
@@ -56,9 +57,9 @@ struct EventLogView: View {
     }
 
     private var rows: [EventLog.Entry] {
-        let needle = search.trimmingCharacters(in: .whitespaces)
-        guard !needle.isEmpty else { return log.entries }
-        return log.entries.filter { $0.message.localizedCaseInsensitiveContains(needle) || $0.kind.rawValue.localizedCaseInsensitiveContains(needle) }
+        let m = settings.matcher(search)
+        guard !m.isEmpty else { return log.entries }
+        return log.entries.filter { m.matchesAny($0.message, $0.kind.rawValue) }
     }
 }
 

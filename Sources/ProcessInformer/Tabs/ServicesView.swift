@@ -50,6 +50,7 @@ final class ServiceStore: ObservableObject {
 
 struct ServicesView: View {
     @ObservedObject private var store = ServiceStore.shared
+    @ObservedObject private var settings = AppSettings.shared
     @Binding var search: String
     @State private var domainFilter = DomainFilter.all
     @State private var hideApple = false
@@ -83,7 +84,7 @@ struct ServicesView: View {
             OutlineTable(
                 roots: filtered,
                 children: nil,
-                revision: store.revision &+ search.hashValue &+ domainFilter.hashValue &+ (hideApple ? 1 : 0) &+ (onlyRunning ? 2 : 0),
+                revision: store.revision &+ search.hashValue &+ (settings.searchUsesRegex ? 4 : 0) &+ domainFilter.hashValue &+ (hideApple ? 1 : 0) &+ (onlyRunning ? 2 : 0),
                 columns: Self.columns,
                 autosaveName: "ServicesTable",
                 key: { AnyHashable($0.id) },
@@ -102,7 +103,7 @@ struct ServicesView: View {
     }
 
     private var filtered: [ServiceItem] {
-        let needle = search.trimmingCharacters(in: .whitespaces)
+        let m = settings.matcher(search)
         return store.items.filter { s in
             switch domainFilter {
             case .system: if s.domain != .system { return false }
@@ -111,12 +112,7 @@ struct ServicesView: View {
             }
             if hideApple, s.isApple { return false }
             if onlyRunning, !s.isRunning { return false }
-            if !needle.isEmpty {
-                return s.label.localizedCaseInsensitiveContains(needle)
-                    || (s.executable?.localizedCaseInsensitiveContains(needle) ?? false)
-                    || (s.pid.map { "\($0)" == needle } ?? false)
-            }
-            return true
+            return m.matchesAny(s.label, s.executable, s.plistPath) || (s.pid.map { m.matchesIdentifier("\($0)") } ?? false)
         }
     }
 

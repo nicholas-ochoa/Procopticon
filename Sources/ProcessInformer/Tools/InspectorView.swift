@@ -40,6 +40,7 @@ struct InspectorView: View {
     @State private var tab = Tab.general
     @State private var signing: SigningInfo?
     @State private var symbolFilter = ""
+    @ObservedObject private var settings = AppSettings.shared
 
     enum Tab: String, CaseIterable, Identifiable {
         case general = "General"
@@ -188,11 +189,11 @@ struct InspectorView: View {
         case .symbols:
             VStack(spacing: 0) {
                 HStack {
-                    TextField("Filter symbols", text: $symbolFilter).textFieldStyle(.roundedBorder)
+                    FilterField($symbolFilter, prompt: "Filter symbols", width: 400)
                     Text("\(filteredSymbols(f).count) of \(Fmt.count(f.symbols.count))").foregroundStyle(.secondary)
                 }
                 .padding(8)
-                OutlineTable(roots: filteredSymbols(f), children: nil, revision: symbolFilter.hashValue &+ (slice ?? 0),
+                OutlineTable(roots: filteredSymbols(f), children: nil, revision: symbolFilter.hashValue &+ (slice ?? 0) &+ (settings.searchUsesRegex ? 1 : 0),
                              columns: [
                                  .string("name", "Name", width: 420) { $0.name },
                                  .number("addr", "Address", width: 130, value: { $0.address }, text: { $0.address == 0 ? "" : Fmt.hexAddress($0.address) }),
@@ -226,9 +227,9 @@ struct InspectorView: View {
     }
 
     private func filteredSymbols(_ f: MachOFile) -> [MachOFile.Symbol] {
-        let needle = symbolFilter.trimmingCharacters(in: .whitespaces)
-        if needle.isEmpty { return Array(f.symbols.prefix(20000)) }
-        return f.symbols.filter { $0.name.localizedCaseInsensitiveContains(needle) }
+        let m = settings.matcher(symbolFilter)
+        if m.isEmpty { return Array(f.symbols.prefix(20000)) }
+        return f.symbols.filter { m.matches($0.name) }
     }
 
     private func infoPlistText(_ f: MachOFile) -> String {

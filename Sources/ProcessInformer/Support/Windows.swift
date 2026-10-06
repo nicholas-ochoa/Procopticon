@@ -128,6 +128,7 @@ struct TextReportView: View {
     @State private var text = ""
     @State private var loading = true
     @State private var search = ""
+    @ObservedObject private var settings = AppSettings.shared
 
     var body: some View {
         VStack(spacing: 0) {
@@ -137,9 +138,7 @@ struct TextReportView: View {
                     Text("Collecting…").foregroundStyle(.secondary)
                 }
                 Spacer()
-                TextField("Filter lines", text: $search)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(maxWidth: 220)
+                FilterField($search, prompt: "Filter lines", width: 220)
                 Button("Copy") {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(text, forType: .string)
@@ -157,10 +156,10 @@ struct TextReportView: View {
     }
 
     private var filtered: String {
-        let needle = search.trimmingCharacters(in: .whitespaces)
-        guard !needle.isEmpty else { return text }
+        let m = settings.matcher(search)
+        guard !m.isEmpty else { return text }
         return text.split(separator: "\n", omittingEmptySubsequences: false)
-            .filter { $0.localizedCaseInsensitiveContains(needle) }
+            .filter { m.matches(String($0)) }
             .joined(separator: "\n")
     }
 

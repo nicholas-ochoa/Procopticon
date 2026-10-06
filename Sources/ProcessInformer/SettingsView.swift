@@ -41,6 +41,9 @@ struct GeneralSettings: View {
                 Toggle("Show processes as a tree", isOn: $settings.treeView)
                 Toggle("Confirm before terminating or changing processes", isOn: $settings.confirmActions)
                 TextField("Online search URL (%s = name)", text: $settings.searchEngineURL)
+                Toggle("Treat search text as a regular expression", isOn: $settings.searchUsesRegex)
+                Text("Regardless of this setting, text written as /pattern/ is a regular expression (add c after the closing slash for case-sensitive matching).")
+                    .font(.caption).foregroundStyle(.secondary)
             }
             Section("Window") {
                 Toggle("Show status bar", isOn: $settings.showStatusBar)

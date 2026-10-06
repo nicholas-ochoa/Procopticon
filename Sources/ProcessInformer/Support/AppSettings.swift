@@ -24,6 +24,7 @@ final class AppSettings: ObservableObject {
     @Published var showStatusBar: Bool { didSet { save("showStatusBar", showStatusBar) } }
     @Published var menuBarGraph: MenuBarGraphKind { didSet { save("menuBarGraph", menuBarGraph.rawValue) } }
     @Published var searchEngineURL: String { didSet { save("searchEngineURL", searchEngineURL) } }
+    @Published var searchUsesRegex: Bool { didSet { save("searchUsesRegex", searchUsesRegex); apply() } }
     @Published var highlights: [HighlightRule: HighlightSetting] { didSet { saveHighlights() } }
 
     enum MenuBarGraphKind: String, CaseIterable, Identifiable {
@@ -55,6 +56,7 @@ final class AppSettings: ObservableObject {
         showStatusBar = b("showStatusBar", true)
         menuBarGraph = MenuBarGraphKind(rawValue: defaults.string(forKey: "menuBarGraph") ?? "") ?? .cpu
         searchEngineURL = defaults.string(forKey: "searchEngineURL") ?? "https://duckduckgo.com/?q=%s"
+        searchUsesRegex = b("searchUsesRegex", false)
         var h: [HighlightRule: HighlightSetting] = [:]
         let saved = defaults.dictionary(forKey: "highlights") as? [String: [String: Any]] ?? [:]
         for rule in HighlightRule.allCases {
@@ -104,6 +106,7 @@ final class AppSettings: ObservableObject {
         f.hideSystemProcesses = hideSystemProcesses
         f.hideAppleProcesses = hideAppleProcesses
         f.hideZombies = hideZombies
+        f.regex = searchUsesRegex
         store.filter = f
         NetworkStore.shared.highlightDuration = highlightDuration
         NetworkStore.shared.resolveAddresses = resolveAddresses
@@ -230,5 +233,12 @@ enum Highlighter {
         if r.uid == 0, let s = use(.systemProcesses) { return s }
         if r.uid < 500, let s = use(.daemons) { return s }
         return nil
+    }
+}
+
+extension AppSettings {
+    /// Matcher for a filter field, honoring the regular-expression preference.
+    func matcher(_ text: String) -> SearchMatcher {
+        SearchMatcher(text, regex: searchUsesRegex)
     }
 }
