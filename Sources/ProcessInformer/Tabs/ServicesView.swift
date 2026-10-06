@@ -52,6 +52,7 @@ struct ServicesView: View {
     @ObservedObject private var store = ServiceStore.shared
     @ObservedObject private var settings = AppSettings.shared
     @Binding var search: String
+    var active = true
     @State private var domainFilter = DomainFilter.all
     @State private var hideApple = false
     @State private var onlyRunning = false
@@ -65,21 +66,23 @@ struct ServicesView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 12) {
-                Picker("Domain", selection: $domainFilter) {
+            FilterBar {
+                Text("Domain").foregroundStyle(.secondary).fixedSize()
+                Picker(selection: $domainFilter) {
                     ForEach(DomainFilter.allCases) { Text($0.rawValue).tag($0) }
+                } label: {
+                    EmptyView()
                 }
                 .pickerStyle(.segmented)
-                .frame(width: 220)
-                Toggle("Running only", isOn: $onlyRunning).toggleStyle(.checkbox)
-                Toggle("Hide Apple services", isOn: $hideApple).toggleStyle(.checkbox)
-                Spacer()
+                .fixedSize()
+                .help("Service domain")
+                Toggle("Running only", isOn: $onlyRunning).toggleStyle(.checkbox).fixedSize()
+                Toggle("Hide Apple services", isOn: $hideApple).toggleStyle(.checkbox).fixedSize()
+            } trailing: {
                 if store.loading { ProgressView().controlSize(.small) }
-                Text("\(filtered.count) of \(store.items.count) services").foregroundStyle(.secondary)
+                Text("\(filtered.count) of \(store.items.count) services").foregroundStyle(.secondary).lineLimit(1)
                 Button { store.refresh() } label: { Image(systemName: "arrow.clockwise") }.help("Refresh services")
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
             Divider()
             OutlineTable(
                 roots: filtered,
@@ -91,9 +94,12 @@ struct ServicesView: View {
                 rowStyle: { style($0) },
                 menu: { ServiceActions.menu(for: $0) },
                 onDoubleClick: { ServicePropertiesWindow.open($0) },
-                defaultSort: (column: "label", ascending: true))
+                defaultSort: (column: "label", ascending: true),
+                isActive: active)
         }
-        .task {
+        .task(id: active) {
+            // Poll launchd only while this tab is visible.
+            guard active else { return }
             store.refreshIfNeeded()
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 5_000_000_000)

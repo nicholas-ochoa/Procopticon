@@ -6,29 +6,32 @@ struct NetworkView: View {
     @ObservedObject private var store = NetworkStore.shared
     @ObservedObject private var settings = AppSettings.shared
     @Binding var search: String
+    var active = true
     @State private var hideListening = false
     @State private var hideLoopback = false
     @State private var protocolFilter = "All"
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 12) {
-                Picker("Protocol", selection: $protocolFilter) {
+            FilterBar {
+                Text("Protocol").foregroundStyle(.secondary).fixedSize()
+                Picker(selection: $protocolFilter) {
                     ForEach(["All", "TCP", "UDP"], id: \.self) { Text($0).tag($0) }
+                } label: {
+                    EmptyView()
                 }
                 .pickerStyle(.segmented)
-                .frame(width: 180)
-                Toggle("Hide listening", isOn: $hideListening).toggleStyle(.checkbox)
-                Toggle("Hide loopback", isOn: $hideLoopback).toggleStyle(.checkbox)
-                Toggle("Resolve addresses", isOn: $settings.resolveAddresses).toggleStyle(.checkbox)
-                Spacer()
+                .fixedSize()
+                .help("Protocol")
+                Toggle("Hide listening", isOn: $hideListening).toggleStyle(.checkbox).fixedSize()
+                Toggle("Hide loopback", isOn: $hideLoopback).toggleStyle(.checkbox).fixedSize()
+                Toggle("Resolve addresses", isOn: $settings.resolveAddresses).toggleStyle(.checkbox).fixedSize()
+            } trailing: {
                 if Elevation.shared.mode == .standard {
-                    Label("Showing your processes only", systemImage: "lock").foregroundStyle(.secondary).font(.caption)
+                    Image(systemName: "lock").foregroundStyle(.secondary).help("Showing your processes only — authorize to see all connections")
                 }
-                Text("\(filtered.count) connections").foregroundStyle(.secondary)
+                Text("\(filtered.count) connections").foregroundStyle(.secondary).lineLimit(1)
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
             Divider()
             OutlineTable(
                 roots: filtered,
@@ -42,10 +45,21 @@ struct NetworkView: View {
                 onDoubleClick: { c in
                     if let p = ProcessStore.shared.item(pid: c.connection.pid) { PropertiesWindow.open(p) }
                 },
-                defaultSort: (column: "process", ascending: true))
+                defaultSort: (column: "process", ascending: true),
+                isActive: active)
         }
-        .onAppear { store.retain(interval: max(1, settings.refreshInterval)) }
-        .onDisappear { store.release() }
+        .task(id: active) {
+            // Enumerate sockets only while this tab is visible.
+            guard active else { return }
+            store.retain(interval: max(1, settings.refreshInterval))
+            await withTaskCancellationHandler {
+                while !Task.isCancelled {
+                    try? await Task.sleep(nanoseconds: 3_600_000_000_000)
+                }
+            } onCancel: {
+                Task { @MainActor in NetworkStore.shared.release() }
+            }
+        }
     }
 
     private var filtered: [ConnectionItem] {
@@ -135,22 +149,22 @@ struct DiskView: View {
     @ObservedObject private var store = ProcessStore.shared
     @ObservedObject private var settings = AppSettings.shared
     @Binding var search: String
+    var active = true
     @State private var activeOnly = true
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 12) {
-                Toggle("Only processes with recent disk activity", isOn: $activeOnly).toggleStyle(.checkbox)
-                Spacer()
+            FilterBar {
+                Toggle("Only processes with recent disk activity", isOn: $activeOnly).toggleStyle(.checkbox).fixedSize()
+            } trailing: {
                 Text("Read \(Fmt.rate(store.system.diskReadRate).ifEmpty("0 B/s")) · Write \(Fmt.rate(store.system.diskWriteRate).ifEmpty("0 B/s"))")
                     .foregroundStyle(.secondary)
                     .monospacedDigit()
+                    .lineLimit(1)
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
             Divider()
             OutlineTable(
-                roots: rows,
+                roots: active ? rows : [],
                 children: nil,
                 revision: store.revision &+ (activeOnly ? 1 : 0) &+ search.hashValue &+ (settings.searchUsesRegex ? 4 : 0),
                 columns: Self.columns,
@@ -160,7 +174,8 @@ struct DiskView: View {
                 menu: { ProcessMenu.build(for: $0) },
                 onDoubleClick: { PropertiesWindow.open($0) },
                 defaultSort: (column: "total", ascending: false),
-                font: settings.processListFont)
+                font: settings.processListFont,
+                isActive: active)
         }
     }
 
@@ -198,4 +213,37 @@ struct DiskView: View {
 
 extension String {
     func ifEmpty(_ fallback: String) -> String { isEmpty ? fallback : self }
+}
+
+/// Filter row above a list: leading controls scroll horizontally when the window is too narrow
+/// (instead of squeezing their labels), trailing status stays pinned right.
+struct FilterBar<Leading: View, Trailing: View>: View {
+    @ViewBuilder var leading: Leading
+    @ViewBuilder var trailing: Trailing
+
+    var body: some View {
+        HStack(spacing: 12) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 12) {
+                    leading
+                }
+                .padding(.vertical, 1)
+            }
+            .scrollBounceBehavior(.basedOnSize)
+            // Soft edge so controls cut off in a narrow window read as scrollable, not broken.
+            .mask {
+                HStack(spacing: 0) {
+                    Rectangle()
+                    LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing)
+                        .frame(width: 18)
+                }
+            }
+            HStack(spacing: 8) {
+                trailing
+            }
+            .fixedSize()
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+    }
 }

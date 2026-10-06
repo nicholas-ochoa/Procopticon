@@ -39,6 +39,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ProcessStore.shared.applicationPids = ApplicationPids.current
         AppSettings.shared.apply()
         ProcessStore.shared.start()
+        // Prefetch launchd jobs in the background so the Services tab opens instantly.
+        ServiceStore.shared.refresh()
         if AppSettings.shared.elevateAtLaunch, Elevation.shared.mode == .standard {
             Task { @MainActor in
                 try? await Elevation.shared.startHelper()

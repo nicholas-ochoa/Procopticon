@@ -249,6 +249,6 @@ struct RegexToggle: View {
             Text(".*").font(.system(.body, design: .monospaced).weight(.semibold))
         }
         .toggleStyle(.button)
-        .help(settings.searchUsesRegex ? "Regular expressions on" : "Use regular expressions")
+        .help(settings.searchUsesRegex ? "Search text is a regular expression. Click for plain text matching (⌥⌘R)" : "Treat search text as a regular expression (⌥⌘R)")
     }
 }

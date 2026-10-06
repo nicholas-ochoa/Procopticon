@@ -6,8 +6,18 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 CONFIG="${CONFIG:-release}"
-APP_NAME="Process Informer"
-BUNDLE_ID="${BUNDLE_ID:-com.processinformer.ProcessInformer}"
+# VARIANT=dev builds "Process Informer Dev" with its own bundle id, executable name and preferences,
+# so a test build can run next to the installed app without sharing settings or window state.
+VARIANT="${VARIANT:-release}"
+if [ "$VARIANT" = dev ]; then
+    APP_NAME="Process Informer Dev"
+    EXEC_NAME="ProcessInformerDev"
+    BUNDLE_ID="${BUNDLE_ID:-com.processinformer.ProcessInformer.dev}"
+else
+    APP_NAME="Process Informer"
+    EXEC_NAME="ProcessInformer"
+    BUNDLE_ID="${BUNDLE_ID:-com.processinformer.ProcessInformer}"
+fi
 VERSION="${VERSION:-1.0.0}"
 BUILD_NUMBER="${BUILD_NUMBER:-$(git rev-list --count HEAD 2>/dev/null || echo 1)}"
 OUT="build/${APP_NAME}.app"
@@ -18,7 +28,7 @@ BIN="$(swift build -c "$CONFIG" --show-bin-path)"
 
 rm -rf "$OUT"
 mkdir -p "$OUT/Contents/MacOS" "$OUT/Contents/Resources"
-cp "$BIN/ProcessInformer" "$OUT/Contents/MacOS/ProcessInformer"
+cp "$BIN/ProcessInformer" "$OUT/Contents/MacOS/$EXEC_NAME"
 cp "$BIN/informer-helper" "$OUT/Contents/MacOS/informer-helper"
 
 # Icon
@@ -39,7 +49,7 @@ cat > "$OUT/Contents/Info.plist" <<PLIST
     <key>CFBundleDevelopmentRegion</key><string>en</string>
     <key>CFBundleDisplayName</key><string>${APP_NAME}</string>
     <key>CFBundleName</key><string>${APP_NAME}</string>
-    <key>CFBundleExecutable</key><string>ProcessInformer</string>
+    <key>CFBundleExecutable</key><string>${EXEC_NAME}</string>
     <key>CFBundleIdentifier</key><string>${BUNDLE_ID}</string>
     <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>

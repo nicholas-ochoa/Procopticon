@@ -23,6 +23,7 @@ final class ProcessSelection: ObservableObject {
 }
 
 struct ProcessTreeView: View {
+    var active = true
     @ObservedObject var store = ProcessStore.shared
     @ObservedObject var settings = AppSettings.shared
     @State private var highlightRevision = 0
@@ -42,7 +43,8 @@ struct ProcessTreeView: View {
             onSelectionChange: { ProcessSelection.shared.items = $0 },
             onDeleteKey: { ProcessActions.terminate($0) },
             controller: ProcessSelection.shared.table,
-            font: settings.processListFont
+            font: settings.processListFont,
+            isActive: active
         )
         .onReceive(NotificationCenter.default.publisher(for: .highlightsChanged)) { _ in highlightRevision &+= 1 }
         .onReceive(NotificationCenter.default.publisher(for: SigningCache.didUpdateNotification)) { _ in highlightRevision &+= 1 }

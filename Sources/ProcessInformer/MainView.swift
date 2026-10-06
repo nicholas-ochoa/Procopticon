@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import InformerCore
 import SwiftUI
 
@@ -17,6 +18,15 @@ enum MainTab: String, CaseIterable, Identifiable {
         case .disk: return "internaldrive"
         }
     }
+
+    var help: String {
+        switch self {
+        case .processes: return "All running processes with CPU, memory and disk usage"
+        case .services: return "launchd daemons, agents and login items, and their state"
+        case .network: return "Open TCP and UDP connections and the processes that own them"
+        case .disk: return "Processes currently reading from or writing to disk"
+        }
+    }
 }
 
 extension Notification.Name {
@@ -24,72 +34,81 @@ extension Notification.Name {
     static let focusSearch = Notification.Name("ProcessInformer.FocusSearch")
 }
 
+/// Tab and search state of the main window.
+///
+/// Deliberately *not* observed by `MainView`: the toolbar builder lives in `MainView.body`, and
+/// re-running it makes SwiftUI rebuild every toolbar item. Only the small views that display this
+/// state observe it, so switching tabs or typing updates just those views.
+final class MainWindowState: ObservableObject {
+    static let shared = MainWindowState()
+
+    @Published var tab: MainTab {
+        didSet {
+            UserDefaults.standard.set(tab.rawValue, forKey: "mainTab")
+            if oldValue != tab, !otherSearch.isEmpty {
+                otherSearch = ""
+            }
+        }
+    }
+    @Published var processSearch = "" {
+        didSet {
+            if ProcessStore.shared.filter.text != processSearch {
+                ProcessStore.shared.filter.text = processSearch
+            }
+        }
+    }
+    @Published var otherSearch = ""
+    @Published private(set) var elevationRevision = 0
+    private var observers: [NSObjectProtocol] = []
+    private var cancellable: AnyCancellable?
+
+    private init() {
+        tab = MainTab(rawValue: UserDefaults.standard.string(forKey: "mainTab") ?? "") ?? .processes
+        observers.append(NotificationCenter.default.addObserver(forName: .showTab, object: nil, queue: .main) { [weak self] n in
+            if let t = n.object as? MainTab, self?.tab != t { self?.tab = t }
+        })
+        observers.append(NotificationCenter.default.addObserver(forName: Elevation.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
+            self?.elevationRevision &+= 1
+        })
+        // Mirror filter text set elsewhere (saved filters, "Go to process") into the search field.
+        cancellable = ProcessStore.shared.$revision.receive(on: RunLoop.main).sink { [weak self] _ in
+            guard let self else { return }
+            let text = ProcessStore.shared.filter.text
+            if text != self.processSearch {
+                self.processSearch = text
+            }
+        }
+    }
+
+    var searchBinding: Binding<String> {
+        Binding(
+            get: { self.tab == .processes ? self.processSearch : self.otherSearch },
+            set: { if self.tab == .processes { self.processSearch = $0 } else { self.otherSearch = $0 } })
+    }
+}
+
 struct MainView: View {
-    @ObservedObject private var store = ProcessStore.shared
-    @ObservedObject private var settings = AppSettings.shared
-    @AppStorage("mainTab") private var tab: MainTab = .processes
-    @State private var processSearch = ""
-    @State private var otherSearch = ""
-    @State private var elevationRevision = 0
     @Environment(\.openSettings) private var openSettings
 
     var body: some View {
-        VStack(spacing: 0) {
-            Group {
-                switch tab {
-                case .processes: ProcessTreeView()
-                case .services: ServicesView(search: $otherSearch)
-                case .network: NetworkView(search: $otherSearch)
-                case .disk: DiskView(search: $otherSearch)
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            if settings.showStatusBar {
-                Divider()
-                StatusBarView(elevationRevision: elevationRevision,
-                              searchError: tab == .processes ? store.filterError : settings.matcher(otherSearch).error,
-                              showFilterSummary: tab == .processes)
-            }
-        }
-        .navigationTitle("Process Informer")
-        .toolbar(id: "main") { toolbar }
-        .toolbar(removing: .title)
-        .onChange(of: processSearch) { _, new in store.filter.text = new }
-        .onChange(of: tab) { otherSearch = "" }
-        .onReceive(NotificationCenter.default.publisher(for: .showTab)) { n in
-            if let t = n.object as? MainTab { tab = t }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: Elevation.didChangeNotification)) { _ in
-            elevationRevision &+= 1
-        }
-        .onReceive(store.$revision) { _ in
-            // Keep the filter text in sync if something else cleared it (e.g. "Go to process").
-            if store.filter.text != processSearch, tab == .processes {
-                processSearch = store.filter.text
-            }
-        }
-        .onAppear { SettingsOpener.action = { openSettings() } }
-        .background(WindowAccessor { window in
-            window.identifier = NSUserInterfaceItemIdentifier("main")
-            window.level = settings.alwaysOnTop ? .floating : .normal
-            window.setFrameAutosaveName("MainWindow")
-        })
-    }
-
-    private var subtitle: String {
-        _ = elevationRevision
-        switch Elevation.shared.mode {
-        case .root: return "Running as root"
-        case .helper: return "Elevated"
-        case .standard: return ""
-        }
+        MainContentView()
+            .navigationTitle("Process Informer")
+            .toolbar(id: "main") { toolbar }
+            .toolbar(removing: .title)
+            .onAppear { SettingsOpener.action = { openSettings() } }
+            .background(WindowAccessor { window in
+                window.identifier = NSUserInterfaceItemIdentifier("main")
+                window.level = AppSettings.shared.alwaysOnTop ? .floating : .normal
+                window.setFrameAutosaveName("MainWindow")
+            })
     }
 
     /// Customizable toolbar (View ▸ Customize Toolbar…).
     ///
     /// The title and tab picker stay fixed on the left. By default a flexible space follows them so the
-    /// buttons sit on the right, arranged in logical groups. Every group and every individual button is
-    /// also offered in the customization palette, along with fixed and flexible spaces.
+    /// buttons sit on the right, arranged in logical groups separated by fixed spaces. Every group and
+    /// every individual button is also offered in the palette. All items are self-contained views, so
+    /// this builder never needs to re-run after the window appears.
     @ToolbarContentBuilder
     private var toolbar: some CustomizableToolbarContent {
         fixedToolbarItems
@@ -105,43 +124,18 @@ struct MainView: View {
 
     @ToolbarContentBuilder
     private var fixedToolbarItems: some CustomizableToolbarContent {
-        ToolbarItem(id: "title", placement: .navigation) {
-            VStack(alignment: .leading, spacing: 0) {
-                Text("Process Informer").font(.headline)
-                if !subtitle.isEmpty {
-                    Text(subtitle).font(.caption).foregroundStyle(.secondary)
-                }
-            }
-            .fixedSize()
-            .padding(.horizontal, 6)
-        }
-        // Plain title text, not a glass toolbar "bubble".
-        .sharedBackgroundVisibility(.hidden)
-        .customizationBehavior(.disabled)
-        ToolbarItem(id: "tabs", placement: .navigation) {
-            Picker("View", selection: $tab) {
-                ForEach(MainTab.allCases) { t in
-                    Label(t.rawValue, systemImage: t.symbol).tag(t)
-                }
-            }
-            .pickerStyle(.segmented)
-            .labelStyle(.titleOnly)
-        }
-        .customizationBehavior(.disabled)
+        ToolbarItem(id: "title", placement: .navigation) { WindowTitleView() }
+            // Plain title text, not a glass toolbar "bubble".
+            .sharedBackgroundVisibility(.hidden)
+            .customizationBehavior(.disabled)
+        ToolbarItem(id: "tabs", placement: .navigation) { TabPickerView() }
+            .customizationBehavior(.disabled)
     }
 
-    /// Explicit search field item (instead of `.searchable`, which inserts its own flexible space and
-    /// would center the buttons).
     @ToolbarContentBuilder
     private var searchToolbarItem: some CustomizableToolbarContent {
         ToolbarSpacer(.fixed, placement: .primaryAction)
-        ToolbarItem(id: "search", placement: .primaryAction) {
-            ToolbarSearchField(
-                text: tab == .processes ? $processSearch : $otherSearch,
-                prompt: (tab == .processes ? "Search processes" : "Search \(tab.rawValue.lowercased())")
-                    + (settings.searchUsesRegex ? " (regex)" : ""))
-                .frame(minWidth: 180, idealWidth: 260, maxWidth: 360)
-        }
+        ToolbarItem(id: "search", placement: .primaryAction) { MainSearchField() }
     }
 
     // MARK: Groups
@@ -150,56 +144,40 @@ struct MainView: View {
     @ToolbarContentBuilder
     private var defaultGroupItems: some CustomizableToolbarContent {
         ToolbarItem(id: "group.filters", placement: .primaryAction) {
-            ControlGroup {
-                appsToggle
-                mineToggle
-                treeToggle
+            ToolbarGroup("Quick Filters", "line.3.horizontal.decrease", processesOnly: true) {
+                AppsToggle()
+                MineToggle()
+                TreeToggle()
                 FiltersMenu()
-            } label: {
-                Label("Quick Filters", systemImage: "line.3.horizontal.decrease")
             }
-            .controlGroupStyle(ToolbarClusterStyle())
-            .disabled(tab != .processes)
         }
         ToolbarSpacer(.fixed, placement: .primaryAction)
         ToolbarItem(id: "group.updates", placement: .primaryAction) {
-            ControlGroup {
-                refreshButton
-                pauseToggle
-            } label: {
-                Label("Updates", systemImage: "arrow.clockwise")
+            ToolbarGroup("Updates", "arrow.clockwise") {
+                RefreshButton()
+                PauseToggle()
             }
-            .controlGroupStyle(ToolbarClusterStyle())
         }
         ToolbarSpacer(.fixed, placement: .primaryAction)
         ToolbarItem(id: "group.tools", placement: .primaryAction) {
-            ControlGroup {
-                sysinfoButton
-                findButton
-            } label: {
-                Label("Tools", systemImage: "wrench.and.screwdriver")
+            ToolbarGroup("Tools", "wrench.and.screwdriver") {
+                ToolbarActionButton(.sysinfo)
+                ToolbarActionButton(.find)
             }
-            .controlGroupStyle(ToolbarClusterStyle())
         }
         ToolbarSpacer(.fixed, placement: .primaryAction)
         ToolbarItem(id: "group.search", placement: .primaryAction) {
-            ControlGroup {
+            ToolbarGroup("Search & Display", "textformat") {
                 RegexToggle()
-                fontToggle
-            } label: {
-                Label("Search & Display", systemImage: "textformat")
+                FontToggle()
             }
-            .controlGroupStyle(ToolbarClusterStyle())
         }
         ToolbarSpacer(.fixed, placement: .primaryAction)
         ToolbarItem(id: "group.privileges", placement: .primaryAction) {
-            ControlGroup {
-                ElevationButton(revision: elevationRevision)
-                settingsButton
-            } label: {
-                Label("Privileges & Settings", systemImage: "lock.shield")
+            ToolbarGroup("Privileges & Settings", "lock.shield") {
+                ElevationButton()
+                ToolbarActionButton(.settings)
             }
-            .controlGroupStyle(ToolbarClusterStyle())
         }
     }
 
@@ -207,35 +185,26 @@ struct MainView: View {
     @ToolbarContentBuilder
     private var optionalGroupItems: some CustomizableToolbarContent {
         ToolbarItem(id: "group.process", placement: .primaryAction, showsByDefault: false) {
-            ControlGroup {
-                propertiesButton
-                terminateButton
-                killButton
-            } label: {
-                Label("Process Actions", systemImage: "app.badge")
+            ToolbarGroup("Process Actions", "app.badge") {
+                ToolbarActionButton(.properties)
+                ToolbarActionButton(.terminate)
+                ToolbarActionButton(.kill)
             }
-            .controlGroupStyle(ToolbarClusterStyle())
         }
         ToolbarItem(id: "group.windows", placement: .primaryAction, showsByDefault: false) {
-            ControlGroup {
-                logButton
-                windowsButton
-                usersButton
-                hiddenButton
-            } label: {
-                Label("Inspection Windows", systemImage: "rectangle.stack")
+            ToolbarGroup("Inspection Windows", "rectangle.stack") {
+                ToolbarActionButton(.log)
+                ToolbarActionButton(.windows)
+                ToolbarActionButton(.users)
+                ToolbarActionButton(.hidden)
             }
-            .controlGroupStyle(ToolbarClusterStyle())
         }
         ToolbarItem(id: "group.files", placement: .primaryAction, showsByDefault: false) {
-            ControlGroup {
-                inspectButton
-                runButton
-                exportButton
-            } label: {
-                Label("Files & Programs", systemImage: "doc.on.doc")
+            ToolbarGroup("Files & Programs", "doc.on.doc") {
+                ToolbarActionButton(.inspect)
+                ToolbarActionButton(.run)
+                ToolbarActionButton(.export)
             }
-            .controlGroupStyle(ToolbarClusterStyle())
         }
     }
 
@@ -243,147 +212,337 @@ struct MainView: View {
 
     @ToolbarContentBuilder
     private var individualFilterItems: some CustomizableToolbarContent {
-        ToolbarItem(id: "apps", placement: .primaryAction, showsByDefault: false) { appsToggle.disabled(tab != .processes) }
-        ToolbarItem(id: "mine", placement: .primaryAction, showsByDefault: false) { mineToggle.disabled(tab != .processes) }
-        ToolbarItem(id: "treeList", placement: .primaryAction, showsByDefault: false) { treeToggle.disabled(tab != .processes) }
-        ToolbarItem(id: "filters", placement: .primaryAction, showsByDefault: false) { FiltersMenu().disabled(tab != .processes) }
+        ToolbarItem(id: "apps", placement: .primaryAction, showsByDefault: false) { ProcessesOnly { AppsToggle() } }
+        ToolbarItem(id: "mine", placement: .primaryAction, showsByDefault: false) { ProcessesOnly { MineToggle() } }
+        ToolbarItem(id: "treeList", placement: .primaryAction, showsByDefault: false) { ProcessesOnly { TreeToggle() } }
+        ToolbarItem(id: "filters", placement: .primaryAction, showsByDefault: false) { ProcessesOnly { FiltersMenu() } }
         ToolbarItem(id: "regex", placement: .primaryAction, showsByDefault: false) { RegexToggle() }
-        ToolbarItem(id: "font", placement: .primaryAction, showsByDefault: false) { fontToggle }
+        ToolbarItem(id: "font", placement: .primaryAction, showsByDefault: false) { FontToggle() }
     }
 
     @ToolbarContentBuilder
     private var individualActionItems: some CustomizableToolbarContent {
-        ToolbarItem(id: "refresh", placement: .primaryAction, showsByDefault: false) { refreshButton }
-        ToolbarItem(id: "pause", placement: .primaryAction, showsByDefault: false) { pauseToggle }
-        ToolbarItem(id: "elevate", placement: .primaryAction, showsByDefault: false) { ElevationButton(revision: elevationRevision) }
-        ToolbarItem(id: "settings", placement: .primaryAction, showsByDefault: false) { settingsButton }
+        ToolbarItem(id: "refresh", placement: .primaryAction, showsByDefault: false) { RefreshButton() }
+        ToolbarItem(id: "pause", placement: .primaryAction, showsByDefault: false) { PauseToggle() }
+        ToolbarItem(id: "elevate", placement: .primaryAction, showsByDefault: false) { ElevationButton() }
+        ToolbarItem(id: "settings", placement: .primaryAction, showsByDefault: false) { ToolbarActionButton(.settings) }
     }
 
     @ToolbarContentBuilder
     private var individualProcessItems: some CustomizableToolbarContent {
-        ToolbarItem(id: "properties", placement: .primaryAction, showsByDefault: false) { propertiesButton }
-        ToolbarItem(id: "terminate", placement: .primaryAction, showsByDefault: false) { terminateButton }
-        ToolbarItem(id: "kill", placement: .primaryAction, showsByDefault: false) { killButton }
-        ToolbarItem(id: "export", placement: .primaryAction, showsByDefault: false) { exportButton }
-        ToolbarItem(id: "inspect", placement: .primaryAction, showsByDefault: false) { inspectButton }
-        ToolbarItem(id: "run", placement: .primaryAction, showsByDefault: false) { runButton }
+        ToolbarItem(id: "properties", placement: .primaryAction, showsByDefault: false) { ToolbarActionButton(.properties) }
+        ToolbarItem(id: "terminate", placement: .primaryAction, showsByDefault: false) { ToolbarActionButton(.terminate) }
+        ToolbarItem(id: "kill", placement: .primaryAction, showsByDefault: false) { ToolbarActionButton(.kill) }
+        ToolbarItem(id: "export", placement: .primaryAction, showsByDefault: false) { ToolbarActionButton(.export) }
+        ToolbarItem(id: "inspect", placement: .primaryAction, showsByDefault: false) { ToolbarActionButton(.inspect) }
+        ToolbarItem(id: "run", placement: .primaryAction, showsByDefault: false) { ToolbarActionButton(.run) }
     }
 
     @ToolbarContentBuilder
     private var individualToolItems: some CustomizableToolbarContent {
-        ToolbarItem(id: "sysinfo", placement: .primaryAction, showsByDefault: false) { sysinfoButton }
-        ToolbarItem(id: "find", placement: .primaryAction, showsByDefault: false) { findButton }
-        ToolbarItem(id: "log", placement: .primaryAction, showsByDefault: false) { logButton }
-        ToolbarItem(id: "windows", placement: .primaryAction, showsByDefault: false) { windowsButton }
-        ToolbarItem(id: "users", placement: .primaryAction, showsByDefault: false) { usersButton }
-        ToolbarItem(id: "hidden", placement: .primaryAction, showsByDefault: false) { hiddenButton }
+        ToolbarItem(id: "sysinfo", placement: .primaryAction, showsByDefault: false) { ToolbarActionButton(.sysinfo) }
+        ToolbarItem(id: "find", placement: .primaryAction, showsByDefault: false) { ToolbarActionButton(.find) }
+        ToolbarItem(id: "log", placement: .primaryAction, showsByDefault: false) { ToolbarActionButton(.log) }
+        ToolbarItem(id: "windows", placement: .primaryAction, showsByDefault: false) { ToolbarActionButton(.windows) }
+        ToolbarItem(id: "users", placement: .primaryAction, showsByDefault: false) { ToolbarActionButton(.users) }
+        ToolbarItem(id: "hidden", placement: .primaryAction, showsByDefault: false) { ToolbarActionButton(.hidden) }
+    }
+}
+
+/// Window content: the four tabs and the status bar.
+struct MainContentView: View {
+    @ObservedObject private var state = MainWindowState.shared
+    @ObservedObject private var settings = AppSettings.shared
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // All tabs stay alive; inactive ones are hidden and pause their updates, so switching
+            // tabs is instant instead of rebuilding a large table on the main thread.
+            ZStack {
+                ProcessTreeView(active: state.tab == .processes)
+                tab(.services) { ServicesView(search: $state.otherSearch, active: $0) }
+                tab(.network) { NetworkView(search: $state.otherSearch, active: $0) }
+                tab(.disk) { DiskView(search: $state.otherSearch, active: $0) }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            // No cross-fade: animating four large tables forces repeated layout and commits.
+            .transaction { $0.animation = nil }
+            if settings.showStatusBar {
+                Divider()
+                MainStatusBar()
+            }
+        }
     }
 
-    // MARK: Controls (shared by groups and individual items)
+    private func tab<Content: View>(_ t: MainTab, @ViewBuilder content: (Bool) -> Content) -> some View {
+        let active = state.tab == t
+        return content(active)
+            .opacity(active ? 1 : 0)
+            .allowsHitTesting(active)
+    }
+}
 
-    private var appsToggle: some View {
+struct MainStatusBar: View {
+    @ObservedObject private var state = MainWindowState.shared
+    @ObservedObject private var store = ProcessStore.shared
+    @ObservedObject private var settings = AppSettings.shared
+
+    var body: some View {
+        StatusBarView(elevationRevision: state.elevationRevision,
+                      searchError: state.tab == .processes ? store.filterError : settings.matcher(state.otherSearch).error,
+                      showFilterSummary: state.tab == .processes)
+    }
+}
+
+// MARK: - Toolbar item views
+
+struct WindowTitleView: View {
+    @ObservedObject private var state = MainWindowState.shared
+
+    var body: some View {
+        let subtitle: String = {
+            _ = state.elevationRevision
+            switch Elevation.shared.mode {
+            case .root: return "Running as root"
+            case .helper: return "Elevated"
+            case .standard: return ""
+            }
+        }()
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Process Informer").font(.headline)
+            if !subtitle.isEmpty {
+                Text(subtitle).font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .fixedSize()
+        .padding(.horizontal, 6)
+    }
+}
+
+struct TabPickerView: View {
+    @ObservedObject private var state = MainWindowState.shared
+
+    var body: some View {
+        Picker("View", selection: $state.tab) {
+            ForEach(MainTab.allCases) { t in
+                Label(t.rawValue, systemImage: t.symbol).tag(t)
+            }
+        }
+        .pickerStyle(.segmented)
+        .labelStyle(.titleOnly)
+        .help("Switch between processes, launchd services, network connections and disk activity")
+        .background(SegmentToolTips(tips: MainTab.allCases.map(\.help)))
+    }
+}
+
+struct MainSearchField: View {
+    @ObservedObject private var state = MainWindowState.shared
+    @ObservedObject private var settings = AppSettings.shared
+
+    var body: some View {
+        ToolbarSearchField(
+            text: state.searchBinding,
+            prompt: (state.tab == .processes ? "Search processes" : "Search \(state.tab.rawValue.lowercased())")
+                + (settings.searchUsesRegex ? " (regex)" : ""))
+            .frame(minWidth: 180, idealWidth: 260, maxWidth: 360)
+    }
+}
+
+/// A named cluster of toolbar controls.
+struct ToolbarGroup<Content: View>: View {
+    let title: String
+    let symbol: String
+    var processesOnly = false
+    @ViewBuilder var content: Content
+
+    init(_ title: String, _ symbol: String, processesOnly: Bool = false, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.symbol = symbol
+        self.processesOnly = processesOnly
+        self.content = content()
+    }
+
+    var body: some View {
+        let group = ControlGroup {
+            content
+        } label: {
+            Label(title, systemImage: symbol)
+        }
+        .controlGroupStyle(ToolbarClusterStyle())
+        if processesOnly {
+            ProcessesOnly { group }
+        } else {
+            group
+        }
+    }
+}
+
+/// Disables its content unless the Processes tab is showing.
+struct ProcessesOnly<Content: View>: View {
+    @ObservedObject private var state = MainWindowState.shared
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        content.disabled(state.tab != .processes)
+    }
+}
+
+struct AppsToggle: View {
+    @ObservedObject private var settings = AppSettings.shared
+
+    var body: some View {
         Toggle(isOn: $settings.onlyApplications) { Label("Apps", systemImage: "macwindow.on.rectangle") }
-            .help("Show only GUI applications (⌥⌘A)")
+            .help("Show only applications with a user interface (⌥⌘A)")
     }
+}
 
-    private var mineToggle: some View {
+struct MineToggle: View {
+    @ObservedObject private var settings = AppSettings.shared
+
+    var body: some View {
         Toggle(isOn: $settings.hideOtherUsers) { Label("Mine", systemImage: "person.crop.circle") }
-            .help("Show only my processes (⌥⌘U)")
+            .help("Show only processes running as you, hiding other users and system accounts (⌥⌘U)")
     }
+}
 
-    private var treeToggle: some View {
+struct TreeToggle: View {
+    @ObservedObject private var settings = AppSettings.shared
+
+    var body: some View {
         Toggle(isOn: $settings.treeView) {
             Label(settings.treeView ? "Tree" : "List", systemImage: settings.treeView ? "list.bullet.indent" : "list.bullet")
         }
-        .help(settings.treeView ? "Showing hierarchy — click for a flat list (⌥⌘T)" : "Showing a flat list — click for the hierarchy (⌥⌘T)")
+        .help(settings.treeView
+            ? "Processes are shown as a parent/child tree. Click to show a flat list (⌥⌘T)"
+            : "Processes are shown as a flat list. Click to show the parent/child tree (⌥⌘T)")
     }
+}
 
-    private var fontToggle: some View {
+struct FontToggle: View {
+    @ObservedObject private var settings = AppSettings.shared
+
+    var body: some View {
         Toggle(isOn: $settings.processListMonospaced) { Label("Fixed Width", systemImage: "textformat.size") }
-            .help("Fixed-width font in the process list")
+            .help("Use a fixed-width font in the process list so columns of numbers line up")
     }
+}
 
-    private var refreshButton: some View {
-        Button { store.refreshNow(); if tab == .services { ServiceStore.shared.refresh() } } label: {
+struct RefreshButton: View {
+    var body: some View {
+        Button {
+            ProcessStore.shared.refreshNow()
+            if MainWindowState.shared.tab == .services { ServiceStore.shared.refresh() }
+            if MainWindowState.shared.tab == .network { NetworkStore.shared.refresh() }
+        } label: {
             Label("Refresh", systemImage: "arrow.clockwise")
         }
-        .help("Refresh now (⌘R)")
+        .help("Update all data now instead of waiting for the next refresh (⌘R)")
     }
+}
 
-    private var pauseToggle: some View {
+struct PauseToggle: View {
+    @ObservedObject private var store = ProcessStore.shared
+
+    var body: some View {
         Toggle(isOn: $store.paused) {
             Label(store.paused ? "Resume" : "Pause", systemImage: store.paused ? "play.fill" : "pause.fill")
         }
-        .help(store.paused ? "Resume updates" : "Pause updates")
+        .help(store.paused
+            ? "Updates are paused. Click to resume live updates (⌥⌘P)"
+            : "Pause live updates so the lists stop changing while you look (⌥⌘P)")
+    }
+}
+
+/// Plain action buttons used in groups and as individual palette items.
+struct ToolbarActionButton: View {
+    enum Action {
+        case sysinfo, find, settings, properties, terminate, kill, inspect, run, log, windows, users, hidden, export
     }
 
-    private var sysinfoButton: some View {
-        Button { SystemInfoWindow.open() } label: { Label("System Information", systemImage: "chart.xyaxis.line") }
-            .help("System information (⌘I)")
+    let action: Action
+    @Environment(\.openSettings) private var openSettings
+
+    init(_ action: Action) {
+        self.action = action
     }
 
-    private var findButton: some View {
-        Button { FindWindow.open() } label: { Label("Find Files", systemImage: "doc.text.magnifyingglass") }
-            .help("Find open files or loaded libraries (⇧⌘F)")
-    }
-
-    private var settingsButton: some View {
-        Button { openSettings() } label: { Label("Settings", systemImage: "gearshape") }
-            .help("Settings (⌘,)")
-    }
-
-    private var propertiesButton: some View {
-        Button { if let p = ProcessSelection.shared.items.first { PropertiesWindow.open(p) } } label: {
-            Label("Properties", systemImage: "info.circle")
+    var body: some View {
+        Button(action: perform) {
+            Label(title, systemImage: symbol)
         }
-        .help("Properties of the selected process (⌘↩)")
+        .help(help)
     }
 
-    private var terminateButton: some View {
-        Button { ProcessActions.terminate(ProcessSelection.shared.items) } label: { Label("Terminate", systemImage: "xmark.circle") }
-            .help("Terminate the selected processes (⌘⌫)")
-    }
-
-    private var killButton: some View {
-        Button { ProcessActions.forceKill(ProcessSelection.shared.items) } label: { Label("Force Kill", systemImage: "bolt.circle") }
-            .help("Force kill the selected processes (⌥⌘⌫)")
-    }
-
-    private var inspectButton: some View {
-        Button { InspectorWindow.choose() } label: { Label("Inspect", systemImage: "doc.viewfinder") }
-            .help("Inspect an executable (⌘O)")
-    }
-
-    private var runButton: some View {
-        Button { RunWindow.open(asRoot: false) } label: { Label("Run", systemImage: "play.rectangle") }
-            .help("Run a program (⌘N)")
-    }
-
-    private var logButton: some View {
-        Button { EventLogWindow.open() } label: { Label("Event Log", systemImage: "list.bullet.rectangle") }
-            .help("Event log (⌥⌘L)")
-    }
-
-    private var windowsButton: some View {
-        Button { WindowFinder.open() } label: { Label("Find Window", systemImage: "macwindow.badge.plus") }
-            .help("Find a process by its window")
-    }
-
-    private var usersButton: some View {
-        Button { UsersWindow.open() } label: { Label("Users", systemImage: "person.2") }
-            .help("Logged-in users")
-    }
-
-    private var hiddenButton: some View {
-        Button { HiddenProcessesWindow.open() } label: { Label("Hidden Scan", systemImage: "eye.trianglebadge.exclamationmark") }
-            .help("Scan for hidden processes")
-    }
-
-    private var exportButton: some View {
-        Button { Alerts.save(text: ProcessSelection.shared.table.exportText(), suggestedName: "Processes.txt") } label: {
-            Label("Export", systemImage: "square.and.arrow.up")
+    private func perform() {
+        switch action {
+        case .sysinfo: SystemInfoWindow.open()
+        case .find: FindWindow.open()
+        case .settings: openSettings()
+        case .properties: if let p = ProcessSelection.shared.items.first { PropertiesWindow.open(p) }
+        case .terminate: ProcessActions.terminate(ProcessSelection.shared.items)
+        case .kill: ProcessActions.forceKill(ProcessSelection.shared.items)
+        case .inspect: InspectorWindow.choose()
+        case .run: RunWindow.open(asRoot: false)
+        case .log: EventLogWindow.open()
+        case .windows: WindowFinder.open()
+        case .users: UsersWindow.open()
+        case .hidden: HiddenProcessesWindow.open()
+        case .export: Alerts.save(text: ProcessSelection.shared.table.exportText(), suggestedName: "Processes.txt")
         }
-        .help("Export the process list (⌘S)")
+    }
+
+    private var title: String {
+        switch action {
+        case .sysinfo: return "System Information"
+        case .find: return "Find Files"
+        case .settings: return "Settings"
+        case .properties: return "Properties"
+        case .terminate: return "Terminate"
+        case .kill: return "Force Kill"
+        case .inspect: return "Inspect"
+        case .run: return "Run"
+        case .log: return "Event Log"
+        case .windows: return "Find Window"
+        case .users: return "Users"
+        case .hidden: return "Hidden Scan"
+        case .export: return "Export"
+        }
+    }
+
+    private var symbol: String {
+        switch action {
+        case .sysinfo: return "chart.xyaxis.line"
+        case .find: return "doc.text.magnifyingglass"
+        case .settings: return "gearshape"
+        case .properties: return "info.circle"
+        case .terminate: return "xmark.circle"
+        case .kill: return "bolt.circle"
+        case .inspect: return "doc.viewfinder"
+        case .run: return "play.rectangle"
+        case .log: return "list.bullet.rectangle"
+        case .windows: return "macwindow.badge.plus"
+        case .users: return "person.2"
+        case .hidden: return "eye.trianglebadge.exclamationmark"
+        case .export: return "square.and.arrow.up"
+        }
+    }
+
+    private var help: String {
+        switch action {
+        case .sysinfo: return "Open System Information: CPU, memory, disk, network, GPU and power graphs (⌘I)"
+        case .find: return "Find which processes have a file, socket or library open (⇧⌘F)"
+        case .settings: return "Open Settings: updates, filters, highlighting and privileges (⌘,)"
+        case .properties: return "Show details of the selected process: threads, files, memory, security and more (⌘↩)"
+        case .terminate: return "Ask the selected processes to quit (SIGTERM) (⌘⌫)"
+        case .kill: return "Kill the selected processes immediately (SIGKILL); unsaved work is lost (⌥⌘⌫)"
+        case .inspect: return "Inspect an app or binary: architectures, libraries, symbols, code signature (⌘O)"
+        case .run: return "Start a program, optionally as root (⌘N)"
+        case .log: return "Show the log of processes and services starting and stopping (⌥⌘L)"
+        case .windows: return "List on-screen windows to find the process that owns one"
+        case .users: return "Show logged-in users and their processes, CPU and memory"
+        case .hidden: return "Scan every PID to detect processes hidden from the process list"
+        case .export: return "Save the visible process list as a text file (⌘S)"
+        }
     }
 }
 
@@ -411,7 +570,7 @@ struct FiltersMenu: View {
         } label: {
             Label("Filters", systemImage: active ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
         }
-        .help("Filters and saved filters")
+        .help("More filters (hide system, Apple-signed or zombie processes) and your saved filters")
     }
 
     private var active: Bool {
@@ -420,7 +579,7 @@ struct FiltersMenu: View {
 }
 
 struct ElevationButton: View {
-    var revision: Int
+    @ObservedObject private var state = MainWindowState.shared
 
     var body: some View {
         let mode = Elevation.shared.mode
@@ -444,8 +603,8 @@ struct ElevationButton: View {
             Label(mode == .standard ? "Show Details for All Processes" : "Elevated",
                   systemImage: mode == .standard ? "lock.fill" : "lock.open.fill")
         }
-        .help(mode == .standard ? "Authorize once to see details of all processes and perform privileged actions" : "Elevated: \(mode.rawValue)")
-        .id(revision)
+        .help(mode == .standard ? "Authorize once (administrator password) to see every process in full and act on other users' processes" : "Running with administrator rights (\(mode.rawValue)). Click for details")
+        .id(state.elevationRevision)
     }
 }
 
@@ -577,6 +736,7 @@ struct ToolbarSearchField: NSViewRepresentable {
         field.sendsWholeSearchString = false
         field.placeholderString = prompt
         field.stringValue = text
+        field.toolTip = "Filter the list by name, PID, path, command line or user. Use /pattern/ for a regular expression (⌘F)"
         context.coordinator.focusObserver = NotificationCenter.default.addObserver(
             forName: .focusSearch, object: nil, queue: .main) { [weak field] _ in
             guard let field else { return }
@@ -621,5 +781,45 @@ struct ToolbarSearchField: NSViewRepresentable {
             }
             return false
         }
+    }
+}
+
+/// SwiftUI doesn't forward per-segment help to the native segmented control, so this finds the
+/// `NSSegmentedControl` next to it and sets a tooltip for each segment.
+struct SegmentToolTips: NSViewRepresentable {
+    let tips: [String]
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView(frame: .zero)
+        DispatchQueue.main.async { apply(from: view) }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async { apply(from: nsView) }
+    }
+
+    private func apply(from view: NSView) {
+        var container = view.superview
+        for _ in 0..<6 {
+            guard let c = container else { return }
+            if let control = find(in: c) {
+                for (i, tip) in tips.enumerated() where i < control.segmentCount {
+                    control.setToolTip(tip, forSegment: i)
+                }
+                return
+            }
+            container = c.superview
+        }
+    }
+
+    private func find(in view: NSView) -> NSSegmentedControl? {
+        if let s = view as? NSSegmentedControl, s.segmentCount == tips.count {
+            return s
+        }
+        for sub in view.subviews {
+            if let found = find(in: sub) { return found }
+        }
+        return nil
     }
 }

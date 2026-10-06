@@ -133,6 +133,9 @@ swift test                           # unit tests for the samplers and parsers
 ```
 
 You can also use `swift build` and `swift run ProcessInformer` while developing.
+`VARIANT=dev ./scripts/build-app.sh` builds **Process Informer Dev.app**. It has its own bundle
+identifier, executable name and preferences, so it can run next to the installed app without
+sharing settings or window positions.
 
 Launch arguments are useful for scripting and testing:
 

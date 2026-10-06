@@ -82,6 +82,9 @@ struct OutlineTable<Item>: NSViewRepresentable {
     var controller: OutlineTableController?
     /// Font for text cells; nil uses the standard list font.
     var font: NSFont?
+    /// Inactive tables (e.g. a hidden tab) are hidden and defer updates until shown again, so
+    /// switching tabs never rebuilds a table from scratch.
+    var isActive = true
 
     func makeCoordinator() -> OutlineTableCoordinator<Item> {
         OutlineTableCoordinator(self)
@@ -126,6 +129,7 @@ struct OutlineTable<Item>: NSViewRepresentable {
             coordinator?.refreshVisibleRows()
         }
         scroll.documentView = outline
+        scroll.isHidden = !isActive
         coordinator.applyFont()
         coordinator.reload(force: true)
         coordinator.bindController()
@@ -143,8 +147,24 @@ struct OutlineTable<Item>: NSViewRepresentable {
         let coordinator = context.coordinator
         let previousRevision = coordinator.parent.revision
         coordinator.parent = self
+        if nsView.isHidden == isActive {
+            nsView.isHidden = !isActive
+        }
         coordinator.applyFont()
-        if previousRevision != revision {
+        let changed = previousRevision != revision
+        if !isActive {
+            // Populate once even while hidden (so the first switch is instant); defer the rest.
+            if changed {
+                if coordinator.hasLoaded {
+                    coordinator.pendingReload = true
+                } else {
+                    coordinator.reload(force: false)
+                }
+            }
+            return
+        }
+        if changed || coordinator.pendingReload {
+            coordinator.pendingReload = false
             coordinator.reload(force: false)
         }
         coordinator.bindController()
@@ -407,6 +427,10 @@ final class OutlineTableCoordinator<Item>: NSObject, NSOutlineViewDataSource, NS
     }
 
     private var prepareGeneration = 0
+    /// Set when an update arrived while the table was inactive.
+    var pendingReload = false
+    /// True once rows have been applied at least once.
+    private(set) var hasLoaded = false
 
     /// Rebuilds the rows. Sorting and tree flattening (the expensive part, which also calls the
     /// column closures) run on a background queue; the main thread only reconciles nodes by key.
@@ -473,6 +497,7 @@ final class OutlineTableCoordinator<Item>: NSObject, NSOutlineViewDataSource, NS
 
     private func apply(_ p: Prepared, force: Bool) {
         guard let outline else { return }
+        hasLoaded = hasLoaded || !p.flat.isEmpty
         if p.childKeys.isEmpty, !force, applyFlat(p, outline: outline) {
             return
         }
