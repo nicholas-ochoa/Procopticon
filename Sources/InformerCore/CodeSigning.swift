@@ -121,7 +121,9 @@ public enum CodeSigning {
             return info
         }
         var errors: Unmanaged<CFError>?
-        let validateFlags = SecCSFlags(rawValue: kSecCSDoNotValidateResources | kSecCSCheckAllArchitectures)
+        // Validate the executable for the native architecture only; checking every slice of every
+        // universal binary multiplied disk reads for no benefit to the running process.
+        let validateFlags = SecCSFlags(rawValue: kSecCSDoNotValidateResources)
         let rc = SecStaticCodeCheckValidityWithErrors(code, validateFlags, nil, &errors)
         if rc == errSecSuccess {
             if info.status != .adhoc {
@@ -171,8 +173,8 @@ public final class SigningCache: @unchecked Sendable {
     private let lock = NSLock()
     private var results: [String: SigningInfo] = [:]
     private var pending: Set<String> = []
-    private let queue = DispatchQueue(label: "signing", qos: .utility, attributes: .concurrent)
-    private let semaphore = DispatchSemaphore(value: 3)
+    private let queue = DispatchQueue(label: "signing", qos: .background, attributes: .concurrent)
+    private let semaphore = DispatchSemaphore(value: 2)
     private var notifyScheduled = false
 
     public func info(for path: String) -> SigningInfo? {

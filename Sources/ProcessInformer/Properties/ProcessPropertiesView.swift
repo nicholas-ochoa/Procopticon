@@ -111,10 +111,14 @@ final class PrivilegedLoader<T>: ObservableObject {
     func load(_ request: PrivilegedRequest, extract: @escaping (PrivilegedResponse) -> T?) {
         loading = true
         Task {
-            let response = await Task.detached { Elevation.shared.perform(request) }.value
+            // Both the request and the parsing (which can be heavy, e.g. vmmap output) run off-main.
+            let (response, extracted) = await Task.detached { () -> (PrivilegedResponse, T?) in
+                let r = Elevation.shared.perform(request)
+                return (r, r.error == nil ? extract(r) : nil)
+            }.value
             if let e = response.error {
                 error = e
-            } else if let v = extract(response) {
+            } else if let v = extracted {
                 value = v
                 error = nil
             } else {

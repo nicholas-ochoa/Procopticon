@@ -167,7 +167,7 @@ struct DiskView: View {
         let m = settings.matcher(search)
         return store.items.values.filter { p in
             guard !p.isRemoved, p.stats != nil else { return false }
-            if activeOnly, p.ioTotalRate == 0, !p.ioHistory.ordered.suffix(10).contains(where: { $0 > 0 }) { return false }
+            if activeOnly, p.ioTotalRate == 0, !p.ioHistory.anyRecent(10) { return false }
             if !m.isEmpty, !m.matchesAny(p.name, p.record.path), !m.matchesIdentifier("\(p.pid)") { return false }
             return true
         }

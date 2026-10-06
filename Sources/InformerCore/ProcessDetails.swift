@@ -252,13 +252,15 @@ public enum ProcessDetails {
         let matcher = SearchMatcher(query, regex: regex)
         guard matcher.isValid, !matcher.isEmpty else { return [] }
         var results: [OpenFileMatch] = []
-        for (pid, name) in ProcessSampler.lightweightList() {
+        let processes = ProcessSampler.lightweightList()
+        let regionsByPid = includeLibraries ? IsolatedScanner.regions(pids: processes.map(\.0)) : [:]
+        for (pid, name) in processes {
             if case .success(let fds) = fileDescriptors(pid: pid) {
                 for f in fds where matcher.matches(f.name) {
                     results.append(OpenFileMatch(pid: pid, processName: name, type: f.type, fd: f.fd, name: f.name))
                 }
             }
-            if includeLibraries, case .success(let regions) = regions(pid: pid) {
+            if includeLibraries, case .success(let regions) = regionsByPid[pid] ?? .failure(POSIXError(.EPERM)) {
                 var seen = Set<String>()
                 for r in regions where !r.path.isEmpty && !seen.contains(r.path) {
                     seen.insert(r.path)

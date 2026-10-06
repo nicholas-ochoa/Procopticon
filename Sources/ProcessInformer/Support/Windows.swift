@@ -128,6 +128,7 @@ struct TextReportView: View {
     @State private var text = ""
     @State private var loading = true
     @State private var search = ""
+    @State private var filtered = ""
     @ObservedObject private var settings = AppSettings.shared
 
     var body: some View {
@@ -153,14 +154,26 @@ struct TextReportView: View {
             MonospacedTextView(text: filtered)
         }
         .task { await load() }
+        .task(id: FilterKey(search: search, regex: settings.searchUsesRegex, length: text.count)) {
+            // Large outputs (spindump, vmmap) are filtered off the main thread.
+            let m = settings.matcher(search)
+            let source = text
+            let result = await Task.detached { () -> String in
+                guard !m.isEmpty else { return source }
+                return source.split(separator: "\n", omittingEmptySubsequences: false)
+                    .filter { m.matches(String($0)) }
+                    .joined(separator: "\n")
+            }.value
+            if !Task.isCancelled {
+                filtered = result
+            }
+        }
     }
 
-    private var filtered: String {
-        let m = settings.matcher(search)
-        guard !m.isEmpty else { return text }
-        return text.split(separator: "\n", omittingEmptySubsequences: false)
-            .filter { m.matches(String($0)) }
-            .joined(separator: "\n")
+    private struct FilterKey: Hashable {
+        var search: String
+        var regex: Bool
+        var length: Int
     }
 
     private func load() async {
@@ -189,6 +202,10 @@ struct MonospacedTextView: NSViewRepresentable {
         textView.textContainer?.containerSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         scroll.hasHorizontalScroller = true
         return scroll
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSScrollView, context: Context) -> CGSize? {
+        CGSize(width: proposal.width ?? 400, height: proposal.height ?? 200)
     }
 
     func updateNSView(_ nsView: NSScrollView, context: Context) {

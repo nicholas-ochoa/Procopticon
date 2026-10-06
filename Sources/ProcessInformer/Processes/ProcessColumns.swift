@@ -4,6 +4,9 @@ import InformerCore
 typealias ProcessColumn = TableColumnSpec<ProcessItem>
 
 enum ProcessColumns {
+    /// Built once; column closures are pure functions of the item.
+    static let shared: [ProcessColumn] = all()
+
     static func all() -> [ProcessColumn] {
         var cols: [ProcessColumn] = []
 

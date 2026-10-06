@@ -14,6 +14,12 @@ func usage() -> Never {
     exit(64)
 }
 
+// One-shot isolated region scanner (see IsolatedScanner); runs with the caller's privileges.
+if CommandLine.arguments.dropFirst().first == "--scan-regions" {
+    IsolatedScanner.runChild()
+}
+IsolatedScanner.executablePath = Bundle.main.executablePath ?? CommandLine.arguments[0]
+
 var socketPath: String?
 var clientPid: pid_t?
 var clientUid: uid_t?

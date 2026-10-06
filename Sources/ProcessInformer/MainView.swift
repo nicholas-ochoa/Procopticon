@@ -48,7 +48,8 @@ struct MainView: View {
             if settings.showStatusBar {
                 Divider()
                 StatusBarView(elevationRevision: elevationRevision,
-                              searchError: tab == .processes ? store.filterError : settings.matcher(otherSearch).error)
+                              searchError: tab == .processes ? store.filterError : settings.matcher(otherSearch).error,
+                              showFilterSummary: tab == .processes)
             }
         }
         .navigationTitle("Process Informer")
@@ -92,6 +93,11 @@ struct MainView: View {
 
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
+        if tab == .processes {
+            ToolbarItem(placement: .primaryAction) {
+                ProcessFilterControls()
+            }
+        }
         ToolbarItem(placement: .navigation) {
             Picker("View", selection: $tab) {
                 ForEach(MainTab.allCases) { t in
@@ -120,6 +126,10 @@ struct MainView: View {
             .help("Find open files or loaded libraries")
             ElevationButton(revision: elevationRevision)
             RegexToggle()
+            Button { openSettings() } label: {
+                Label("Settings", systemImage: "gearshape")
+            }
+            .help("Settings (⌘,)")
         }
     }
 }
@@ -158,6 +168,7 @@ struct StatusBarView: View {
     @ObservedObject private var store = ProcessStore.shared
     var elevationRevision: Int
     var searchError: String?
+    var showFilterSummary = false
 
     var body: some View {
         let sys = store.system
@@ -174,6 +185,16 @@ struct StatusBarView: View {
             stat("Disk", "↓\(Fmt.rate(sys.diskReadRate).ifEmpty("0")) ↑\(Fmt.rate(sys.diskWriteRate).ifEmpty("0"))")
             stat("Network", "↓\(Fmt.rate(sys.netInRate).ifEmpty("0")) ↑\(Fmt.rate(sys.netOutRate).ifEmpty("0"))")
             Spacer()
+            if showFilterSummary, store.filter.isFiltering {
+                Text("Showing \(Fmt.count(store.matchCount)) of \(Fmt.count(store.processCount)) processes")
+                    .foregroundStyle(.secondary)
+                Button("Clear Filters") {
+                    AppSettings.shared.resetProcessFilters()
+                    store.filter.text = ""
+                }
+                .controlSize(.small)
+                .buttonStyle(.link)
+            }
             if let searchError {
                 Label(searchError, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red)
             }
@@ -222,4 +243,47 @@ struct WindowAccessor: NSViewRepresentable {
 @MainActor
 enum SettingsOpener {
     static var action: (() -> Void)?
+}
+
+/// Quick filter presets for the process list.
+struct ProcessFilterControls: View {
+    @ObservedObject private var settings = AppSettings.shared
+
+    var body: some View {
+        ControlGroup {
+            Toggle(isOn: $settings.onlyApplications) {
+                Label("Apps", systemImage: "macwindow.on.rectangle")
+            }
+            .help("Show only GUI applications (⌥⌘A)")
+            Toggle(isOn: $settings.hideOtherUsers) {
+                Label("Mine", systemImage: "person.crop.circle")
+            }
+            .help("Show only my processes (⌥⌘U)")
+            Toggle(isOn: $settings.treeView) {
+                Label(settings.treeView ? "Tree" : "List", systemImage: settings.treeView ? "list.bullet.indent" : "list.bullet")
+            }
+            .help(settings.treeView ? "Showing hierarchy — click for a flat list (⌥⌘T)" : "Showing a flat list — click for the hierarchy (⌥⌘T)")
+            Menu {
+                Toggle("Hide Root & System Processes", isOn: $settings.hideSystemProcesses)
+                Toggle("Hide Apple-Signed Processes", isOn: $settings.hideAppleProcesses)
+                Toggle("Hide Zombie Processes", isOn: $settings.hideZombies)
+                Divider()
+                Toggle("Only Applications", isOn: $settings.onlyApplications)
+                Toggle("Only My Processes", isOn: $settings.hideOtherUsers)
+                Divider()
+                Button("Reset Filters") { settings.resetProcessFilters() }
+                    .disabled(!settings.hasProcessFilters)
+            } label: {
+                Label("Filters", systemImage: moreFiltersActive
+                    ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+            }
+            .help("More filters")
+        }
+        .toggleStyle(.button)
+        .labelStyle(.titleAndIcon)
+    }
+
+    private var moreFiltersActive: Bool {
+        settings.hideSystemProcesses || settings.hideAppleProcesses || settings.hideZombies
+    }
 }

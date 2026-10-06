@@ -47,17 +47,16 @@ struct SystemInfoView: View {
             ScrollView {
                 Group {
                     switch section {
-                    case .summary: SummaryPanel(sys: store.system, store: store)
-                    case .cpu: CPUPanel(sys: store.system, store: store)
-                    case .memory: MemoryPanel(sys: store.system)
-                    case .disk: DiskPanel(sys: store.system)
-                    case .network: NetworkPanel(sys: store.system)
-                    case .gpu: GPUPanel(sys: store.system)
-                    case .power: PowerPanel(sys: store.system)
+                    case .summary: SummaryPanel(sys: store.system, store: store, revision: store.revision)
+                    case .cpu: CPUPanel(sys: store.system, store: store, revision: store.revision)
+                    case .memory: MemoryPanel(sys: store.system, revision: store.revision)
+                    case .disk: DiskPanel(sys: store.system, revision: store.revision)
+                    case .network: NetworkPanel(sys: store.system, revision: store.revision)
+                    case .gpu: GPUPanel(sys: store.system, revision: store.revision)
+                    case .power: PowerPanel(sys: store.system, revision: store.revision)
                     }
                 }
                 .padding()
-                .id(store.revision)
             }
         }
     }
@@ -68,6 +67,8 @@ private func percent(_ v: Double) -> String { String(format: "%.1f%%", v) }
 struct SummaryPanel: View {
     let sys: SystemMonitor
     let store: ProcessStore
+    /// Changes every sample so SwiftUI re-evaluates the panel (the monitor is a reference type).
+    let revision: Int
 
     var body: some View {
         let vm = sys.last?.vm
@@ -128,6 +129,8 @@ struct MachineSummary: View {
 struct CPUPanel: View {
     let sys: SystemMonitor
     let store: ProcessStore
+    /// Changes every sample so SwiftUI re-evaluates the panel (the monitor is a reference type).
+    let revision: Int
     @AppStorage("sysinfoPerCore") private var perCore = true
 
     var body: some View {
@@ -179,6 +182,8 @@ struct CPUPanel: View {
 
 struct MemoryPanel: View {
     let sys: SystemMonitor
+    /// Changes every sample so SwiftUI re-evaluates the panel (the monitor is a reference type).
+    let revision: Int
 
     var body: some View {
         let vm = sys.last?.vm
@@ -238,6 +243,8 @@ struct MemoryPanel: View {
 
 struct DiskPanel: View {
     let sys: SystemMonitor
+    /// Changes every sample so SwiftUI re-evaluates the panel (the monitor is a reference type).
+    let revision: Int
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -296,6 +303,8 @@ struct DiskPanel: View {
 
 struct NetworkPanel: View {
     let sys: SystemMonitor
+    /// Changes every sample so SwiftUI re-evaluates the panel (the monitor is a reference type).
+    let revision: Int
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -346,6 +355,8 @@ struct NetworkPanel: View {
 
 struct GPUPanel: View {
     let sys: SystemMonitor
+    /// Changes every sample so SwiftUI re-evaluates the panel (the monitor is a reference type).
+    let revision: Int
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -369,6 +380,8 @@ struct GPUPanel: View {
 
 struct PowerPanel: View {
     let sys: SystemMonitor
+    /// Changes every sample so SwiftUI re-evaluates the panel (the monitor is a reference type).
+    let revision: Int
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {

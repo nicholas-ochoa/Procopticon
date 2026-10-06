@@ -187,7 +187,7 @@ struct ModulesTab: View {
                     let mods = ProcessDetails.parseVmmapModules(out.stdout)
                     if !mods.isEmpty { return mods }
                     // vmmap unavailable: fall back to libproc region enumeration.
-                    if case .success(let regions) = ProcessDetails.regions(pid: pid) {
+                    if case .success(let regions) = IsolatedScanner.regions(pid: pid) {
                         return ProcessDetails.modulesFromRegions(regions)
                     }
                 }

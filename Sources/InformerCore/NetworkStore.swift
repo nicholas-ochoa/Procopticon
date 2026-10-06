@@ -2,21 +2,20 @@ import Combine
 import Darwin
 import Foundation
 
+/// Immutable snapshot of one connection (rebuilt on every refresh, safe to read from any thread).
 public final class ConnectionItem: Identifiable {
     public let id: String
-    public private(set) var connection: NetworkConnection
-    public let firstSeen = Date()
-    public var removedAt: Date?
-    public var isInitial: Bool
+    public let connection: NetworkConnection
+    public let firstSeen: Date
+    public let removedAt: Date?
+    public let isInitial: Bool
 
-    init(_ c: NetworkConnection, initial: Bool) {
+    init(_ c: NetworkConnection, firstSeen: Date, removedAt: Date?, initial: Bool) {
         id = c.id
         connection = c
+        self.firstSeen = firstSeen
+        self.removedAt = removedAt
         isInitial = initial
-    }
-
-    func update(_ c: NetworkConnection) {
-        connection = c
     }
 
     public var localHost: String { ReverseDNS.shared.name(for: connection.endpoint.localAddress) ?? "" }
@@ -26,6 +25,8 @@ public final class ConnectionItem: Identifiable {
 }
 
 /// Periodically enumerates TCP/UDP endpoints of every accessible process.
+///
+/// Enumeration and merging run on a private queue; the main thread receives finished snapshots.
 public final class NetworkStore: ObservableObject {
     public static let shared = NetworkStore()
 
@@ -33,12 +34,20 @@ public final class NetworkStore: ObservableObject {
     public private(set) var items: [ConnectionItem] = []
     public var highlightDuration: TimeInterval = 2
     public var resolveAddresses = true
-    private var map: [String: ConnectionItem] = [:]
     private var timer: Timer?
     private var busy = false
-    private var hasSampled = false
     private let queue = DispatchQueue(label: "network-sampler", qos: .utility)
     private var activeObservers = 0
+
+    // Background-queue state.
+    private struct Tracked {
+        var connection: NetworkConnection
+        var firstSeen: Date
+        var removedAt: Date?
+        var initial: Bool
+    }
+    private var tracked: [String: Tracked] = [:]
+    private var hasSampled = false
 
     public init() {}
 
@@ -67,45 +76,50 @@ public final class NetworkStore: ObservableObject {
     public func refresh() {
         guard !busy else { return }
         busy = true
+        let highlight = highlightDuration
+        let resolve = resolveAddresses
         queue.async { [weak self] in
+            guard let self else { return }
             let response = Elevation.shared.perform(.connections)
+            var snapshot: [ConnectionItem]?
+            if case .connections(let list) = response {
+                snapshot = self.merge(list, highlight: highlight, resolve: resolve)
+            }
             DispatchQueue.main.async {
-                guard let self else { return }
                 self.busy = false
-                if case .connections(let list) = response {
-                    self.merge(list)
+                if let snapshot {
+                    self.items = snapshot
+                    self.revision &+= 1
                 }
             }
         }
     }
 
-    private func merge(_ list: [NetworkConnection]) {
+    private func merge(_ list: [NetworkConnection], highlight: TimeInterval, resolve: Bool) -> [ConnectionItem] {
+        let now = Date()
         var seen = Set<String>()
         for c in list {
             seen.insert(c.id)
-            if let item = map[c.id] {
-                item.update(c)
+            if tracked[c.id] != nil {
+                tracked[c.id]?.connection = c
             } else {
-                let item = ConnectionItem(c, initial: !hasSampled)
-                map[c.id] = item
-                if resolveAddresses {
+                tracked[c.id] = Tracked(connection: c, firstSeen: now, removedAt: nil, initial: !hasSampled)
+                if resolve {
                     ReverseDNS.shared.resolve(c.endpoint.remoteAddress)
                 }
             }
         }
-        let now = Date()
-        for (id, item) in map where !seen.contains(id) {
-            if let removed = item.removedAt {
-                if now.timeIntervalSince(removed) >= highlightDuration {
-                    map.removeValue(forKey: id)
+        for (id, t) in tracked where !seen.contains(id) {
+            if let removed = t.removedAt {
+                if now.timeIntervalSince(removed) >= highlight {
+                    tracked.removeValue(forKey: id)
                 }
             } else {
-                item.removedAt = now
+                tracked[id]?.removedAt = now
             }
         }
         hasSampled = true
-        items = Array(map.values)
-        revision &+= 1
+        return tracked.values.map { ConnectionItem($0.connection, firstSeen: $0.firstSeen, removedAt: $0.removedAt, initial: $0.initial) }
     }
 
     public func isNew(_ item: ConnectionItem) -> Bool {

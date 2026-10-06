@@ -2,58 +2,76 @@ import Combine
 import Darwin
 import Foundation
 
-/// Live state for one process. Accessed on the main thread only.
+/// Immutable snapshot of one process, published to the UI after each update.
+///
+/// Snapshots are built on the store's background queue and never mutated once published, so the
+/// main thread can read them freely while the next update is being computed.
 public final class ProcessItem: Identifiable {
     public let key: ProcessKey
     public var id: ProcessKey { key }
-    public private(set) var record: ProcessRecord
-    public weak var parent: ProcessItem?
+    public let record: ProcessRecord
+    /// Tree links of this snapshot (set before publication).
+    public internal(set) weak var parent: ProcessItem?
     /// Children currently displayed (filtered, sorted).
-    public var children: [ProcessItem] = []
+    public internal(set) var children: [ProcessItem] = []
 
-    public private(set) var cpu: Double = 0
-    public private(set) var cpuUser: Double = 0
-    public private(set) var cpuKernel: Double = 0
-    public private(set) var diskReadRate: Double = 0
-    public private(set) var diskWriteRate: Double = 0
-    public private(set) var memoryDelta: Int64 = 0
-    public private(set) var faultsDelta: Int64 = 0
-    public private(set) var pageinsDelta: Int64 = 0
-    public private(set) var contextSwitchesDelta: Int64 = 0
-    public private(set) var syscallsDelta: Int64 = 0
-    public private(set) var wakeupsDelta: Int64 = 0
-    public private(set) var cyclesDelta: UInt64 = 0
-    public private(set) var instructionsDelta: UInt64 = 0
-    public private(set) var messagesDelta: Int64 = 0
-    public private(set) var power: Double = 0
-    public private(set) var cpuHistory = History(capacity: 120)
-    public private(set) var memoryHistory = History(capacity: 120)
-    public private(set) var ioHistory = History(capacity: 120)
+    public let cpu: Double
+    public let cpuUser: Double
+    public let cpuKernel: Double
+    public let diskReadRate: Double
+    public let diskWriteRate: Double
+    public let memoryDelta: Int64
+    public let faultsDelta: Int64
+    public let pageinsDelta: Int64
+    public let contextSwitchesDelta: Int64
+    public let syscallsDelta: Int64
+    public let wakeupsDelta: Int64
+    public let cyclesDelta: UInt64
+    public let instructionsDelta: UInt64
+    public let messagesDelta: Int64
+    public let power: Double
+    public let cpuHistory: History
+    public let memoryHistory: History
+    public let ioHistory: History
     public let firstSeen: Date
-    public internal(set) var removedAt: Date?
-    public internal(set) var isInitial: Bool
+    public let removedAt: Date?
+    public let isInitial: Bool
+    /// Cached so hot paths (sorting, cell drawing) don't repeat lookups.
+    public let userName: String
+    public let bundleInfo: ExecutableBundleInfo?
 
-    private var lastSampleTime: Double
-
-    init(record: ProcessRecord, time: Double, initial: Bool) {
-        key = record.key
-        self.record = record
-        firstSeen = Date()
-        isInitial = initial
-        lastSampleTime = time
+    init(_ s: ProcessState) {
+        key = s.record.key
+        record = s.record
+        cpu = s.cpu
+        cpuUser = s.cpuUser
+        cpuKernel = s.cpuKernel
+        diskReadRate = s.diskReadRate
+        diskWriteRate = s.diskWriteRate
+        memoryDelta = s.memoryDelta
+        faultsDelta = s.faultsDelta
+        pageinsDelta = s.pageinsDelta
+        contextSwitchesDelta = s.contextSwitchesDelta
+        syscallsDelta = s.syscallsDelta
+        wakeupsDelta = s.wakeupsDelta
+        cyclesDelta = s.cyclesDelta
+        instructionsDelta = s.instructionsDelta
+        messagesDelta = s.messagesDelta
+        power = s.power
+        cpuHistory = s.cpuHistory
+        memoryHistory = s.memoryHistory
+        ioHistory = s.ioHistory
+        firstSeen = s.firstSeen
+        removedAt = s.removedAt
+        isInitial = s.isInitial
+        userName = s.userName
+        bundleInfo = s.bundleInfo
     }
 
     public var pid: Int32 { record.pid }
     public var name: String { record.name }
     public var stats: TaskStats? { record.stats }
     public var isRemoved: Bool { removedAt != nil }
-
-    public var userName: String { UserNames.name(record.uid) }
-
-    public var bundleInfo: ExecutableBundleInfo? {
-        guard let path = record.path else { return nil }
-        return BundleInfoCache.shared.info(for: path)
-    }
 
     /// Description column: bundle display name, otherwise empty.
     public var displayDescription: String {
@@ -66,6 +84,57 @@ public final class ProcessItem: Identifiable {
     }
 
     public var ioTotalRate: Double { diskReadRate + diskWriteRate }
+
+    /// Text used by the search filter.
+    public func matches(_ m: SearchMatcher) -> Bool {
+        if m.matchesIdentifier(String(record.pid)) { return true }
+        if m.matchesAny(name, record.path, record.commandLine, userName) { return true }
+        if let b = bundleInfo, m.matchesAny(b.displayName, b.bundleIdentifier) { return true }
+        return false
+    }
+
+    /// All descendants (displayed children only).
+    public var descendants: [ProcessItem] {
+        children.flatMap { [$0] + $0.descendants }
+    }
+}
+
+/// Mutable sampling state for one process. Owned exclusively by the store's background queue.
+final class ProcessState {
+    var record: ProcessRecord
+    var cpu: Double = 0
+    var cpuUser: Double = 0
+    var cpuKernel: Double = 0
+    var diskReadRate: Double = 0
+    var diskWriteRate: Double = 0
+    var memoryDelta: Int64 = 0
+    var faultsDelta: Int64 = 0
+    var pageinsDelta: Int64 = 0
+    var contextSwitchesDelta: Int64 = 0
+    var syscallsDelta: Int64 = 0
+    var wakeupsDelta: Int64 = 0
+    var cyclesDelta: UInt64 = 0
+    var instructionsDelta: UInt64 = 0
+    var messagesDelta: Int64 = 0
+    var power: Double = 0
+    var cpuHistory = History(capacity: 120)
+    var memoryHistory = History(capacity: 120)
+    var ioHistory = History(capacity: 120)
+    let firstSeen = Date()
+    var removedAt: Date?
+    let isInitial: Bool
+    var userName: String
+    var bundleInfo: ExecutableBundleInfo?
+    private var lastSampleTime: Double
+
+    init(record: ProcessRecord, time: Double, initial: Bool) {
+        self.record = record
+        isInitial = initial
+        lastSampleTime = time
+        userName = UserNames.name(record.uid)
+        // Resolve file-system metadata here, off the main thread.
+        bundleInfo = record.path.map { BundleInfoCache.shared.info(for: $0) }
+    }
 
     func update(record new: ProcessRecord, time: Double, cpuCount: Int, scaleToSystem: Bool) {
         let dt = max(0.001, time - lastSampleTime)
@@ -95,6 +164,12 @@ public final class ProcessItem: Identifiable {
             diskReadRate = 0
             diskWriteRate = 0
         }
+        if new.uid != record.uid {
+            userName = UserNames.name(new.uid)
+        }
+        if new.path != record.path {
+            bundleInfo = new.path.map { BundleInfoCache.shared.info(for: $0) }
+        }
         record = new
         lastSampleTime = time
         cpuHistory.append(cpu)
@@ -110,19 +185,6 @@ public final class ProcessItem: Identifiable {
         diskReadRate = 0
         diskWriteRate = 0
     }
-
-    /// Text used by the search filter.
-    public func matches(_ m: SearchMatcher) -> Bool {
-        if m.matchesIdentifier(String(record.pid)) { return true }
-        if m.matchesAny(name, record.path, record.commandLine, userName) { return true }
-        if let b = bundleInfo, m.matchesAny(b.displayName, b.bundleIdentifier) { return true }
-        return false
-    }
-
-    /// All descendants (displayed children only).
-    public var descendants: [ProcessItem] {
-        children.flatMap { [$0] + $0.descendants }
-    }
 }
 
 public struct ProcessFilterOptions: Equatable {
@@ -133,26 +195,44 @@ public struct ProcessFilterOptions: Equatable {
     public var hideZombies = false
     /// Treat the whole search text as a regular expression (`/pattern/` always is).
     public var regex = false
+    /// Only GUI applications (see `ProcessStore.applicationPids`).
+    public var onlyApplications = false
+
+    /// True when any option (other than the regex flag) narrows the list.
+    public var isFiltering: Bool {
+        !text.trimmingCharacters(in: .whitespaces).isEmpty || hideOtherUsers || hideSystemProcesses
+            || hideAppleProcesses || hideZombies || onlyApplications
+    }
 
     public init() {}
 }
 
 /// Samples processes and system statistics periodically and maintains the process tree.
+///
+/// Threading: sampling, delta computation, filtering and tree building all run on a private serial
+/// queue. The main thread only receives finished, immutable snapshots, so UI work never waits on
+/// the kernel, the privileged helper, or the file system.
 public final class ProcessStore: ObservableObject {
     public static let shared = ProcessStore()
 
     @Published public private(set) var revision = 0
     @Published public var paused = false
+    /// Published snapshot (main thread).
     public private(set) var items: [ProcessKey: ProcessItem] = [:]
     public private(set) var roots: [ProcessItem] = []
     /// Visible items in display order (depth-first).
     public private(set) var visibleItems: [ProcessItem] = []
-    /// True when the last update added or removed displayed rows (vs. only changing values).
-    public private(set) var structureChanged = true
     public let system = SystemMonitor()
     public private(set) var lastError: String?
     /// Set when the search text is an invalid regular expression.
     @Published public private(set) var filterError: String?
+    /// Number of processes that pass the current filters (excluding ancestors kept for the tree).
+    public private(set) var matchCount = 0
+    public private(set) var processCount = 0
+    public private(set) var totalThreads = 0
+    /// Supplies the PIDs of GUI applications for the "applications only" filter (set by the app).
+    /// Called on the background queue.
+    public var applicationPids: () -> Set<Int32> = { [] }
 
     public var interval: TimeInterval = 1.0 {
         didSet { if oldValue != interval { schedule() } }
@@ -165,22 +245,17 @@ public final class ProcessStore: ObservableObject {
     public var filter = ProcessFilterOptions() {
         didSet { if oldValue != filter { rebuild() } }
     }
-    /// Sibling ordering. `nil` means creation order.
-    public var sortComparator: ((ProcessItem, ProcessItem) -> Bool)? {
-        didSet { rebuild() }
-    }
 
     private var timer: Timer?
-    private let queue = DispatchQueue(label: "process-sampler", qos: .userInitiated)
+    private let queue = DispatchQueue(label: "process-store", qos: .userInitiated)
     private var sampling = false
-    private var hasSampled = false
     private var cancellables = Set<AnyCancellable>()
+    /// Incremented for every requested publication; stale results are dropped.
+    private var generation = 0
 
-    public var totalThreads: Int {
-        items.values.reduce(0) { $0 + Int($1.record.stats?.threadCount ?? 0) }
-    }
-
-    public var processCount: Int { items.values.filter { !$0.isRemoved }.count }
+    // Background-queue state.
+    private var states: [ProcessKey: ProcessState] = [:]
+    private var hasSampled = false
 
     public init() {
         NotificationCenter.default.publisher(for: Elevation.didChangeNotification)
@@ -208,29 +283,84 @@ public final class ProcessStore: ObservableObject {
         timer = t
     }
 
+    private struct BuildOptions {
+        var filter: ProcessFilterOptions
+        var treeMode: Bool
+        var highlightDuration: TimeInterval
+        var scaleCPUToSystem: Bool
+        var cpuCount: Int
+    }
+
+    private var currentOptions: BuildOptions {
+        BuildOptions(filter: filter, treeMode: treeMode, highlightDuration: highlightDuration,
+                     scaleCPUToSystem: scaleCPUToSystem, cpuCount: max(1, system.logicalCPUCount))
+    }
+
+    private struct Snapshot {
+        var items: [ProcessKey: ProcessItem]
+        var roots: [ProcessItem]
+        var visible: [ProcessItem]
+        var matchCount: Int
+        var processCount: Int
+        var totalThreads: Int
+        var filterError: String?
+    }
+
+    /// Samples now (main thread entry point). Ignored while a sample is in flight.
     public func refreshNow() {
         guard !sampling else { return }
         sampling = true
+        generation &+= 1
+        let gen = generation
+        let options = currentOptions
         queue.async { [weak self] in
+            guard let self else { return }
             let response = Elevation.shared.perform(.sampleProcesses)
             let sys = SystemSampler.sample()
             let time = Date().timeIntervalSince1970
+            var error: String?
+            if case .processes(let records) = response {
+                self.merge(records, time: time, options: options)
+            } else if case .failure(let e) = response {
+                error = e.message
+            }
+            let snapshot = self.buildSnapshot(options)
             DispatchQueue.main.async {
-                guard let self else { return }
                 self.sampling = false
-                switch response {
-                case .processes(let records):
-                    self.lastError = nil
-                    self.merge(records, time: time)
-                case .failure(let e):
-                    self.lastError = e.message
-                default:
-                    break
-                }
-                self.system.update(sys, processes: self.items.values)
-                self.revision &+= 1
+                self.lastError = error
+                self.system.update(sys, processes: snapshot.items.values)
+                self.publish(snapshot, generation: gen)
             }
         }
+    }
+
+    /// Re-filters and re-arranges the current data (e.g. after the search text changed).
+    public func rebuild() {
+        generation &+= 1
+        let gen = generation
+        let options = currentOptions
+        queue.async { [weak self] in
+            guard let self else { return }
+            let snapshot = self.buildSnapshot(options)
+            DispatchQueue.main.async {
+                self.publish(snapshot, generation: gen)
+            }
+        }
+    }
+
+    private func publish(_ s: Snapshot, generation gen: Int) {
+        // A newer request (e.g. another keystroke) supersedes this one; its result will follow.
+        guard gen == generation else { return }
+        items = s.items
+        roots = s.roots
+        visibleItems = s.visible
+        matchCount = s.matchCount
+        processCount = s.processCount
+        totalThreads = s.totalThreads
+        if filterError != s.filterError {
+            filterError = s.filterError
+        }
+        revision &+= 1
     }
 
     public func item(pid: Int32) -> ProcessItem? {
@@ -239,17 +369,17 @@ public final class ProcessStore: ObservableObject {
 
     public func item(_ key: ProcessKey) -> ProcessItem? { items[key] }
 
-    private func merge(_ records: [ProcessRecord], time: Double) {
-        let cpuCount = max(1, system.logicalCPUCount)
+    // MARK: Background queue
+
+    private func merge(_ records: [ProcessRecord], time: Double, options: BuildOptions) {
         var seen = Set<ProcessKey>()
         seen.reserveCapacity(records.count)
         for r in records {
             seen.insert(r.key)
-            if let item = items[r.key] {
-                item.update(record: r, time: time, cpuCount: cpuCount, scaleToSystem: scaleCPUToSystem)
+            if let state = states[r.key] {
+                state.update(record: r, time: time, cpuCount: options.cpuCount, scaleToSystem: options.scaleCPUToSystem)
             } else {
-                let item = ProcessItem(record: r, time: time, initial: !hasSampled)
-                items[r.key] = item
+                states[r.key] = ProcessState(record: r, time: time, initial: !hasSampled)
                 if hasSampled {
                     EventLog.shared.add(.processStarted, pid: r.pid,
                                         "\(r.name) (\(r.pid)) started by \(UserNames.name(r.uid)), parent \(r.ppid)\(r.commandLine.map { ": \($0)" } ?? "")")
@@ -257,37 +387,48 @@ public final class ProcessStore: ObservableObject {
             }
         }
         let now = Date()
-        for (key, item) in items where !seen.contains(key) {
-            if item.removedAt == nil {
-                item.markRemoved()
-                let lifetime = Fmt.relative(seconds: Date().timeIntervalSince1970 - item.record.startTime)
-                EventLog.shared.add(.processExited, pid: item.pid, "\(item.name) (\(item.pid)) exited after \(lifetime)")
-            } else if now.timeIntervalSince(item.removedAt!) >= highlightDuration {
-                items.removeValue(forKey: key)
+        for (key, state) in states where !seen.contains(key) {
+            if let removed = state.removedAt {
+                if now.timeIntervalSince(removed) >= options.highlightDuration {
+                    states.removeValue(forKey: key)
+                }
+            } else {
+                state.markRemoved()
+                let lifetime = Fmt.relative(seconds: Date().timeIntervalSince1970 - state.record.startTime)
+                EventLog.shared.add(.processExited, pid: state.record.pid, "\(state.record.name) (\(state.record.pid)) exited after \(lifetime)")
             }
         }
         hasSampled = true
-        rebuild()
     }
 
-    /// Rebuilds parent/child links and the visible ordering.
-    public func rebuild() {
-        let previous = visibleItems.map(\.key)
+    /// Creates fresh immutable items, links the tree, filters and orders it.
+    private func buildSnapshot(_ options: BuildOptions) -> Snapshot {
+        var items: [ProcessKey: ProcessItem] = [:]
+        items.reserveCapacity(states.count)
+        var processCount = 0
+        var threads = 0
+        for (key, state) in states {
+            let item = ProcessItem(state)
+            items[key] = item
+            if item.removedAt == nil {
+                processCount += 1
+                threads += Int(item.record.stats?.threadCount ?? 0)
+            }
+        }
         let byPid = Dictionary(items.values.filter { !$0.isRemoved }.map { ($0.pid, $0) }, uniquingKeysWith: { a, b in
             a.record.startMicros > b.record.startMicros ? a : b
         })
-        let f = filter
+        let f = options.filter
         let matcher = SearchMatcher(f.text, regex: f.regex)
-        if filterError != matcher.error {
-            filterError = matcher.error
-        }
         let me = Elevation.interactiveUid
+        let appPids = f.onlyApplications ? applicationPids() : []
 
         func passesOptions(_ item: ProcessItem) -> Bool {
             let r = item.record
             if f.hideOtherUsers, r.uid != me { return false }
             if f.hideSystemProcesses, r.uid < 500, r.uid != me { return false }
             if f.hideZombies, r.isZombie { return false }
+            if f.onlyApplications, !appPids.contains(r.pid) { return false }
             if f.hideAppleProcesses, let s = item.signing, s.isAppleSigned { return false }
             return true
         }
@@ -295,9 +436,8 @@ public final class ProcessStore: ObservableObject {
         var childMap: [ProcessKey: [ProcessItem]] = [:]
         var rootList: [ProcessItem] = []
         for item in items.values {
-            item.parent = nil
             let r = item.record
-            if treeMode, r.pid != r.ppid, let parent = byPid[r.ppid], parent.key != item.key,
+            if options.treeMode, r.pid != r.ppid, let parent = byPid[r.ppid], parent.key != item.key,
                parent.record.startMicros <= r.startMicros || r.ppid == 0 {
                 item.parent = parent
                 childMap[parent.key, default: []].append(item)
@@ -306,33 +446,38 @@ public final class ProcessStore: ObservableObject {
             }
         }
 
-        // Determine visibility: options filter + text filter (ancestors of matches stay visible).
+        // Visibility: option filters + search (ancestors of matches stay visible in tree mode).
         var visible = Set<ProcessKey>()
-        for item in items.values where passesOptions(item) && (matcher.isEmpty || item.matches(matcher)) {
-            var node: ProcessItem? = item
-            while let n = node, !visible.contains(n.key) {
-                visible.insert(n.key)
-                node = treeMode ? n.parent : nil
+        var matched = 0
+        if matcher.isValid {
+            for item in items.values where passesOptions(item) && (matcher.isEmpty || item.matches(matcher)) {
+                if !item.isRemoved { matched += 1 }
+                var node: ProcessItem? = item
+                while let n = node, !visible.contains(n.key) {
+                    visible.insert(n.key)
+                    node = options.treeMode ? n.parent : nil
+                }
             }
         }
 
-        let comparator: (ProcessItem, ProcessItem) -> Bool = sortComparator ?? { a, b in
+        // Creation order; the table applies any user-selected column sort itself.
+        let byCreation: (ProcessItem, ProcessItem) -> Bool = { a, b in
             a.record.startMicros != b.record.startMicros ? a.record.startMicros < b.record.startMicros : a.pid < b.pid
         }
         func arrange(_ list: [ProcessItem]) -> [ProcessItem] {
-            list.filter { visible.contains($0.key) }.sorted(by: comparator)
+            list.filter { visible.contains($0.key) }.sorted(by: byCreation)
         }
         var ordered: [ProcessItem] = []
+        ordered.reserveCapacity(visible.count)
         func walk(_ item: ProcessItem) {
             ordered.append(item)
             item.children = arrange(childMap[item.key] ?? [])
             item.children.forEach(walk)
         }
-        roots = arrange(rootList)
+        let roots = arrange(rootList)
         roots.forEach(walk)
-        visibleItems = ordered
-        structureChanged = previous != ordered.map(\.key)
-        revision &+= 1
+        return Snapshot(items: items, roots: roots, visible: ordered, matchCount: matched,
+                        processCount: processCount, totalThreads: threads, filterError: matcher.error)
     }
 
     /// Highlight state for row coloring.

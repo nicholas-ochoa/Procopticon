@@ -26,7 +26,7 @@ struct ProcessTreeView: View {
     @ObservedObject var store = ProcessStore.shared
     @ObservedObject var settings = AppSettings.shared
     @State private var highlightRevision = 0
-    private let columns = ProcessColumns.all()
+    private let columns = ProcessColumns.shared
 
     var body: some View {
         OutlineTable(

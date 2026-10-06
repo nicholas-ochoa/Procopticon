@@ -19,6 +19,7 @@ final class AppSettings: ObservableObject {
     @Published var hideSystemProcesses: Bool { didSet { save("hideSystemProcesses", hideSystemProcesses); apply() } }
     @Published var hideAppleProcesses: Bool { didSet { save("hideAppleProcesses", hideAppleProcesses); apply() } }
     @Published var hideZombies: Bool { didSet { save("hideZombies", hideZombies); apply() } }
+    @Published var onlyApplications: Bool { didSet { save("onlyApplications", onlyApplications); apply() } }
     @Published var resolveAddresses: Bool { didSet { save("resolveAddresses", resolveAddresses); apply() } }
     @Published var alwaysOnTop: Bool { didSet { save("alwaysOnTop", alwaysOnTop); applyWindowLevel() } }
     @Published var showStatusBar: Bool { didSet { save("showStatusBar", showStatusBar) } }
@@ -51,6 +52,7 @@ final class AppSettings: ObservableObject {
         hideSystemProcesses = b("hideSystemProcesses", false)
         hideAppleProcesses = b("hideAppleProcesses", false)
         hideZombies = b("hideZombies", false)
+        onlyApplications = b("onlyApplications", false)
         resolveAddresses = b("resolveAddresses", true)
         alwaysOnTop = b("alwaysOnTop", false)
         showStatusBar = b("showStatusBar", true)
@@ -107,6 +109,7 @@ final class AppSettings: ObservableObject {
         f.hideAppleProcesses = hideAppleProcesses
         f.hideZombies = hideZombies
         f.regex = searchUsesRegex
+        f.onlyApplications = onlyApplications
         store.filter = f
         NetworkStore.shared.highlightDuration = highlightDuration
         NetworkStore.shared.resolveAddresses = resolveAddresses
@@ -212,7 +215,7 @@ enum Highlighter {
         func use(_ rule: HighlightRule) -> RowStyle? {
             guard let s = settings[rule], s.enabled else { return nil }
             let alpha: CGFloat = (rule == .removed || rule == .new) ? 0.55 : 0.28
-            return RowStyle(background: s.color.withAlphaComponent(alpha), textColor: nil)
+            return RowStyle(background: s.color.withAlphaComponent(alpha))
         }
         let r = item.record
         if item.isRemoved, let s = use(.removed) { return s }
@@ -240,5 +243,37 @@ extension AppSettings {
     /// Matcher for a filter field, honoring the regular-expression preference.
     func matcher(_ text: String) -> SearchMatcher {
         SearchMatcher(text, regex: searchUsesRegex)
+    }
+}
+
+extension AppSettings {
+    /// True when any of the persistent process filters is active.
+    var hasProcessFilters: Bool {
+        onlyApplications || hideOtherUsers || hideSystemProcesses || hideAppleProcesses || hideZombies
+    }
+
+    func resetProcessFilters() {
+        onlyApplications = false
+        hideOtherUsers = false
+        hideSystemProcesses = false
+        hideAppleProcesses = false
+        hideZombies = false
+    }
+}
+
+/// PIDs of GUI applications: LaunchServices "regular" apps plus owners of normal-level windows
+/// (the latter also covers sessions where LaunchServices sees fewer apps, e.g. when running as root).
+enum ApplicationPids {
+    static func current() -> Set<Int32> {
+        var pids = Set(NSWorkspace.shared.runningApplications
+            .filter { $0.activationPolicy == .regular }
+            .map(\.processIdentifier))
+        let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+        for w in windows where (w[kCGWindowLayer as String] as? Int) == 0 {
+            if let pid = w[kCGWindowOwnerPID as String] as? Int32 {
+                pids.insert(pid)
+            }
+        }
+        return pids
     }
 }

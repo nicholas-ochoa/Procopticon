@@ -35,6 +35,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate()
+        IsolatedScanner.executablePath = Elevation.helperURL.path
+        ProcessStore.shared.applicationPids = ApplicationPids.current
         AppSettings.shared.apply()
         ProcessStore.shared.start()
         if AppSettings.shared.elevateAtLaunch, Elevation.shared.mode == .standard {
@@ -133,10 +135,15 @@ struct ViewMenuFilterItems: View {
     var body: some View {
         Toggle("Show Processes as Tree", isOn: $settings.treeView)
             .keyboardShortcut("t", modifiers: [.command, .option])
-        Toggle("Hide Processes from Other Users", isOn: $settings.hideOtherUsers)
+        Toggle("Show Only Applications", isOn: $settings.onlyApplications)
+            .keyboardShortcut("a", modifiers: [.command, .option])
+        Toggle("Show Only My Processes", isOn: $settings.hideOtherUsers)
+            .keyboardShortcut("u", modifiers: [.command, .option])
         Toggle("Hide System Processes", isOn: $settings.hideSystemProcesses)
         Toggle("Hide Apple-Signed Processes", isOn: $settings.hideAppleProcesses)
         Toggle("Hide Zombie Processes", isOn: $settings.hideZombies)
+        Button("Reset Process Filters") { settings.resetProcessFilters() }
+            .disabled(!settings.hasProcessFilters)
         Divider()
         Toggle("Use Regular Expressions in Search", isOn: $settings.searchUsesRegex)
             .keyboardShortcut("r", modifiers: [.command, .option])

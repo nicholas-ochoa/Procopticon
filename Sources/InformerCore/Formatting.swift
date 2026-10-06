@@ -187,4 +187,13 @@ public struct History: Sendable {
     public var maxValue: Double {
         ordered.max() ?? 0
     }
+
+    /// True if any of the newest `n` samples is non-zero (no allocation).
+    public func anyRecent(_ n: Int) -> Bool {
+        let k = Swift.min(n, count)
+        for i in 0..<k where values[(start + count - 1 - i) % capacity] != 0 {
+            return true
+        }
+        return false
+    }
 }

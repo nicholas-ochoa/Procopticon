@@ -178,7 +178,7 @@ public final class PrivilegedExecutor: @unchecked Sendable {
             case .failure(let e): return .failure(PrivilegedError(errno: e.code.rawValue, context: "Threads of \(pid)"))
             }
         case let .regions(pid):
-            switch ProcessDetails.regions(pid: pid) {
+            switch IsolatedScanner.regions(pid: pid) {
             case .success(let r): return .regions(r)
             case .failure(let e): return .failure(PrivilegedError(errno: e.code.rawValue, context: "Memory regions of \(pid)"))
             }

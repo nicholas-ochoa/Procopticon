@@ -61,7 +61,6 @@ struct GraphCellData {
 
 struct RowStyle: Equatable {
     var background: NSColor?
-    var textColor: NSColor?
 }
 
 /// SwiftUI wrapper around a view-based NSOutlineView suitable for large, frequently updated lists.
@@ -120,10 +119,21 @@ struct OutlineTable<Item>: NSViewRepresentable {
         outline.headerView?.menu = coordinator.headerMenu()
         outline.keyHandler = { [weak coordinator] event in coordinator?.handleKey(event) ?? false }
         outline.copyHandler = { [weak coordinator] in coordinator?.copySelection() }
+        coordinator.iconObserver = NotificationCenter.default.addObserver(
+            forName: ProcessIcons.didLoadNotification, object: nil, queue: .main) { [weak coordinator] _ in
+            coordinator?.refreshVisibleRows()
+        }
         scroll.documentView = outline
         coordinator.reload(force: true)
         coordinator.bindController()
         return scroll
+    }
+
+    /// The table always fills the space it is offered. Answering directly keeps SwiftUI from
+    /// measuring the scroll view's fitting size through Auto Layout, which walks every visible
+    /// row and cell and was the largest main-thread cost during refreshes.
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSScrollView, context: Context) -> CGSize? {
+        CGSize(width: proposal.width ?? 400, height: proposal.height ?? 300)
     }
 
     func updateNSView(_ nsView: NSScrollView, context: Context) {
@@ -152,7 +162,8 @@ final class OutlineTableController {
 }
 
 final class OutlineNode<Item>: NSObject {
-    let key: AnyHashable
+    /// For flat lists a node is a reusable row slot, so its key can change.
+    var key: AnyHashable
     var value: Item
     var children: [OutlineNode<Item>] = []
     weak var parentNode: OutlineNode<Item>?
@@ -170,10 +181,16 @@ final class OutlineTableCoordinator<Item>: NSObject, NSOutlineViewDataSource, NS
     private var rootNodes: [OutlineNode<Item>] = []
     private var flatKeys: [AnyHashable] = []
     private var collapsed = Set<AnyHashable>()
-    private var knownKeys = Set<AnyHashable>()
     private var sortColumn: String?
     private var sortAscending = true
     private var suppressSelectionCallback = false
+    var iconObserver: NSObjectProtocol?
+
+    deinit {
+        if let iconObserver {
+            NotificationCenter.default.removeObserver(iconObserver)
+        }
+    }
     private var columnMap: [String: TableColumnSpec<Item>] = [:]
 
     init(_ parent: OutlineTable<Item>) {
@@ -349,63 +366,116 @@ final class OutlineTableCoordinator<Item>: NSObject, NSOutlineViewDataSource, NS
 
     // MARK: Data
 
-    private func comparator() -> ((OutlineNode<Item>, OutlineNode<Item>) -> Bool)? {
+    private func comparator() -> ((Item, Item) -> Bool)? {
         guard let sortColumn, let spec = columnMap[sortColumn], let less = spec.less else { return nil }
         let asc = sortAscending
-        return { a, b in
-            if asc {
-                return less(a.value, b.value)
+        return { a, b in asc ? less(a, b) : less(b, a) }
+    }
+
+    /// Result of the background preparation pass: ordering only, no AppKit objects.
+    private struct Prepared {
+        var rootKeys: [AnyHashable] = []
+        var childKeys: [AnyHashable: [AnyHashable]] = [:]
+        var values: [AnyHashable: Item] = [:]
+        var flat: [AnyHashable] = []
+    }
+
+    private static var prepareQueue: DispatchQueue {
+        DispatchQueue.global(qos: .userInitiated)
+    }
+
+    private var prepareGeneration = 0
+
+    /// Rebuilds the rows. Sorting and tree flattening (the expensive part, which also calls the
+    /// column closures) run on a background queue; the main thread only reconciles nodes by key.
+    func reload(force: Bool) {
+        prepareGeneration &+= 1
+        let gen = prepareGeneration
+        let roots = parent.roots
+        let childrenFn = parent.children
+        let keyFn = parent.key
+        let compare = comparator()
+        let work = {
+            Self.prepare(roots: roots, children: childrenFn, key: keyFn, compare: compare)
+        }
+        // Tiny lists aren't worth a thread hop (and avoid an empty first frame).
+        if roots.count < 64 && childrenFn == nil {
+            apply(work(), force: force)
+            return
+        }
+        Self.prepareQueue.async { [weak self] in
+            let prepared = work()
+            DispatchQueue.main.async {
+                guard let self, gen == self.prepareGeneration else { return }
+                self.apply(prepared, force: force)
             }
-            return less(b.value, a.value)
         }
     }
 
-    func reload(force: Bool) {
-        guard let outline else { return }
-        var newNodes: [AnyHashable: OutlineNode<Item>] = [:]
-        newNodes.reserveCapacity(nodes.count)
-        let compare = comparator()
-        let childrenFn = parent.children
-        let keyFn = parent.key
-
-        func build(_ items: [Item], parentNode: OutlineNode<Item>?) -> [OutlineNode<Item>] {
-            var result: [OutlineNode<Item>] = []
-            result.reserveCapacity(items.count)
-            for item in items {
-                let k = keyFn(item)
-                let node: OutlineNode<Item>
-                if let existing = nodes[k] {
-                    node = existing
-                    node.value = item
-                } else {
-                    node = OutlineNode(key: k, value: item)
-                }
-                node.parentNode = parentNode
-                newNodes[k] = node
-                if let childrenFn {
-                    node.children = build(childrenFn(item), parentNode: node)
-                }
-                result.append(node)
-            }
+    private static func prepare(roots: [Item], children: ((Item) -> [Item])?, key: (Item) -> AnyHashable,
+                                compare: ((Item, Item) -> Bool)?) -> Prepared {
+        var p = Prepared()
+        p.values.reserveCapacity(roots.count)
+        func level(_ items: [Item]) -> [AnyHashable] {
+            // Stable sort: ties keep the provider's order, so equal rows (e.g. many processes at
+            // 0% CPU) don't shuffle on every refresh.
+            let ordered: [Item]
             if let compare {
-                result.sort(by: compare)
+                ordered = items.enumerated().sorted { x, y in
+                    if compare(x.element, y.element) { return true }
+                    if compare(y.element, x.element) { return false }
+                    return x.offset < y.offset
+                }.map(\.element)
+            } else {
+                ordered = items
             }
-            return result
+            var keys: [AnyHashable] = []
+            keys.reserveCapacity(ordered.count)
+            for item in ordered {
+                let k = key(item)
+                keys.append(k)
+                p.values[k] = item
+                p.flat.append(k)
+                if let children {
+                    let kids = level(children(item))
+                    if !kids.isEmpty {
+                        p.childKeys[k] = kids
+                    }
+                }
+            }
+            return keys
         }
-        rootNodes = build(parent.roots, parentNode: nil)
+        p.rootKeys = level(roots)
+        return p
+    }
+
+    private func apply(_ p: Prepared, force: Bool) {
+        guard let outline else { return }
+        if p.childKeys.isEmpty, !force, applyFlat(p, outline: outline) {
+            return
+        }
+        if !force, !p.childKeys.isEmpty, applyTreeIncremental(p, outline: outline) {
+            return
+        }
+        var newNodes: [AnyHashable: OutlineNode<Item>] = [:]
+        newNodes.reserveCapacity(p.values.count)
+        for (k, value) in p.values {
+            let node = nodes[k] ?? OutlineNode(key: k, value: value)
+            node.value = value
+            newNodes[k] = node
+        }
+        func link(_ keys: [AnyHashable], parentNode: OutlineNode<Item>?) -> [OutlineNode<Item>] {
+            keys.compactMap { k in
+                guard let node = newNodes[k] else { return nil }
+                node.parentNode = parentNode
+                node.children = link(p.childKeys[k] ?? [], parentNode: node)
+                return node
+            }
+        }
+        rootNodes = link(p.rootKeys, parentNode: nil)
         nodes = newNodes
 
-        var flat: [AnyHashable] = []
-        flat.reserveCapacity(nodes.count)
-        func flatten(_ list: [OutlineNode<Item>]) {
-            for n in list {
-                flat.append(n.key)
-                flatten(n.children)
-            }
-        }
-        flatten(rootNodes)
-
-        if force || flat != flatKeys {
+        if force || p.flat != flatKeys {
             let selectedKeys = selectedNodes().map(\.key)
             suppressSelectionCallback = true
             outline.reloadData()
@@ -423,8 +493,161 @@ final class OutlineTableCoordinator<Item>: NSObject, NSOutlineViewDataSource, NS
         } else {
             refreshVisibleRows()
         }
-        flatKeys = flat
-        for k in flat { knownKeys.insert(k) }
+        flatKeys = p.flat
+    }
+
+    /// Fast path for flat lists: nodes act as row slots. Reordering only rebinds slots and redraws the
+    /// visible cells; size changes become inserts/removes at the end. Avoids `reloadData`, which
+    /// would rebuild every visible row view (and lose hover/scroll state) on each refresh.
+    private func applyFlat(_ p: Prepared, outline: NSOutlineView) -> Bool {
+        guard rootNodes.allSatisfy({ $0.children.isEmpty }), outline.numberOfRows == rootNodes.count else {
+            return false
+        }
+        if p.flat == flatKeys {
+            for node in rootNodes {
+                if let v = p.values[node.key] { node.value = v }
+            }
+            refreshVisibleRows()
+            return true
+        }
+        let selectedKeys = Set(selectedNodes().map(\.key))
+        let oldCount = rootNodes.count
+        let newCount = p.rootKeys.count
+        suppressSelectionCallback = true
+        outline.beginUpdates()
+        if newCount > oldCount {
+            for _ in oldCount..<newCount {
+                rootNodes.append(OutlineNode(key: UUID(), value: p.values[p.rootKeys[0]]!))
+            }
+            outline.insertItems(at: IndexSet(oldCount..<newCount), inParent: nil, withAnimation: [])
+        } else if newCount < oldCount {
+            rootNodes.removeLast(oldCount - newCount)
+            outline.removeItems(at: IndexSet(newCount..<oldCount), inParent: nil, withAnimation: [])
+        }
+        var newNodes: [AnyHashable: OutlineNode<Item>] = [:]
+        newNodes.reserveCapacity(newCount)
+        for (i, k) in p.rootKeys.enumerated() {
+            let node = rootNodes[i]
+            node.key = k
+            node.value = p.values[k]!
+            node.parentNode = nil
+            newNodes[k] = node
+        }
+        outline.endUpdates()
+        nodes = newNodes
+        flatKeys = p.flat
+        refreshVisibleRows()
+        let rows = IndexSet(p.rootKeys.enumerated().compactMap { selectedKeys.contains($0.element) ? $0.offset : nil })
+        if rows != outline.selectedRowIndexes {
+            outline.selectRowIndexes(rows, byExtendingSelection: false)
+        }
+        suppressSelectionCallback = false
+        if rows.count != selectedKeys.count {
+            notifySelection()
+        }
+        return true
+    }
+
+    /// Incremental tree update: per-parent removals, inserts and moves instead of `reloadData`.
+    /// Falls back (returns false) when a node moved to a different parent.
+    private func applyTreeIncremental(_ p: Prepared, outline: NSOutlineView) -> Bool {
+        guard !rootNodes.isEmpty || !p.rootKeys.isEmpty else { return false }
+        // Parent of each key in the new structure.
+        var newParent: [AnyHashable: AnyHashable?] = [:]
+        newParent.reserveCapacity(p.values.count)
+        for k in p.rootKeys { newParent[k] = .some(nil) }
+        for (parentKey, kids) in p.childKeys {
+            for k in kids { newParent[k] = .some(parentKey) }
+        }
+        // Reparenting is rare (orphans adopted by launchd); let reloadData handle it.
+        for (k, node) in nodes {
+            if let target = newParent[k], target != node.parentNode?.key {
+                return false
+            }
+        }
+        let selectedKeys = selectedNodes().map(\.key)
+        for (k, node) in nodes {
+            if let v = p.values[k] { node.value = v }
+        }
+
+        suppressSelectionCallback = true
+        outline.beginUpdates()
+        var created: [OutlineNode<Item>] = []
+
+        func makeSubtree(_ k: AnyHashable, parentNode: OutlineNode<Item>?) -> OutlineNode<Item> {
+            let node = OutlineNode(key: k, value: p.values[k]!)
+            node.parentNode = parentNode
+            nodes[k] = node
+            node.children = (p.childKeys[k] ?? []).map { makeSubtree($0, parentNode: node) }
+            created.append(node)
+            return node
+        }
+
+        func sync(_ parentNode: OutlineNode<Item>?, target: [AnyHashable]) {
+            var current = parentNode?.children ?? rootNodes
+            func commit() {
+                if let parentNode { parentNode.children = current } else { rootNodes = current }
+            }
+            // Removals (descending so indexes stay valid).
+            let keep = Set(target)
+            let removeIdx = IndexSet(current.indices.filter { !keep.contains(current[$0].key) })
+            if !removeIdx.isEmpty {
+                for i in removeIdx.reversed() {
+                    forget(current[i])
+                    current.remove(at: i)
+                }
+                commit()
+                outline.removeItems(at: removeIdx, inParent: parentNode, withAnimation: [])
+            }
+            // Inserts and moves, left to right.
+            for (i, k) in target.enumerated() {
+                if i < current.count, current[i].key == k { continue }
+                if let j = current[i...].firstIndex(where: { $0.key == k }) {
+                    let node = current.remove(at: j)
+                    current.insert(node, at: i)
+                    commit()
+                    outline.moveItem(at: j, inParent: parentNode, to: i, inParent: parentNode)
+                } else {
+                    current.insert(makeSubtree(k, parentNode: parentNode), at: i)
+                    commit()
+                    outline.insertItems(at: IndexSet(integer: i), inParent: parentNode, withAnimation: [])
+                }
+            }
+            // Recurse into nodes that existed before (new subtrees are already complete).
+            let fresh = Set(created.map { ObjectIdentifier($0) })
+            for node in current where !fresh.contains(ObjectIdentifier(node)) {
+                let kids = p.childKeys[node.key] ?? []
+                if !kids.isEmpty || !node.children.isEmpty {
+                    sync(node, target: kids)
+                }
+            }
+        }
+
+        func forget(_ node: OutlineNode<Item>) {
+            nodes.removeValue(forKey: node.key)
+            node.children.forEach(forget)
+        }
+
+        sync(nil, target: p.rootKeys)
+        outline.endUpdates()
+        flatKeys = p.flat
+        if !created.isEmpty {
+            restoreExpansion()
+        }
+        refreshVisibleRows()
+        let rows = IndexSet(selectedKeys.compactMap { k -> Int? in
+            guard let n = nodes[k] else { return nil }
+            let r = outline.row(forItem: n)
+            return r >= 0 ? r : nil
+        })
+        if rows != outline.selectedRowIndexes {
+            outline.selectRowIndexes(rows, byExtendingSelection: false)
+        }
+        suppressSelectionCallback = false
+        if rows.count != selectedKeys.count {
+            notifySelection()
+        }
+        return true
     }
 
     private func restoreExpansion() {
@@ -433,7 +656,9 @@ final class OutlineTableCoordinator<Item>: NSObject, NSOutlineViewDataSource, NS
             for n in list where !n.children.isEmpty {
                 let shouldExpand = parent.expandByDefault ? !collapsed.contains(n.key) : expandedExplicitly.contains(n.key)
                 if shouldExpand {
-                    outline.expandItem(n)
+                    if !outline.isItemExpanded(n) {
+                        outline.expandItem(n)
+                    }
                     expand(n.children)
                 }
             }
@@ -443,7 +668,7 @@ final class OutlineTableCoordinator<Item>: NSObject, NSOutlineViewDataSource, NS
 
     private var expandedExplicitly = Set<AnyHashable>()
 
-    private func refreshVisibleRows() {
+    func refreshVisibleRows() {
         guard let outline else { return }
         let visible = outline.rows(in: outline.visibleRect)
         guard visible.length > 0 else { return }
@@ -539,15 +764,27 @@ final class OutlineTableCoordinator<Item>: NSObject, NSOutlineViewDataSource, NS
         }
         cell.textField?.alignment = spec.alignment
         if let imageFn = spec.image {
-            cell.imageView?.image = imageFn(node.value)
+            let image = imageFn(node.value)
+            if cell.imageView?.image !== image {
+                cell.imageView?.image = image
+            }
         }
-        let style = parent.rowStyle?(node.value)
-        cell.textField?.textColor = style?.textColor ?? .labelColor
-        cell.toolTip = spec.tooltip?(node.value)
+        if let tip = spec.tooltip {
+            let value = node.value
+            cell.tooltipProvider = { tip(value) }
+        } else {
+            cell.tooltipProvider = nil
+        }
     }
 
+    private static var rowIdentifier: NSUserInterfaceItemIdentifier { NSUserInterfaceItemIdentifier("row") }
+
     func outlineView(_ outlineView: NSOutlineView, rowViewForItem item: Any) -> NSTableRowView? {
-        let row = ColoredRowView()
+        let row = outlineView.makeView(withIdentifier: Self.rowIdentifier, owner: nil) as? ColoredRowView ?? {
+            let r = ColoredRowView()
+            r.identifier = Self.rowIdentifier
+            return r
+        }()
         if let node = item as? OutlineNode<Item> {
             applyStyle(row, node: node)
         }
@@ -715,39 +952,71 @@ final class ColoredRowView: NSTableRowView {
     }
 }
 
-final class TextCellView: NSTableCellView {
-    static func make(identifier: NSUserInterfaceItemIdentifier, withImage: Bool) -> TextCellView {
-        let cell = TextCellView()
-        cell.identifier = identifier
+/// Table cell with optional icon. Uses manual frame layout (no Auto Layout) because cells are
+/// created and reconfigured constantly while lists refresh.
+final class TextCellView: NSTableCellView, NSViewToolTipOwner {
+    private static let font = NSFont.monospacedDigitSystemFont(ofSize: NSFont.systemFontSize(for: .small) + 1, weight: .regular)
+    private static let lineHeight = ceil(font.ascender - font.descender + font.leading) + 1
+    private let hasImage: Bool
+    private var tipTag: NSView.ToolTipTag?
+
+    /// Computed only when the user hovers, instead of on every refresh.
+    var tooltipProvider: (() -> String?)? {
+        didSet {
+            if (oldValue == nil) != (tooltipProvider == nil) {
+                needsLayout = true
+            }
+        }
+    }
+
+    init(identifier: NSUserInterfaceItemIdentifier, withImage: Bool) {
+        hasImage = withImage
+        super.init(frame: .zero)
+        self.identifier = identifier
         let field = NSTextField(labelWithString: "")
         field.lineBreakMode = .byTruncatingTail
         field.cell?.truncatesLastVisibleLine = true
-        field.font = .monospacedDigitSystemFont(ofSize: NSFont.systemFontSize(for: .small) + 1, weight: .regular)
-        field.translatesAutoresizingMaskIntoConstraints = false
-        field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        cell.addSubview(field)
-        cell.textField = field
+        field.font = Self.font
+        field.textColor = .labelColor
+        addSubview(field)
+        textField = field
         if withImage {
             let image = NSImageView()
-            image.translatesAutoresizingMaskIntoConstraints = false
             image.imageScaling = .scaleProportionallyUpOrDown
-            cell.addSubview(image)
-            cell.imageView = image
-            NSLayoutConstraint.activate([
-                image.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 1),
-                image.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
-                image.widthAnchor.constraint(equalToConstant: 16),
-                image.heightAnchor.constraint(equalToConstant: 16),
-                field.leadingAnchor.constraint(equalTo: image.trailingAnchor, constant: 4),
-            ])
-        } else {
-            field.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 2).isActive = true
+            addSubview(image)
+            imageView = image
         }
-        NSLayoutConstraint.activate([
-            field.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -2),
-            field.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
-        ])
-        return cell
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    static func make(identifier: NSUserInterfaceItemIdentifier, withImage: Bool) -> TextCellView {
+        TextCellView(identifier: identifier, withImage: withImage)
+    }
+
+    override func layout() {
+        super.layout()
+        let b = bounds
+        var x: CGFloat = 2
+        if hasImage, let imageView {
+            imageView.frame = NSRect(x: 1, y: floor((b.height - 16) / 2), width: 16, height: 16)
+            x = 21
+        }
+        let h = Self.lineHeight
+        textField?.frame = NSRect(x: x, y: floor((b.height - h) / 2), width: max(0, b.width - x - 2), height: h)
+        if let tipTag {
+            removeToolTip(tipTag)
+            self.tipTag = nil
+        }
+        if tooltipProvider != nil {
+            tipTag = addToolTip(b, owner: self, userData: nil)
+        }
+    }
+
+    func view(_ view: NSView, stringForToolTip tag: NSView.ToolTipTag, point: NSPoint, userData data: UnsafeMutableRawPointer?) -> String {
+        tooltipProvider?() ?? ""
     }
 }
 
