@@ -24,12 +24,12 @@ struct GeneralSettings: View {
             Section("Updates") {
                 Picker("Update interval", selection: $settings.refreshInterval) {
                     ForEach([0.5, 1, 2, 3, 5, 10], id: \.self) { v in
-                        Text(v < 1 ? "\(Int(v * 1000)) ms" : "\(Int(v)) seconds").tag(v)
+                        Text(v < 1 ? "\(Int(v * 1000)) ms" : (v == 1 ? "1 second" : "\(Int(v)) seconds")).tag(v)
                     }
                 }
                 Picker("Highlight new/terminated items for", selection: $settings.highlightDuration) {
                     ForEach([0.0, 1, 2, 3, 5, 10], id: \.self) { v in
-                        Text(v == 0 ? "Don't highlight" : "\(Int(v)) seconds").tag(v)
+                        Text(v == 0 ? "Don't highlight" : (v == 1 ? "1 second" : "\(Int(v)) seconds")).tag(v)
                     }
                 }
             }

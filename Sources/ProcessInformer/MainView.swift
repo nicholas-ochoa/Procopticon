@@ -32,6 +32,7 @@ struct MainView: View {
     @State private var otherSearch = ""
     @State private var elevationRevision = 0
     @FocusState private var searchFocused: Bool
+    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         VStack(spacing: 0) {
@@ -70,6 +71,7 @@ struct MainView: View {
                 processSearch = store.filter.text
             }
         }
+        .onAppear { SettingsOpener.action = { openSettings() } }
         .background(WindowAccessor { window in
             window.identifier = NSUserInterfaceItemIdentifier("main")
             window.level = settings.alwaysOnTop ? .floating : .normal
@@ -207,4 +209,10 @@ struct WindowAccessor: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {}
+}
+
+/// Lets AppKit code (launch arguments, menus) open the SwiftUI Settings scene.
+@MainActor
+enum SettingsOpener {
+    static var action: (() -> Void)?
 }

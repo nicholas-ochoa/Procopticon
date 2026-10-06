@@ -35,7 +35,7 @@ struct SecurityTab: View {
                             InfoRow("Signed", info.signingDate?.formatted(date: .abbreviated, time: .standard) ?? "")
                             InfoRow("Apple signed", info.isAppleSigned ? "Yes" : "No")
                             InfoRow("Notarized", info.isAppleSigned ? "n/a" : (info.isNotarized ? "Yes" : "No"))
-                            InfoRow("Hardened runtime", info.hardenedRuntime ? "Yes" : "No")
+                            InfoRow("Hardened runtime", info.hardenedRuntime || (r.csFlags ?? 0) & CodeSigningFlags.runtime != 0 ? "Yes" : "No")
                             InfoRow("Signature flags", CodeSigningFlags.describe(info.flags).joined(separator: ", "))
                             InfoRow("Runtime flags", r.csFlags.map { CodeSigningFlags.describe($0).joined(separator: ", ") } ?? "")
                         }

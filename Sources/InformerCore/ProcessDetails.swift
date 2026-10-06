@@ -187,29 +187,36 @@ public struct MemoryRegion: Codable, Sendable, Identifiable, Hashable {
         return userTag == 0 ? "Private" : "Tag \(userTag)"
     }
 
-    static let tagNames: [UInt32: String] = [
-        1: "MALLOC", 2: "MALLOC_SMALL", 3: "MALLOC_LARGE", 4: "MALLOC_HUGE", 5: "SBRK", 6: "REALLOC",
-        7: "MALLOC_TINY", 8: "MALLOC_LARGE_REUSABLE", 9: "MALLOC_LARGE_REUSED", 10: "Analysis tool",
-        11: "MALLOC_NANO", 12: "MALLOC_MEDIUM", 13: "MALLOC_PROB_GUARD", 20: "Mach message", 21: "IOKit",
-        30: "Stack", 31: "Guard", 32: "Shared memory", 33: "dyld", 34: "dylib", 35: "ObjC dispatchers",
-        36: "Unshared page table", 40: "AppKit", 41: "Foundation", 42: "CoreGraphics", 43: "CoreServices",
-        44: "Java", 45: "CoreData", 46: "CoreData objects", 50: "ATS", 51: "CoreAnimation",
-        52: "CG raster data", 53: "CG shared images", 54: "CG framebuffers", 55: "CG backing stores",
-        56: "CG XAlloc", 60: "Dispatch continuations", 61: "Image I/O", 62: "CoreProfile", 63: "Assets library",
-        64: "OS alloc once", 65: "libdispatch", 66: "Accelerate", 67: "CoreUI", 68: "CoreUI image",
-        69: "Genealogy", 70: "Rosetta", 71: "Rosetta thread context", 72: "Rosetta indirect branch map",
-        73: "Rosetta return stack", 74: "Rosetta executable heap", 75: "Rosetta user LDT",
-        76: "Rosetta arena", 77: "Rosetta 10", 78: "Swift runtime", 79: "Swift metadata", 80: "DHMM",
-        82: "SceneKit", 83: "Skywalk", 84: "IOSurface", 85: "libnetwork", 86: "Audio", 87: "VideoBitstream",
-        88: "CoreMedia CMIO", 89: "CoreMedia CMCMRecycle", 90: "CoreMedia CMBlockBuffer", 91: "CoreMedia",
-        92: "CoreMedia Picture", 93: "CoreMedia FigBlockBuffer", 94: "CoreMedia CMMemory", 98: "Activity tracing",
-        99: "Sanitizer", 100: "IOAccelerator", 101: "CoreML", 230: "Rosetta", 240: "Application specific",
-        241: "Application specific", 242: "Application specific", 243: "Application specific",
-        244: "Application specific", 245: "Application specific", 246: "Application specific",
-        247: "Application specific", 248: "Application specific", 249: "Application specific",
-        250: "Application specific", 251: "Application specific", 252: "Application specific",
-        253: "Application specific", 254: "Application specific", 255: "Application specific",
-    ]
+    /// VM_MEMORY_* tags from <mach/vm_statistics.h>.
+    static let tagNames: [UInt32: String] = {
+        var t: [UInt32: String] = [
+            1: "MALLOC", 2: "MALLOC_SMALL", 3: "MALLOC_LARGE", 4: "MALLOC_HUGE", 5: "SBRK", 6: "REALLOC",
+            7: "MALLOC_TINY", 8: "MALLOC_LARGE_REUSABLE", 9: "MALLOC_LARGE_REUSED", 10: "Analysis tool",
+            11: "MALLOC_NANO", 12: "MALLOC_MEDIUM", 13: "MALLOC_PROB_GUARD", 20: "Mach message", 21: "IOKit",
+            22: "VM reclaim", 30: "Stack", 31: "Guard", 32: "Shared pmap", 33: "dylib", 34: "ObjC dispatchers",
+            35: "Unshared pmap", 36: "libchannel", 40: "AppKit", 41: "Foundation", 42: "CoreGraphics",
+            43: "CoreServices", 44: "Java", 45: "CoreData", 46: "CoreData object IDs", 50: "ATS",
+            51: "CoreAnimation", 52: "CG image", 53: "TCMalloc", 54: "CG raster data", 55: "CG shared images",
+            56: "CG framebuffers", 57: "CG backing stores", 58: "CG XAlloc", 60: "dyld", 61: "dyld malloc",
+            62: "SQLite", 63: "JavaScriptCore", 64: "JIT executable allocator", 65: "JIT register file",
+            66: "GLSL", 67: "OpenCL", 68: "CoreImage", 69: "WebCore purgeable buffers", 70: "Image I/O",
+            71: "CoreProfile", 72: "Assets", 73: "OS alloc once", 74: "libdispatch", 75: "Accelerate",
+            76: "CoreUI", 77: "CoreUI file", 78: "Genealogy", 79: "RawCamera", 80: "Corpse info", 81: "ASL",
+            82: "Swift runtime", 83: "Swift metadata", 84: "DHMM", 85: "DFR", 86: "SceneKit", 87: "Skywalk",
+            88: "IOSurface", 89: "libnetwork", 90: "Audio", 91: "Video bitstream", 92: "CoreMedia XPC",
+            93: "CoreMedia RPC", 94: "CoreMedia memory pool", 95: "CoreMedia read cache", 96: "CoreMedia crabs",
+            97: "QuickLook thumbnails", 98: "Accounts", 99: "Sanitizer", 100: "IOAccelerator",
+            101: "CoreMedia regwarp", 102: "EAR decoder", 103: "CoreUI cached image data", 104: "ColorSync",
+            105: "Backtrace info", 106: "CoreMedia HLS", 107: "Compositor services", 108: "Debug", 109: "Neural",
+            230: "Rosetta", 231: "Rosetta thread context", 232: "Rosetta indirect branch map",
+            233: "Rosetta return stack", 234: "Rosetta executable heap", 235: "Rosetta user LDT",
+            236: "Rosetta arena", 239: "Rosetta 10",
+        ]
+        for i in 240...255 {
+            t[UInt32(i)] = "Application specific \(i - 239)"
+        }
+        return t
+    }()
 }
 
 /// A loaded Mach-O image within a process.

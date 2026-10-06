@@ -287,8 +287,14 @@ enum LaunchArguments {
                 NSApp.terminate(nil)
             } catch {}
         }
+        if CommandLine.arguments.contains("--show-settings") {
+            SettingsOpener.action?()
+        }
         if CommandLine.arguments.contains("--show-log") { EventLogWindow.open() }
         if CommandLine.arguments.contains("--show-windows") { WindowFinder.open() }
+        if let pidText = value("--select"), let pid = Int32(pidText) {
+            ProcessSelection.shared.reveal(pid: pid)
+        }
         if CommandLine.arguments.contains("--select-self") {
             ProcessSelection.shared.reveal(pid: getpid())
         }
