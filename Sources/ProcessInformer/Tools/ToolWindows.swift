@@ -15,9 +15,9 @@ enum FindWindow {
 }
 
 struct FindView: View {
-    @State private var query = ""
+    @AppStorage("findQuery") private var query = ""
     @State private var includeLibraries = true
-    @State private var results: [HandleMatch] = []
+    @State private var results: [OpenFileMatch] = []
     @State private var searching = false
     @State private var revision = 0
     @State private var message = ""
@@ -67,6 +67,7 @@ struct FindView: View {
                 },
                 onDoubleClick: { ProcessSelection.shared.reveal(pid: $0.pid) })
         }
+        .task { if !query.isEmpty, CommandLine.arguments.contains("--show-find") { search() } }
     }
 
     private func search() {
@@ -76,8 +77,8 @@ struct FindView: View {
         message = "Searching…"
         let libs = includeLibraries
         Task {
-            let response = await Task.detached { Elevation.shared.perform(.searchHandles(query: q, includeLibraries: libs)) }.value
-            if case .handles(let h) = response {
+            let response = await Task.detached { Elevation.shared.perform(.searchOpenFiles(query: q, includeLibraries: libs)) }.value
+            if case .openFiles(let h) = response {
                 results = h
                 message = "\(h.count) results in \(Set(h.map(\.pid)).count) processes"
             } else {
@@ -89,8 +90,8 @@ struct FindView: View {
         }
     }
 
-    static let columns: [TableColumnSpec<HandleMatch>] = {
-        var name = TableColumnSpec<HandleMatch>.string("process", "Process", width: 180) { $0.processName }
+    static let columns: [TableColumnSpec<OpenFileMatch>] = {
+        var name = TableColumnSpec<OpenFileMatch>.string("process", "Process", width: 180) { $0.processName }
         name.image = { m in ProcessStore.shared.item(pid: m.pid).map { ProcessIcons.icon(for: $0.record) } ?? ProcessIcons.executable }
         return [
             name,

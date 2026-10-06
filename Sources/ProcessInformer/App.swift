@@ -42,6 +42,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 try? await Elevation.shared.startHelper()
             }
         }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { LaunchArguments.apply() }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -209,7 +210,10 @@ struct ToolsMenuItems: View {
         Button("Find Files or Libraries…") { FindWindow.open() }
             .keyboardShortcut("f", modifiers: [.command, .shift])
         Button("Inspect Executable…") { InspectorWindow.choose() }
+        Button("Find Process by Window…") { WindowFinder.open() }
         Button("Hidden Process Scan…") { HiddenProcessesWindow.open() }
+        Button("Event Log") { EventLogWindow.open() }
+            .keyboardShortcut("l", modifiers: [.command, .option])
         Button("Logged-in Users…") { UsersWindow.open() }
         Divider()
         Button("Purge Disk Cache…") {
@@ -229,5 +233,64 @@ struct ToolsMenuItems: View {
         Divider()
         Button("Stop Privileged Helper") { Elevation.shared.stopHelper() }
             .disabled(Elevation.shared.mode != .helper)
+    }
+}
+
+/// Optional command line switches, e.g. `--tab network`, `--show-properties 1 --properties-tab files`,
+/// `--elevate`, `--show-sysinfo cpu`, `--show-find dyld`, `--inspect /bin/ls`, `--show-service com.apple.Finder`.
+@MainActor
+enum LaunchArguments {
+    static func value(_ name: String) -> String? {
+        let args = CommandLine.arguments
+        guard let i = args.firstIndex(of: name), i + 1 < args.count else { return nil }
+        return args[i + 1]
+    }
+
+    static func apply() {
+        if CommandLine.arguments.contains("--elevate"), Elevation.shared.mode == .standard {
+            Task { @MainActor in try? await Elevation.shared.startHelper() }
+        }
+        if let tab = value("--tab"), let t = MainTab.allCases.first(where: { $0.rawValue.lowercased() == tab.lowercased() }) {
+            NotificationCenter.default.post(name: .showTab, object: t)
+        }
+        if let section = value("--show-sysinfo") {
+            UserDefaults.standard.set(section.prefix(1).uppercased() + section.dropFirst(), forKey: "sysinfoSection")
+            if section.lowercased() == "cpu" || section.lowercased() == "gpu" {
+                UserDefaults.standard.set(section.uppercased(), forKey: "sysinfoSection")
+            }
+            SystemInfoWindow.open()
+        }
+        if let pidText = value("--show-properties"), let pid = Int32(pidText), let item = ProcessStore.shared.item(pid: pid) {
+            if let tab = value("--properties-tab") {
+                UserDefaults.standard.set(tab, forKey: "propertiesTab")
+            }
+            PropertiesWindow.open(item)
+        }
+        if let q = value("--show-find") {
+            UserDefaults.standard.set(q, forKey: "findQuery")
+            FindWindow.open()
+        }
+        if let path = value("--inspect") {
+            InspectorWindow.open(path: path)
+        }
+        if let label = value("--show-service") {
+            ServiceStore.shared.refresh()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                if let s = ServiceStore.shared.items.first(where: { $0.label == label }) {
+                    ServicePropertiesWindow.open(s)
+                }
+            }
+        }
+        if CommandLine.arguments.contains("--relaunch-as-root"), Elevation.shared.mode != .root {
+            do {
+                try Elevation.relaunchAsRoot()
+                NSApp.terminate(nil)
+            } catch {}
+        }
+        if CommandLine.arguments.contains("--show-log") { EventLogWindow.open() }
+        if CommandLine.arguments.contains("--show-windows") { WindowFinder.open() }
+        if CommandLine.arguments.contains("--select-self") {
+            ProcessSelection.shared.reveal(pid: getpid())
+        }
     }
 }

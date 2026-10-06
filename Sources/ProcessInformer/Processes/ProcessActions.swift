@@ -33,6 +33,8 @@ enum ProcessActions {
                 let response = await Elevation.shared.performElevated(.signal(pid: p.pid, signal: sig))
                 if let e = response.error, e != PrivilegedError.cancelled {
                     failures.append("\(p.name) (\(p.pid)): \(e.message)")
+                } else if response.error == nil {
+                    EventLog.shared.add(.action, pid: p.pid, "Sent signal \(sig) (\(verb)) to \(p.name) (\(p.pid))")
                 }
             }
             if !failures.isEmpty {

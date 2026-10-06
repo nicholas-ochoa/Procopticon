@@ -1,0 +1,130 @@
+# Process Informer
+
+A native macOS process explorer built around macOS and Unix concepts:
+launchd, Mach-O, code signing, sandboxing, Rosetta, BSD signals and `nice` priorities.
+
+Written in Swift and SwiftUI. A small C layer wraps `libproc`, `sysctl`, Mach host statistics and
+IOKit. Large lists use AppKit `NSOutlineView` so that thousands of rows can refresh every second.
+
+## Features
+
+**Processes** — a live process tree with icons and about 70 optional columns (right-click the header).
+Columns cover CPU (user/kernel), physical footprint, peak memory, resident and virtual size, disk
+read/write rates, threads, open files, cycles, instructions and IPC, context switches, system calls,
+wake-ups, energy and power, nice/priority, start time, command line, bundle identifier/version,
+architecture (arm64 or Rosetta), sandbox, code-signing verification and signer, and team ID. There are
+also CPU, memory and disk history graph columns.
+
+* Row highlighting: new/terminated, stopped, zombie, traced, Rosetta,
+  elevated (setuid/sudo), unsigned, sandboxed, applications, own, root and service-account
+  processes. Colors and priorities are configurable.
+* Search by name, PID, path, command line, user or bundle ID. You can also hide other users' processes,
+  system processes, Apple-signed processes or zombies, or switch to a flat list.
+* Actions:
+  * Terminate, Terminate Tree, Force Kill, Suspend/Resume (also for a whole tree), Restart.
+  * Send any signal, set the `nice` value, or switch background (throttled) scheduling.
+  * Bring an app to the front or quit it gracefully.
+  * Reveal in Finder, inspect the executable, search online, copy values, go to the parent or the
+    responsible process.
+* Diagnostics: `sample`, `spindump`, `vmmap`, `footprint`, `heap`, `leaks`, `lsof` and core dumps.
+  When needed, these run elevated automatically.
+
+**Process properties** have these tabs:
+
+| Tab | Contents |
+| --- | --- |
+| General | Image, command line, working directory, parent and responsible process, user, code signature |
+| Statistics | CPU, memory, I/O, Mach message, system call and energy counters |
+| Performance | CPU, memory and disk graphs |
+| Threads | Live thread list; double-click a thread to capture its stack |
+| Modules | Loaded images, including the dyld shared cache |
+| Memory | VM regions with type, protection, share mode, and resident, dirty and swapped sizes |
+| Environment | Arguments and environment variables |
+| Files | Open file descriptors: files, sockets, pipes, kqueues and shared memory |
+| Network | The process's sockets |
+| Security | Credentials and groups, signing details, certificate chain and entitlements |
+| Service | The launchd job that owns the process |
+
+**Services** list every launchd job in the system domain and in your GUI domain. That includes daemons,
+agents, login items and XPC services, whether or not they are loaded, along with their PID, status, last
+exit code, start conditions and enabled state. You can Start, Stop, Restart, Load (bootstrap), Unload
+(bootout), Enable or Disable a job, view its live `launchctl print` state, or view its property list.
+
+**Network** shows all TCP and UDP endpoints with the owning process, reverse-DNS host names and
+well-known service names. New and closed connections are highlighted.
+
+**Disk** shows per-process disk throughput and totals, with history graphs.
+
+**System Information** has these sections:
+
+* CPU: total plus one graph per core, labeled P or E. Hovering a point shows the busiest process at
+  that moment.
+* Memory: app, wired, compressed, cached and free memory, plus pressure, swap, page-in/out and
+  compression rates.
+* Disk: throughput and capacity of each volume.
+* Network: throughput of each interface.
+* GPU: utilization and memory use.
+* Power: battery state and estimated process power.
+
+**Tools**:
+
+* **Find Files or Libraries.** Searches the open files and mapped images of every process (`lsof`-like).
+* **Inspect Executable.** A Mach-O viewer showing the header and architecture slices, load commands,
+  segments and sections, linked libraries, symbols, code signature, entitlements and the embedded
+  Info.plist.
+* **Find Process by Window.**
+* **Hidden Process Scan.** Compares the kernel process list against a brute-force probe of every PID.
+* **Logged-in Users.**
+* **Event Log.** Records process start/exit, service start/stop and actions you take.
+* **Run Program** and **Run Program as Root.**
+* **Purge Disk Cache** and **Flush DNS Cache.**
+* **Export.** Saves the process list as text.
+
+A **menu bar graph** (CPU, memory, network or disk) opens a popover showing the top processes.
+
+## Privileges
+
+macOS only lets an unprivileged process fully inspect processes that run as the same user. Process
+Informer runs in one of three modes. The current mode appears in the status bar and the window subtitle.
+
+| Mode | How | Behaviour |
+| --- | --- | --- |
+| **Standard** | Normal launch | You see your own processes in full and other processes in outline. If an action is denied, you are asked for an administrator password once, which starts the helper (below). |
+| **Elevated helper** | Toolbar 🔒 button, *File ▸ Show Details for All Processes*, or *Settings ▸ Privileges ▸ Authorize at launch* | `informer-helper` is started as root through the standard macOS authorization dialog. If `sudo` needs no password, it is started with `sudo -n` and no dialog appears. The helper listens on a `0600` Unix socket in your per-user temporary directory and serves exactly one client: every connection is checked against the app's PID and UID. Tools it may run are allowlisted. It exits when the app quits. |
+| **Root ("sudo mode")** | `sudo "/Applications/Process Informer.app/Contents/MacOS/ProcessInformer"` or *File ▸ Relaunch as Root…* | The whole app runs as root. Everything executes in-process and **you are never prompted**. Your own processes are still recognized through `SUDO_UID`. |
+
+System Integrity Protection still applies in every mode. Apple platform binaries cannot be attached to,
+but `sample`, `vmmap` and libproc data remain available for them when you run as root.
+
+## Building
+
+You need Xcode 26 or later (the project was developed with Xcode 27 on macOS 27).
+
+```sh
+./scripts/build-app.sh               # release build → build/Process Informer.app (ad-hoc signed)
+SIGN_IDENTITY="Apple Development: …" ./scripts/build-app.sh   # sign with a certificate
+swift test                           # unit tests for the samplers and parsers
+```
+
+You can also use `swift build` and `swift run ProcessInformer` while developing.
+
+Launch arguments are useful for scripting and testing:
+
+```text
+--elevate                    authorize at startup
+--tab processes|services|network|disk
+--show-properties <pid>      [--properties-tab General|Threads|Modules|Memory|Files|…]
+--show-sysinfo summary|cpu|memory|disk|network|gpu|power
+--show-find <text>    --inspect <path>    --show-service <label>    --show-log    --show-windows
+```
+
+## Layout
+
+```text
+Sources/CSysInfo         C: libproc/sysctl/Mach/IOKit wrappers (processes, FDs, sockets, threads, VM regions, host stats)
+Sources/InformerCore     Swift: samplers, process/network stores, launchd services, code signing, Mach-O parser,
+                         privileged request protocol, executor, helper transport, elevation broker
+Sources/informer-helper  Root helper executable
+Sources/ProcessInformer  SwiftUI/AppKit app
+Tests/InformerCoreTests  Unit tests
+```

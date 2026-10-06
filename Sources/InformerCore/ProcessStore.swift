@@ -252,12 +252,18 @@ public final class ProcessStore: ObservableObject {
             } else {
                 let item = ProcessItem(record: r, time: time, initial: !hasSampled)
                 items[r.key] = item
+                if hasSampled {
+                    EventLog.shared.add(.processStarted, pid: r.pid,
+                                        "\(r.name) (\(r.pid)) started by \(UserNames.name(r.uid)), parent \(r.ppid)\(r.commandLine.map { ": \($0)" } ?? "")")
+                }
             }
         }
         let now = Date()
         for (key, item) in items where !seen.contains(key) {
             if item.removedAt == nil {
                 item.markRemoved()
+                let lifetime = Fmt.relative(seconds: Date().timeIntervalSince1970 - item.record.startTime)
+                EventLog.shared.add(.processExited, pid: item.pid, "\(item.name) (\(item.pid)) exited after \(lifetime)")
             } else if now.timeIntervalSince(item.removedAt!) >= highlightDuration {
                 items.removeValue(forKey: key)
             }

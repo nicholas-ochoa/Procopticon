@@ -24,6 +24,17 @@ final class ServiceStore: ObservableObject {
             let list = ServiceProvider.list()
             DispatchQueue.main.async {
                 let ids = Set(list.map(\.id))
+                if !self.items.isEmpty {
+                    let old = Dictionary(self.items.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+                    for s in list {
+                        let wasRunning = old[s.id]?.isRunning ?? false
+                        if s.isRunning, !wasRunning {
+                            EventLog.shared.add(.serviceStarted, pid: s.pid, "\(s.label) (\(s.domain.target)) started, PID \(s.pid ?? 0)")
+                        } else if !s.isRunning, wasRunning {
+                            EventLog.shared.add(.serviceStopped, "\(s.label) (\(s.domain.target)) stopped, last exit \(s.lastExitStatus)")
+                        }
+                    }
+                }
                 if !self.previousIds.isEmpty {
                     self.newIds = ids.subtracting(self.previousIds)
                 }

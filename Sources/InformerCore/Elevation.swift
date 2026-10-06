@@ -132,8 +132,13 @@ public final class Elevation: @unchecked Sendable {
         }
         let socket = socketPath
         unlink(socket)
-        let command = "\(helper.shellQuoted) --serve --socket \(socket.shellQuoted) --client-pid \(getpid()) --client-uid \(getuid()) >/dev/null 2>&1 &"
-        try Self.runWithAdministratorPrivileges(command, prompt: "Process Informer needs administrator access to inspect and control processes owned by other users.")
+        let helperArgs = ["--serve", "--socket", socket, "--client-pid", "\(getpid())", "--client-uid", "\(getuid())"]
+        // Passwordless sudo (NOPASSWD) avoids the dialog entirely; otherwise use the system prompt.
+        let viaSudo = await Task.detached { Self.startWithPasswordlessSudo(helper, helperArgs) }.value
+        if !viaSudo {
+            let command = ([helper] + helperArgs).shellJoined + " >/dev/null 2>&1 &"
+            try Self.runWithAdministratorPrivileges(command, prompt: "Process Informer needs administrator access to inspect and control processes owned by other users.")
+        }
 
         let newClient = HelperClient(socketPath: socket)
         let connected = await Task.detached { () -> Bool in
@@ -149,6 +154,7 @@ public final class Elevation: @unchecked Sendable {
             throw PrivilegedError(code: ETIMEDOUT, message: "The privileged helper did not start.")
         }
         setClient(newClient)
+        EventLog.shared.add(.elevation, "Privileged helper started")
         NotificationCenter.default.post(name: Self.didChangeNotification, object: nil)
     }
 
@@ -182,6 +188,25 @@ public final class Elevation: @unchecked Sendable {
         }
     }
 
+    /// Starts `path` as root through `sudo -n` when sudo needs no password. Returns false otherwise.
+    static func startWithPasswordlessSudo(_ path: String, _ args: [String]) -> Bool {
+        guard ToolRunner.run("/usr/bin/sudo", ["-n", "/usr/bin/true"], timeout: 5).status == 0 else {
+            return false
+        }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/sudo")
+        process.arguments = ["-n", path] + args
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+        } catch {
+            return false
+        }
+        return true
+    }
+
     /// Runs a shell command as root through the standard macOS authorization dialog.
     @MainActor
     public static func runWithAdministratorPrivileges(_ command: String, prompt: String) throws {
@@ -208,6 +233,9 @@ public final class Elevation: @unchecked Sendable {
     @MainActor
     public static func relaunchAsRoot() throws {
         let exe = (Bundle.main.executableURL ?? URL(fileURLWithPath: CommandLine.arguments[0])).path
+        if startWithPasswordlessSudo(exe, ["--relaunched-as-root"]) {
+            return
+        }
         let command = "SUDO_UID=\(getuid()) \(exe.shellQuoted) --relaunched-as-root >/dev/null 2>&1 &"
         try runWithAdministratorPrivileges(command, prompt: "Process Informer will restart with root privileges.")
     }

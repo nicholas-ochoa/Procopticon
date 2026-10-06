@@ -5,7 +5,7 @@ import SwiftUI
 struct ProcessPropertiesView: View {
     let key: ProcessKey
     @ObservedObject private var store = ProcessStore.shared
-    @State private var tab: PropertyTab = .general
+    @AppStorage("propertiesTab") private var tab: PropertyTab = .general
     /// Last known state, kept so the window stays useful after the process exits.
     @State private var snapshot: ProcessItem?
 

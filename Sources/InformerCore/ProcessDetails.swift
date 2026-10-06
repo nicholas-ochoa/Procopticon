@@ -14,12 +14,12 @@ public struct FileDescriptorInfo: Codable, Sendable, Identifiable, Hashable {
     public var socket: SocketEndpoint?
 
     public var accessDescription: String {
-        let mode = openFlags & UInt32(O_ACCMODE)
+        // fi_openflags holds kernel FREAD (1) / FWRITE (2) bits rather than O_ACCMODE values.
         var parts: [String] = []
-        switch Int32(mode) {
-        case O_RDONLY: parts.append("Read")
-        case O_WRONLY: parts.append("Write")
-        case O_RDWR: parts.append("Read/Write")
+        switch openFlags & 3 {
+        case 1: parts.append("Read")
+        case 2: parts.append("Write")
+        case 3: parts.append("Read/Write")
         default: break
         }
         if openFlags & UInt32(O_APPEND) != 0 { parts.append("Append") }
@@ -230,7 +230,7 @@ public struct NetworkConnection: Codable, Sendable, Identifiable, Hashable {
 }
 
 /// Result row of a "find open files or libraries" search.
-public struct HandleMatch: Codable, Sendable, Identifiable, Hashable {
+public struct OpenFileMatch: Codable, Sendable, Identifiable, Hashable {
     public var id: String { "\(pid)-\(fd ?? -1)-\(type)-\(name)" }
     public var pid: Int32
     public var processName: String
@@ -241,13 +241,13 @@ public struct HandleMatch: Codable, Sendable, Identifiable, Hashable {
 
 public enum ProcessDetails {
     /// Searches open file descriptors (and optionally mapped images) of every accessible process.
-    public static func searchHandles(query: String, includeLibraries: Bool) -> [HandleMatch] {
+    public static func searchOpenFiles(query: String, includeLibraries: Bool) -> [OpenFileMatch] {
         let needle = query.lowercased()
-        var results: [HandleMatch] = []
+        var results: [OpenFileMatch] = []
         for (pid, name) in ProcessSampler.lightweightList() {
             if case .success(let fds) = fileDescriptors(pid: pid) {
                 for f in fds where f.name.lowercased().contains(needle) {
-                    results.append(HandleMatch(pid: pid, processName: name, type: f.type, fd: f.fd, name: f.name))
+                    results.append(OpenFileMatch(pid: pid, processName: name, type: f.type, fd: f.fd, name: f.name))
                 }
             }
             if includeLibraries, case .success(let regions) = regions(pid: pid) {
@@ -255,7 +255,7 @@ public enum ProcessDetails {
                 for r in regions where !r.path.isEmpty && !seen.contains(r.path) {
                     seen.insert(r.path)
                     if r.path.lowercased().contains(needle) {
-                        results.append(HandleMatch(pid: pid, processName: name, type: r.protection & 4 != 0 ? "Image" : "Mapped file", fd: nil, name: r.path))
+                        results.append(OpenFileMatch(pid: pid, processName: name, type: r.protection & 4 != 0 ? "Image" : "Mapped file", fd: nil, name: r.path))
                     }
                 }
             }
