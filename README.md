@@ -25,7 +25,7 @@ cut-off value to see all of it.
   **regular expressions**. Click `.*` at the right end of the search field or use *View ▸ Use Regular
   Expressions in Search* (⌥⌘R), or write `/pattern/` at any time. Patterns are case-insensitive;
   `/pattern/c` makes one case-sensitive. An invalid pattern is reported in the status bar.
-* **Quick filters** in the toolbar: **Apps** (GUI applications only), **Mine** (your processes only),
+* **Quick filters** in the toolbar: **Apps** (GUI applications and the processes they started), **Mine** (your processes only),
   **Tree/List**, and a **Filters** menu (hide root/system, Apple-signed or zombie processes). While a
   filter is active, the status bar shows "Showing N of M" with a **Clear Filters** link.
 * **Saved filters** store a search plus filter settings under a name. Apply one from the Filters menu or

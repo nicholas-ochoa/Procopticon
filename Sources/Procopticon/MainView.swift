@@ -374,7 +374,7 @@ struct AppsToggle: View {
 
     var body: some View {
         Toggle(isOn: $settings.onlyApplications) { Label("Apps", systemImage: "macwindow.on.rectangle") }
-            .help("Show only applications with a user interface (⌥⌘A)")
+            .help("Show only applications with a user interface and the processes they started (⌥⌘A)")
     }
 }
 

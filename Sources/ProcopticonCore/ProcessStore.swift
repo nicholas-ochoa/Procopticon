@@ -195,7 +195,7 @@ public struct ProcessFilterOptions: Equatable {
     public var hideZombies = false
     /// Treat the whole search text as a regular expression (`/pattern/` always is).
     public var regex = false
-    /// Only GUI applications (see `ProcessStore.applicationPids`).
+    /// Only GUI applications (see `ProcessStore.applicationPids`) and the processes they started.
     public var onlyApplications = false
 
     /// True when any option (other than the regex flag) narrows the list.
@@ -423,12 +423,46 @@ public final class ProcessStore: ObservableObject {
         let me = Elevation.interactiveUid
         let appPids = f.onlyApplications ? applicationPids() : []
 
+        /// The live process that started `item`, if it is still running (a reused PID that started
+        /// later is not the parent).
+        func parentOf(_ item: ProcessItem) -> ProcessItem? {
+            let r = item.record
+            guard r.pid != r.ppid, let parent = byPid[r.ppid], parent.key != item.key,
+                  parent.record.startMicros <= r.startMicros || r.ppid == 0 else { return nil }
+            return parent
+        }
+
+        // With "Apps", processes started by a GUI application (helpers, a terminal's shells and
+        // everything they run) count as part of it. Memoized so each chain is walked once.
+        var inApp: [ProcessKey: Bool] = [:]
+        func belongsToApp(_ item: ProcessItem) -> Bool {
+            var chain: [ProcessKey] = []
+            var node: ProcessItem? = item
+            var result = false
+            while let n = node {
+                if appPids.contains(n.record.pid) {
+                    result = true
+                    break
+                }
+                if let known = inApp[n.key] {
+                    result = known
+                    break
+                }
+                chain.append(n.key)
+                node = chain.count < 512 ? parentOf(n) : nil
+            }
+            for key in chain {
+                inApp[key] = result
+            }
+            return result
+        }
+
         func passesOptions(_ item: ProcessItem) -> Bool {
             let r = item.record
             if f.hideOtherUsers, r.uid != me { return false }
             if f.hideSystemProcesses, r.uid < 500, r.uid != me { return false }
             if f.hideZombies, r.isZombie { return false }
-            if f.onlyApplications, !appPids.contains(r.pid) { return false }
+            if f.onlyApplications, !belongsToApp(item) { return false }
             if f.hideAppleProcesses, let s = item.signing, s.isAppleSigned { return false }
             return true
         }
@@ -436,9 +470,7 @@ public final class ProcessStore: ObservableObject {
         var childMap: [ProcessKey: [ProcessItem]] = [:]
         var rootList: [ProcessItem] = []
         for item in items.values {
-            let r = item.record
-            if options.treeMode, r.pid != r.ppid, let parent = byPid[r.ppid], parent.key != item.key,
-               parent.record.startMicros <= r.startMicros || r.ppid == 0 {
+            if options.treeMode, let parent = parentOf(item) {
                 item.parent = parent
                 childMap[parent.key, default: []].append(item)
             } else {

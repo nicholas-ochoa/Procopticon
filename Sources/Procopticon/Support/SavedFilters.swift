@@ -257,7 +257,7 @@ struct SavedFilterEditor: View {
                 }
             }
             Section("Show") {
-                Toggle("Only GUI applications", isOn: $filter.onlyApplications)
+                Toggle("Only GUI applications and their child processes", isOn: $filter.onlyApplications)
                 Toggle("Only my processes", isOn: $filter.onlyMine)
                 Toggle("Hide root & system processes", isOn: $filter.hideSystem)
                 Toggle("Hide Apple-signed processes", isOn: $filter.hideApple)
