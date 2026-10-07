@@ -11,10 +11,11 @@ IOKit. Large lists use AppKit `NSOutlineView` so that thousands of rows can refr
 **Processes** — a live process tree with icons and about 70 optional columns (right-click the header).
 Applications appear under their app name (Parallels Desktop rather than `prl_client_app`).
 Columns cover CPU (user/kernel), physical footprint, peak memory, resident and virtual size, disk
-read/write rates, GPU usage and GPU time, threads, open files, cycles, instructions and IPC, context switches, system calls,
+read/write rates, GPU usage and GPU time, network send/receive rates and bytes/packets sent and
+received (from `nettop`), threads, open files, cycles, instructions and IPC, context switches, system calls,
 wake-ups, energy and power, nice/priority, start time, command line, bundle identifier/version,
 architecture (arm64 or Rosetta), sandbox, code-signing verification and signer, and team ID. There are
-also CPU, memory, disk and GPU history graph columns. The **Process title** column shows the title a process
+also CPU, memory, disk, GPU and network history graph columns. The **Process title** column shows the title a process
 gave itself by overwriting its first argument (Node's `process.title`, `setproctitle`, "postgres:
 checkpointer"); it stays empty for processes started under their own name, a symlink or shim. Hover over a
 cut-off value to see all of it.
@@ -29,6 +30,9 @@ cut-off value to see all of it.
 * **Quick filters** in the toolbar: **Apps** (GUI applications and the processes they started), **Mine** (your processes only),
   **Tree/List**, and a **Filters** menu (hide root/system, Apple-signed or zombie processes). While a
   filter is active, the status bar shows "Showing N of M" with a **Clear Filters** link.
+* **Summary panel**: click the CPU, Memory, Disk, Network or GPU stats in the status bar to open an
+  Activity Monitor–style panel above it: totals and rates beside a history graph (CPU load, memory
+  pressure, disk IO or data, network packets or data, GPU). Click again to close it.
 * **Saved filters** store a search plus filter settings under a name. Apply one from the Filters menu or
   from *View ▸ Saved Filters* (⌃⌘1–9). Manage them in *Settings ▸ Filters*: create one from the current
   state, edit, duplicate, reorder or delete.

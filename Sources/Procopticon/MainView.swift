@@ -244,6 +244,7 @@ struct MainView: View {
 struct MainContentView: View {
     @ObservedObject private var state = MainWindowState.shared
     @ObservedObject private var settings = AppSettings.shared
+    @AppStorage(SummarySection.storageKey) private var summarySection = ""
 
     var body: some View {
         VStack(spacing: 0) {
@@ -259,6 +260,10 @@ struct MainContentView: View {
             // No cross-fade: animating four large tables forces repeated layout and commits.
             .transaction { $0.animation = nil }
             if settings.showStatusBar {
+                if let section = SummarySection(rawValue: summarySection) {
+                    Divider()
+                    StatusSummaryPanel(section: section)
+                }
                 Divider()
                 MainStatusBar()
             }
@@ -585,6 +590,7 @@ struct ElevationButton: View {
 
 struct StatusBarView: View {
     @ObservedObject private var store = ProcessStore.shared
+    @AppStorage(SummarySection.storageKey) private var summarySection = ""
     var elevationRevision: Int
     var searchError: String?
     var showFilterSummary = false
@@ -592,17 +598,30 @@ struct StatusBarView: View {
     var body: some View {
         let sys = store.system
         let vm = sys.last?.vm
-        HStack(spacing: 16) {
-            stat("CPU", String(format: "%.1f%%", sys.cpuUsage))
-            if let vm {
-                stat("Memory", "\(Fmt.bytes(vm.usedBytes)) / \(Fmt.bytes(vm.totalBytes)) (\(String(format: "%.0f%%", Double(vm.usedBytes) / Double(max(1, vm.totalBytes)) * 100)))")
-                stat("Swap", Fmt.bytes(vm.swapUsed))
-                stat("Pressure", vm.pressureDescription)
+        HStack(spacing: 6) {
+            sectionButton(.cpu) {
+                stat("CPU", String(format: "%.1f%%", sys.cpuUsage))
+                stat("Processes", "\(store.processCount)")
+                stat("Threads", Fmt.count(store.totalThreads))
             }
-            stat("Processes", "\(store.processCount)")
-            stat("Threads", Fmt.count(store.totalThreads))
-            stat("Disk", "↓\(Fmt.rate(sys.diskReadRate).ifEmpty("0")) ↑\(Fmt.rate(sys.diskWriteRate).ifEmpty("0"))")
-            stat("Network", "↓\(Fmt.rate(sys.netInRate).ifEmpty("0")) ↑\(Fmt.rate(sys.netOutRate).ifEmpty("0"))")
+            if let vm {
+                sectionButton(.memory) {
+                    stat("Memory", "\(Fmt.bytes(vm.usedBytes)) / \(Fmt.bytes(vm.totalBytes)) (\(String(format: "%.0f%%", Double(vm.usedBytes) / Double(max(1, vm.totalBytes)) * 100)))")
+                    stat("Swap", Fmt.bytes(vm.swapUsed))
+                    stat("Pressure", vm.pressureDescription)
+                }
+            }
+            sectionButton(.disk) {
+                stat("Disk", "↓\(Fmt.rate(sys.diskReadRate).ifEmpty("0")) ↑\(Fmt.rate(sys.diskWriteRate).ifEmpty("0"))")
+            }
+            sectionButton(.network) {
+                stat("Network", "↓\(Fmt.rate(sys.netInRate).ifEmpty("0")) ↑\(Fmt.rate(sys.netOutRate).ifEmpty("0"))")
+            }
+            if !sys.gpu.ordered.isEmpty {
+                sectionButton(.gpu) {
+                    stat("GPU", String(format: "%.0f%%", sys.gpu.last))
+                }
+            }
             Spacer()
             if showFilterSummary, store.filter.isFiltering {
                 if let saved = AppSettings.shared.activeSavedFilter {
@@ -644,6 +663,47 @@ struct StatusBarView: View {
             Text(title + ":").foregroundStyle(.secondary)
             Text(value)
         }
+    }
+
+    /// A group of stats that opens (or closes) its section of the summary panel.
+    private func sectionButton<Content: View>(_ section: SummarySection, @ViewBuilder content: () -> Content) -> some View {
+        let open = summarySection == section.rawValue
+        return Button {
+            summarySection = open ? "" : section.rawValue
+        } label: {
+            HStack(spacing: 14) { content() }
+        }
+        .buttonStyle(StatusSectionButtonStyle(isOpen: open))
+        .help(open ? "Hide the \(section.rawValue) details" : "Show \(section.rawValue) details above the status bar")
+    }
+}
+
+/// Status bar stats that open a section of the summary panel: a hover highlight, and a tinted
+/// capsule while their section is open.
+private struct StatusSectionButtonStyle: ButtonStyle {
+    var isOpen: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        StatusSectionCell(label: configuration.label, isPressed: configuration.isPressed, isOpen: isOpen)
+    }
+}
+
+private struct StatusSectionCell<Label: View>: View {
+    let label: Label
+    let isPressed: Bool
+    let isOpen: Bool
+    @State private var hovering = false
+
+    var body: some View {
+        label
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background {
+                Capsule().fill(isOpen ? AnyShapeStyle(.tint.opacity(0.22))
+                               : AnyShapeStyle(.primary.opacity(isPressed ? 0.14 : hovering ? 0.07 : 0)))
+            }
+            .contentShape(Capsule())
+            .onHover { hovering = $0 }
     }
 }
 

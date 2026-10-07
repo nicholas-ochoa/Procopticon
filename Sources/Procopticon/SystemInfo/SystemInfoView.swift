@@ -327,13 +327,14 @@ struct NetworkPanel: View {
                     }
                     ForEach(interfaces, id: \.name) { i in
                         let rate = sys.interfaceRates[i.name]
+                        let total = sys.interfaceTotals[i.name]
                         GridRow {
                             Text(i.name)
                             Text(i.isUp ? "Up" : "Down").foregroundStyle(i.isUp ? .green : .secondary)
                             Text(Fmt.rate(rate?.rx ?? 0).ifEmpty("—")).monospacedDigit()
                             Text(Fmt.rate(rate?.tx ?? 0).ifEmpty("—")).monospacedDigit()
-                            Text(Fmt.bytes(i.ibytes)).monospacedDigit()
-                            Text(Fmt.bytes(i.obytes)).monospacedDigit()
+                            Text(Fmt.bytes(total?.bytesIn ?? i.ibytes)).monospacedDigit()
+                            Text(Fmt.bytes(total?.bytesOut ?? i.obytes)).monospacedDigit()
                             Text("\(i.ierrors + i.oerrors)").monospacedDigit()
                         }
                     }
@@ -350,7 +351,12 @@ struct NetworkPanel: View {
 
     private var interfaces: [NetInterfaceStats] {
         (sys.last?.interfaces ?? []).filter { $0.ibytes > 0 || $0.obytes > 0 || $0.isUp }
-            .sorted { ($0.ibytes + $0.obytes) > ($1.ibytes + $1.obytes) }
+            .sorted { traffic($0) > traffic($1) }
+    }
+
+    private func traffic(_ i: NetInterfaceStats) -> UInt64 {
+        let t = sys.interfaceTotals[i.name]
+        return (t?.bytesIn ?? i.ibytes) &+ (t?.bytesOut ?? i.obytes)
     }
 }
 

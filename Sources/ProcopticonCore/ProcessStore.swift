@@ -335,6 +335,7 @@ public final class ProcessStore: ObservableObject {
     // Background-queue state.
     private var states: [ProcessKey: ProcessState] = [:]
     private var hasSampled = false
+    private var needsInterfaceBaseline = true
 
     public init() {
         NotificationCenter.default.publisher(for: Elevation.didChangeNotification)
@@ -397,6 +398,9 @@ public final class ProcessStore: ObservableObject {
             let response = Elevation.shared.perform(.sampleProcesses)
             let gpuTimes = GPUUsage.sample()
             let network = NetworkUsage.sample()
+            // netstat's true interface totals, once (see InterfaceCounters).
+            let interfaceBaseline = self.needsInterfaceBaseline ? InterfaceCounters.netstat() : nil
+            self.needsInterfaceBaseline = false
             let sys = SystemSampler.sample()
             let time = Date().timeIntervalSince1970
             var error: String?
@@ -409,7 +413,7 @@ public final class ProcessStore: ObservableObject {
             DispatchQueue.main.async {
                 self.sampling = false
                 self.lastError = error
-                self.system.update(sys, processes: snapshot.items.values)
+                self.system.update(sys, processes: snapshot.items.values, interfaceBaseline: interfaceBaseline)
                 self.publish(snapshot, generation: gen)
             }
         }
@@ -614,10 +618,18 @@ public final class SystemMonitor {
     public private(set) var memoryCompressed = History()
     public private(set) var memoryWired = History()
     public private(set) var swapUsed = History()
+    /// Memory pressure as a percentage (100 minus the share the system considers available).
+    public private(set) var memoryPressure = History()
+    /// The pressure level at each sample (1 normal, 2 warning, 4 critical), parallel to `memoryPressure`.
+    public private(set) var memoryPressureLevel = History()
     public private(set) var diskRead = History()
     public private(set) var diskWrite = History()
+    public private(set) var diskReadOps = History()
+    public private(set) var diskWriteOps = History()
     public private(set) var netIn = History()
     public private(set) var netOut = History()
+    public private(set) var netInPackets = History()
+    public private(set) var netOutPackets = History()
     public private(set) var gpu = History()
     public private(set) var power = History()
     /// Name of the top CPU consumer at each sample (parallel to cpuTotal).
@@ -637,6 +649,13 @@ public final class SystemMonitor {
     public private(set) var netOutRate: Double = 0
     public private(set) var netInPacketsRate: Double = 0
     public private(set) var netOutPacketsRate: Double = 0
+    /// Totals since boot over the non-loopback interfaces.
+    public private(set) var netBytesIn: UInt64 = 0
+    /// True totals per interface; see `InterfaceCounters`.
+    public private(set) var interfaceTotals: [String: InterfaceCounters.Totals] = [:]
+    public private(set) var netBytesOut: UInt64 = 0
+    public private(set) var netPacketsIn: UInt64 = 0
+    public private(set) var netPacketsOut: UInt64 = 0
     public private(set) var interfaceRates: [String: (rx: Double, tx: Double)] = [:]
     public private(set) var faultsRate: Double = 0
     public private(set) var pageinsRate: Double = 0
@@ -651,10 +670,15 @@ public final class SystemMonitor {
 
     public init() {}
 
-    func update(_ s: SystemSnapshot, processes: Dictionary<ProcessKey, ProcessItem>.Values) {
+    /// `interfaceBaseline`: netstat's totals, passed with the first snapshot.
+    func update(_ s: SystemSnapshot, processes: Dictionary<ProcessKey, ProcessItem>.Values,
+                interfaceBaseline: [String: InterfaceCounters.Totals]? = nil) {
         defer { last = s }
         guard let prev = last else {
             perCore = Array(repeating: History(), count: s.cpus.count)
+            for i in s.interfaces {
+                interfaceTotals[i.name] = interfaceBaseline?[i.name] ?? InterfaceCounters.Totals(i)
+            }
             return
         }
         let dt = max(0.001, s.timestamp - prev.timestamp)
@@ -690,6 +714,8 @@ public final class SystemMonitor {
         memoryCompressed.append(Double(s.vm.compressedBytes))
         memoryWired.append(Double(s.vm.wiredBytes))
         swapUsed.append(Double(s.vm.swapUsed))
+        memoryPressure.append(Double(100 - min(100, max(0, s.vm.availablePercent))))
+        memoryPressureLevel.append(Double(s.vm.pressureLevel))
         func r(_ a: UInt64, _ b: UInt64) -> Double { Double(a &- min(a, b)) / dt }
         faultsRate = r(s.vm.faults, prev.vm.faults)
         pageinsRate = r(s.vm.pageins, prev.vm.pageins)
@@ -706,28 +732,57 @@ public final class SystemMonitor {
         diskWriteOpsRate = r(s.disk.opsWritten, prev.disk.opsWritten)
         diskRead.append(diskReadRate)
         diskWrite.append(diskWriteRate)
+        diskReadOps.append(diskReadOpsRate)
+        diskWriteOps.append(diskWriteOpsRate)
 
         // Network (exclude loopback)
         var rx = 0.0, tx = 0.0, rxp = 0.0, txp = 0.0
         var rates: [String: (Double, Double)] = [:]
         let prevIfs = Dictionary(prev.interfaces.map { ($0.name, $0) }, uniquingKeysWith: { a, _ in a })
         for i in s.interfaces {
-            guard let p = prevIfs[i.name] else { continue }
-            let irx = r(i.ibytes, p.ibytes)
-            let itx = r(i.obytes, p.obytes)
+            guard let p = prevIfs[i.name] else {
+                interfaceTotals[i.name] = InterfaceCounters.Totals(i)
+                continue
+            }
+            // The kernel's byte counts wrap at 32 bits for this process.
+            let grown = InterfaceCounters.Totals(
+                bytesIn: InterfaceCounters.growth(i.ibytes, p.ibytes), bytesOut: InterfaceCounters.growth(i.obytes, p.obytes),
+                packetsIn: InterfaceCounters.growth(i.ipackets, p.ipackets), packetsOut: InterfaceCounters.growth(i.opackets, p.opackets))
+            var total = interfaceTotals[i.name] ?? InterfaceCounters.Totals()
+            total.bytesIn &+= grown.bytesIn
+            total.bytesOut &+= grown.bytesOut
+            total.packetsIn &+= grown.packetsIn
+            total.packetsOut &+= grown.packetsOut
+            interfaceTotals[i.name] = total
+            let irx = Double(grown.bytesIn) / dt
+            let itx = Double(grown.bytesOut) / dt
             rates[i.name] = (irx, itx)
             if !i.isLoopback {
                 rx += irx
                 tx += itx
-                rxp += r(i.ipackets, p.ipackets)
-                txp += r(i.opackets, p.opackets)
+                rxp += Double(grown.packetsIn) / dt
+                txp += Double(grown.packetsOut) / dt
             }
         }
+        var bytesIn: UInt64 = 0, bytesOut: UInt64 = 0, packetsIn: UInt64 = 0, packetsOut: UInt64 = 0
+        for i in s.interfaces where !i.isLoopback {
+            guard let t = interfaceTotals[i.name] else { continue }
+            bytesIn &+= t.bytesIn
+            bytesOut &+= t.bytesOut
+            packetsIn &+= t.packetsIn
+            packetsOut &+= t.packetsOut
+        }
+        netBytesIn = bytesIn
+        netBytesOut = bytesOut
+        netPacketsIn = packetsIn
+        netPacketsOut = packetsOut
         interfaceRates = rates
         netInRate = rx
         netOutRate = tx
         netInPacketsRate = rxp
         netOutPacketsRate = txp
+        netInPackets.append(rxp)
+        netOutPackets.append(txp)
         netIn.append(rx)
         netOut.append(tx)
 

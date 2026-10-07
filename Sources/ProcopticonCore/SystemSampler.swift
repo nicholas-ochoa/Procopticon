@@ -34,6 +34,8 @@ public struct VMStats: Codable, Sendable {
     public var swapTotal: UInt64
     public var swapUsed: UInt64
     public var pressureLevel: Int32
+    /// Share of memory the system considers available (kern.memorystatus_level), 0...100.
+    public var availablePercent: Int32 = 100
 
     /// Activity-Monitor style breakdown (bytes).
     public var appMemory: UInt64 { (internalPages > purgeable ? internalPages - purgeable : 0) * pageSize }
@@ -128,7 +130,8 @@ public enum SystemSampler {
             compressor: v.compressorPages, compressedUncompressed: v.compressedPages, purgeable: v.purgeablePages,
             external: v.externalPages, internalPages: v.internalPages, pageins: v.pageins, pageouts: v.pageouts,
             faults: v.faults, compressions: v.compressions, decompressions: v.decompressions, swapins: v.swapins,
-            swapouts: v.swapouts, swapTotal: v.swapTotal, swapUsed: v.swapUsed, pressureLevel: v.pressureLevel)
+            swapouts: v.swapouts, swapTotal: v.swapTotal, swapUsed: v.swapUsed, pressureLevel: v.pressureLevel,
+            availablePercent: memoryAvailablePercent())
 
         var d = si_disk_io()
         si_disk_io_totals(&d)
@@ -153,6 +156,13 @@ public enum SystemSampler {
         return SystemSnapshot(
             timestamp: Date().timeIntervalSince1970, cpus: cpus, vm: vm, disk: disk, interfaces: interfaces,
             loadAverage: load, bootTime: Double(si_boot_time()), gpus: gpuStats(), battery: batteryStats())
+    }
+
+    static func memoryAvailablePercent() -> Int32 {
+        var level: Int32 = 100
+        var size = MemoryLayout<Int32>.size
+        _ = sysctlbyname("kern.memorystatus_level", &level, &size, nil, 0)
+        return level
     }
 
     public static func gpuStats() -> [GPUStats] {
