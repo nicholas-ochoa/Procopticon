@@ -49,13 +49,15 @@ public final class BundleInfoCache: @unchecked Sendable {
     static let bundleExtensions: Set<String> = ["app", "appex", "xpc", "framework", "bundle", "plugin", "kext", "systemextension", "dext", "prefPane", "saver", "qlgenerator", "mdimporter"]
 
     /// Walks up from an executable to the innermost enclosing bundle directory.
+    /// String operations only: building file URLs `lstat`s the path, and icons call this for every
+    /// visible row on each refresh.
     public static func enclosingBundlePath(_ executablePath: String) -> String? {
-        var url = URL(fileURLWithPath: executablePath)
+        var path = executablePath as NSString
         for _ in 0..<8 {
-            url.deleteLastPathComponent()
-            if url.path == "/" { return nil }
-            if bundleExtensions.contains(url.pathExtension) {
-                return url.path
+            path = path.deletingLastPathComponent as NSString
+            if path.length <= 1 { return nil }
+            if bundleExtensions.contains(path.pathExtension) {
+                return path as String
             }
         }
         return nil

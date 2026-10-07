@@ -432,10 +432,8 @@ final class OutlineTableCoordinator<Item>: NSObject, NSOutlineViewDataSource, NS
         for (index, column) in outline.tableColumns.enumerated() where !column.isHidden {
             var width = (column.headerCell.cellSize.width) + 12
             for row in 0..<rows {
-                if let view = outline.view(atColumn: index, row: row, makeIfNecessary: true) as? NSTableCellView,
-                   let field = view.textField {
-                    var w = field.intrinsicContentSize.width + 8
-                    if view.imageView?.image != nil { w += 22 }
+                if let view = outline.view(atColumn: index, row: row, makeIfNecessary: true) as? TextCellView {
+                    var w = view.fittingWidth
                     if column == outline.outlineTableColumn {
                         w += CGFloat(outline.level(forRow: row) + 1) * outline.indentationPerLevel + 16
                     }
@@ -871,17 +869,14 @@ final class OutlineTableCoordinator<Item>: NSObject, NSOutlineViewDataSource, NS
             return
         }
         guard let cell = view as? TextCellView else { return }
-        cell.textField?.alignment = spec.alignment
+        cell.alignment = spec.alignment
         if let attributed = spec.attributedText {
             cell.setText(attributed(node.value))
         } else {
             cell.setText(spec.text(node.value))
         }
         if let imageFn = spec.image {
-            let image = imageFn(node.value)
-            if cell.imageView?.image !== image {
-                cell.imageView?.image = image
-            }
+            cell.image = imageFn(node.value)
         }
         if let tip = spec.tooltip {
             let value = node.value
@@ -1156,6 +1151,16 @@ final class KeyOutlineView: NSOutlineView {
 final class ColoredRowView: NSTableRowView {
     var highlightColor: NSColor?
 
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        // One layer per row instead of one per cell: far less for Core Animation to commit.
+        canDrawSubviewsIntoLayer = true
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
     override func drawBackground(in dirtyRect: NSRect) {
         super.drawBackground(in: dirtyRect)
         if let highlightColor {
@@ -1223,131 +1228,235 @@ final class ResizeCursorHeaderView: NSTableHeaderView {
     }
 }
 
-/// Table cell with optional icon. Uses manual frame layout (no Auto Layout) because cells are
-/// created and reconfigured constantly while lists refresh.
+/// Table cell that draws its optional icon and one line of text itself. Cells built from an
+/// NSTextField and NSImageView cost three views and layers each, plus the text field cell's
+/// appearance machinery; a screenful of a dozen columns is hundreds of them, and creating, laying
+/// out and committing them dominated the main thread on refreshes and scrolling.
 final class TextCellView: NSTableCellView, NSViewToolTipOwner {
     static let defaultFont = NSFont.monospacedDigitSystemFont(ofSize: NSFont.systemFontSize(for: .small) + 1, weight: .regular)
-    private var lineHeight = ceil(defaultFont.ascender - defaultFont.descender + defaultFont.leading) + 1
     private let hasImage: Bool
     private var tipTag: NSView.ToolTipTag?
+    private(set) var font = TextCellView.defaultFont
+    private(set) var string = ""
+    /// Colored text being shown, if any; see `setText(_: NSAttributedString)`.
+    private var styledText: NSAttributedString?
 
     /// Computed only when the user hovers, instead of on every refresh. Without one, a cell whose
     /// text is cut off shows its full text instead.
     var tooltipProvider: (() -> String?)?
     /// Off where the table shows a rich tooltip instead.
     var showsToolTip = true
-    /// Colored text being shown, if any; see `setText(_: NSAttributedString)`.
-    private var styledText: NSAttributedString?
-    /// What `showStyledText()` last gave the text field, to skip redrawing unchanged text.
-    private var appliedText: NSAttributedString?
+
+    var alignment: NSTextAlignment = .left {
+        didSet {
+            if alignment != oldValue { invalidate() }
+        }
+    }
+
+    var image: NSImage? {
+        didSet {
+            if image !== oldValue { needsDisplay = true }
+        }
+    }
 
     init(identifier: NSUserInterfaceItemIdentifier, withImage: Bool) {
         hasImage = withImage
         super.init(frame: .zero)
         self.identifier = identifier
-        let field = NSTextField(labelWithString: "")
-        field.lineBreakMode = .byTruncatingTail
-        field.cell?.truncatesLastVisibleLine = true
-        field.font = Self.defaultFont
-        field.textColor = .labelColor
-        addSubview(field)
-        textField = field
-        if withImage {
-            let image = NSImageView()
-            image.imageScaling = .scaleProportionallyUpOrDown
-            addSubview(image)
-            imageView = image
-        }
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 
+    static func make(identifier: NSUserInterfaceItemIdentifier, withImage: Bool) -> TextCellView {
+        TextCellView(identifier: identifier, withImage: withImage)
+    }
+
     func setFont(_ font: NSFont) {
-        guard textField?.font != font else { return }
-        textField?.font = font
-        lineHeight = ceil(font.ascender - font.descender + font.leading) + 1
-        needsLayout = true
-        showStyledText()
+        guard font != self.font else { return }
+        self.font = font
+        invalidate()
     }
 
     func setText(_ text: String) {
-        if styledText != nil || textField?.stringValue != text {
-            styledText = nil
-            appliedText = nil
-            textField?.stringValue = text
-        }
+        guard styledText != nil || string != text else { return }
+        styledText = nil
+        string = text
+        invalidate()
     }
 
     /// Shows text in the colors of its `.foregroundColor` runs, in the cell's font. A selected row
     /// shows it uncolored, since its highlight would drown the colors out.
     func setText(_ text: NSAttributedString) {
+        guard styledText?.isEqual(to: text) != true else { return }
         styledText = text
-        showStyledText()
+        string = text.string
+        invalidate()
     }
 
     override var backgroundStyle: NSView.BackgroundStyle {
         didSet {
-            if backgroundStyle != oldValue {
-                showStyledText()
-            }
+            if backgroundStyle != oldValue { invalidate() }
         }
     }
 
-    private func showStyledText() {
-        guard let field = textField, let styledText else { return }
-        guard backgroundStyle != .emphasized else {
-            if appliedText != nil || field.stringValue != styledText.string {
-                appliedText = nil
-                field.stringValue = styledText.string
-            }
-            return
-        }
-        let text = NSMutableAttributedString(attributedString: styledText)
-        let range = NSRange(location: 0, length: text.length)
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.alignment = field.alignment
-        paragraph.lineBreakMode = .byTruncatingTail
-        text.addAttributes([.font: field.font ?? Self.defaultFont, .paragraphStyle: paragraph], range: range)
-        text.enumerateAttribute(.foregroundColor, in: range) { color, run, _ in
-            if color == nil {
-                text.addAttribute(.foregroundColor, value: field.textColor ?? .labelColor, range: run)
-            }
-        }
-        guard appliedText?.isEqual(to: text) != true else { return }
-        appliedText = text
-        field.attributedStringValue = text
-    }
-
-    static func make(identifier: NSUserInterfaceItemIdentifier, withImage: Bool) -> TextCellView {
-        TextCellView(identifier: identifier, withImage: withImage)
-    }
-
-    override func layout() {
-        super.layout()
-        let b = bounds
-        var x: CGFloat = 2
-        if hasImage, let imageView {
-            imageView.frame = NSRect(x: 1, y: floor((b.height - 16) / 2), width: 16, height: 16)
-            x = 21
-        }
-        let h = lineHeight
-        textField?.frame = NSRect(x: x, y: floor((b.height - h) / 2), width: max(0, b.width - x - 2), height: h)
+    override func setFrameSize(_ newSize: NSSize) {
+        let changed = newSize != frame.size
+        super.setFrameSize(newSize)
+        guard changed else { return }
+        // The text is truncated to the width (see `makeLine`) and the tooltip covers the bounds.
+        invalidate()
         if let tipTag {
             removeToolTip(tipTag)
         }
-        tipTag = addToolTip(b, owner: self, userData: nil)
+        tipTag = addToolTip(bounds, owner: self, userData: nil)
     }
+
+    private func invalidate() {
+        line = nil
+        needsDisplay = true
+    }
+
+    private var textRect: NSRect {
+        let b = bounds
+        let x: CGFloat = hasImage ? 23 : 4
+        let height = ceil(font.ascender - font.descender + font.leading)
+        return NSRect(x: x, y: floor((b.height - height) / 2), width: max(0, b.width - x - 4), height: height)
+    }
+
+    private var textColor: NSColor {
+        backgroundStyle == .emphasized ? .alternateSelectedControlTextColor : .labelColor
+    }
+
+    /// The text typeset once, truncated to the cell and positioned for its alignment; drawing it
+    /// is then cheap. Rebuilt after anything that changes it (`invalidate()`).
+    private struct Line {
+        var line: CTLine
+        var x: CGFloat
+    }
+    private var line: Line?
+
+    /// The text in the cell's font and colors. Strings far longer than the cell (command lines run
+    /// to thousands of characters) are cut to what could fit first, since only their start shows.
+    /// Colors are resolved now, in the cell's appearance, for Core Text.
+    private func coloredText(maxWidth: CGFloat) -> NSAttributedString {
+        let colorKey = NSAttributedString.Key(kCTForegroundColorAttributeName as String)
+        let base = textColor.cgColor
+        // No glyph is narrower than about a quarter of the font size.
+        let fits = Int(maxWidth / max(1, font.pointSize * 0.25)) + 1
+        let text: NSMutableAttributedString
+        if let styledText, backgroundStyle != .emphasized {
+            text = NSMutableAttributedString(attributedString: styledText)
+            if text.length > fits {
+                text.deleteCharacters(in: NSRange(location: fits, length: text.length - fits))
+            }
+            let range = NSRange(location: 0, length: text.length)
+            text.enumerateAttribute(.foregroundColor, in: range) { color, run, _ in
+                text.addAttribute(colorKey, value: (color as? NSColor)?.cgColor ?? base, range: run)
+            }
+            text.addAttribute(.font, value: font, range: range)
+        } else {
+            let visible = string.utf16.count > fits ? String(string.prefix(fits)) : string
+            text = NSMutableAttributedString(string: visible, attributes: [.font: font, colorKey: base])
+        }
+        return text
+    }
+
+    private func makeLine(in rect: NSRect) -> Line {
+        let text = coloredText(maxWidth: rect.width)
+        var line = CTLineCreateWithAttributedString(text)
+        var width = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
+        if width > rect.width, text.length > 0 {
+            let ellipsis = NSAttributedString(string: "…", attributes: text.attributes(at: max(0, text.length - 1), effectiveRange: nil))
+            if let truncated = CTLineCreateTruncatedLine(line, Double(rect.width), .end, CTLineCreateWithAttributedString(ellipsis)) {
+                line = truncated
+                width = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
+            }
+        }
+        let x: CGFloat = switch alignment {
+        case .right: rect.maxX - width
+        case .center: rect.midX - width / 2
+        default: rect.minX
+        }
+        return Line(line: line, x: x)
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        invalidate()
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        if hasImage, let image {
+            let slot = NSRect(x: 1, y: floor((bounds.height - 16) / 2), width: 16, height: 16)
+            let rect = Self.aspectFit(image.size, in: slot)
+            if image.isTemplate {
+                drawTinted(image, in: rect)
+            } else {
+                image.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+            }
+        }
+        guard !string.isEmpty, let context = NSGraphicsContext.current?.cgContext else { return }
+        let rect = textRect
+        let line = self.line ?? makeLine(in: rect)
+        self.line = line
+        // Baseline centered on the font's line height.
+        let ascent = font.ascender, descent = -font.descender
+        let top = rect.minY + (rect.height - ascent - descent) / 2
+        context.saveGState()
+        if isFlipped {
+            context.textMatrix = CGAffineTransform(scaleX: 1, y: -1)
+            context.textPosition = CGPoint(x: line.x, y: top + ascent)
+        } else {
+            context.textMatrix = .identity
+            context.textPosition = CGPoint(x: line.x, y: top + descent)
+        }
+        CTLineDraw(line.line, context)
+        context.restoreGState()
+    }
+
+    private static func aspectFit(_ size: NSSize, in rect: NSRect) -> NSRect {
+        guard size.width > 0, size.height > 0 else { return rect }
+        let scale = min(rect.width / size.width, rect.height / size.height)
+        let w = size.width * scale, h = size.height * scale
+        return NSRect(x: rect.midX - w / 2, y: rect.midY - h / 2, width: w, height: h)
+    }
+
+    /// Template images (SF Symbols) take the text color, as an image view would give them.
+    private func drawTinted(_ image: NSImage, in rect: NSRect) {
+        guard let context = NSGraphicsContext.current?.cgContext else { return }
+        context.saveGState()
+        context.beginTransparencyLayer(in: rect, auxiliaryInfo: nil)
+        image.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+        textColor.set()
+        rect.fill(using: .sourceIn)
+        context.endTransparencyLayer()
+        context.restoreGState()
+    }
+
+    /// Width the text needs on one line (for sizing columns to fit).
+    var fittingWidth: CGFloat {
+        let text = NSAttributedString(string: string, attributes: [.font: font])
+        return ceil(text.size().width) + textRect.minX + 4
+    }
+
+    // MARK: Accessibility
+
+    override func isAccessibilityElement() -> Bool { true }
+    override func accessibilityRole() -> NSAccessibility.Role? { .staticText }
+    override func accessibilityValue() -> Any? { string }
+
+    // MARK: Tooltips
 
     func view(_ view: NSView, stringForToolTip tag: NSView.ToolTipTag, point: NSPoint, userData data: UnsafeMutableRawPointer?) -> String {
         guard showsToolTip else { return "" }
         if let tip = tooltipProvider?(), !tip.isEmpty {
             return tip
         }
-        // The cell's natural size is what it needs to show all of its text on one line.
-        guard let field = textField, let cell = field.cell else { return "" }
-        return cell.cellSize.width > field.bounds.width ? field.stringValue : ""
+        // Cut off: show the whole text.
+        let full = NSAttributedString(string: string, attributes: [.font: font])
+        return full.size().width > textRect.width ? string : ""
     }
 }
 

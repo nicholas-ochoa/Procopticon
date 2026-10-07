@@ -14,11 +14,7 @@ enum ProcessIcons {
     private static let queue = DispatchQueue(label: "icons", qos: .utility, attributes: .concurrent)
     private static let size = NSSize(width: 16, height: 16)
 
-    static let executable: NSImage = {
-        let img = NSWorkspace.shared.icon(for: .unixExecutable)
-        img.size = size
-        return img
-    }()
+    static let executable: NSImage = rendered(NSWorkspace.shared.icon(for: .unixExecutable))
 
     static let kernel: NSImage = NSImage(systemSymbolName: "cpu", accessibilityDescription: "Kernel") ?? executable
 
@@ -43,6 +39,30 @@ enum ProcessIcons {
         cached(path) ?? executable
     }
 
+    /// The icon as plain bitmaps at the sizes cells and the hover card draw (16 pt at 1x and 2x,
+    /// and 4x for the card's 32 pt at 2x). Workspace icons hold many representations, some rendered on demand, and
+    /// drawing one picks, scales and color-converts a representation every time; table cells
+    /// redraw constantly, so that was a large part of each frame.
+    static func rendered(_ icon: NSImage) -> NSImage {
+        let image = NSImage(size: size)
+        for pixels in [16, 32, 64] {
+            guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: pixels, pixelsHigh: pixels, bitsPerSample: 8,
+                                             samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
+                                             bytesPerRow: 0, bitsPerPixel: 0),
+                  let context = NSGraphicsContext(bitmapImageRep: rep) else { continue }
+            // Same point size for all; the pixel count is the density (1x, 2x, 4x).
+            rep.size = size
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = context
+            context.imageInterpolation = .high
+            icon.draw(in: NSRect(x: 0, y: 0, width: pixels, height: pixels), from: .zero, operation: .copy, fraction: 1)
+            context.flushGraphics()
+            NSGraphicsContext.restoreGraphicsState()
+            image.addRepresentation(rep)
+        }
+        return image
+    }
+
     /// Returns a cached icon, or nil after scheduling a background load.
     private static func cached(_ path: String) -> NSImage? {
         lock.lock()
@@ -54,8 +74,7 @@ enum ProcessIcons {
         lock.unlock()
         if shouldLoad {
             queue.async {
-                let image = NSWorkspace.shared.icon(forFile: path).copy() as! NSImage
-                image.size = size
+                let image = rendered(NSWorkspace.shared.icon(forFile: path))
                 lock.lock()
                 cache[path] = image
                 pending.remove(path)

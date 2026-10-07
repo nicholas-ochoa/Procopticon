@@ -129,3 +129,14 @@ final class ParserTests: XCTestCase {
         XCTAssertEqual(h.ordered, [2, 3, 4])
     }
 }
+
+final class BundlePathTests: XCTestCase {
+    func testEnclosingBundlePath() {
+        XCTAssertEqual(BundleInfoCache.enclosingBundlePath("/Applications/Sublime Text.app/Contents/MacOS/sublime_text"),
+                       "/Applications/Sublime Text.app")
+        XCTAssertEqual(BundleInfoCache.enclosingBundlePath("/System/Library/Frameworks/A.framework/Versions/A/XPCServices/S.xpc/Contents/MacOS/S"),
+                       "/System/Library/Frameworks/A.framework/Versions/A/XPCServices/S.xpc")
+        XCTAssertNil(BundleInfoCache.enclosingBundlePath("/usr/bin/top"))
+        XCTAssertNil(BundleInfoCache.enclosingBundlePath("top"))
+    }
+}
