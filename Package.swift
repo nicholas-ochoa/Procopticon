@@ -2,11 +2,11 @@
 import PackageDescription
 
 let package = Package(
-    name: "ProcessInformer",
+    name: "Procopticon",
     platforms: [.macOS("26.0")],
     products: [
-        .executable(name: "ProcessInformer", targets: ["ProcessInformer"]),
-        .executable(name: "informer-helper", targets: ["informer-helper"]),
+        .executable(name: "Procopticon", targets: ["Procopticon"]),
+        .executable(name: "procopticon-helper", targets: ["procopticon-helper"]),
     ],
     targets: [
         .target(
@@ -15,29 +15,29 @@ let package = Package(
             linkerSettings: [.linkedFramework("IOKit"), .linkedFramework("CoreFoundation")]
         ),
         .target(
-            name: "InformerCore",
+            name: "ProcopticonCore",
             dependencies: ["CSysInfo"],
-            path: "Sources/InformerCore",
+            path: "Sources/ProcopticonCore",
             swiftSettings: [.swiftLanguageMode(.v5)],
             linkerSettings: [.linkedFramework("Security"), .linkedFramework("IOKit")]
         ),
         .executableTarget(
-            name: "informer-helper",
-            dependencies: ["InformerCore"],
-            path: "Sources/informer-helper",
+            name: "procopticon-helper",
+            dependencies: ["ProcopticonCore"],
+            path: "Sources/procopticon-helper",
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
         .executableTarget(
-            name: "ProcessInformer",
-            dependencies: ["InformerCore"],
-            path: "Sources/ProcessInformer",
+            name: "Procopticon",
+            dependencies: ["ProcopticonCore"],
+            path: "Sources/Procopticon",
             swiftSettings: [.swiftLanguageMode(.v5)],
             linkerSettings: [.linkedFramework("AppKit"), .linkedFramework("SwiftUI")]
         ),
         .testTarget(
-            name: "InformerCoreTests",
-            dependencies: ["InformerCore"],
-            path: "Tests/InformerCoreTests",
+            name: "ProcopticonCoreTests",
+            dependencies: ["ProcopticonCore"],
+            path: "Tests/ProcopticonCoreTests",
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
     ]

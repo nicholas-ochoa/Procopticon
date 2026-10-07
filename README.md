@@ -1,4 +1,4 @@
-# Process Informer
+# Procopticon
 
 A native macOS process explorer built around macOS and Unix concepts:
 launchd, Mach-O, code signing, sandboxing, Rosetta, BSD signals and `nice` priorities.
@@ -110,14 +110,14 @@ query with `EXC_GUARD` for some targets.
 
 ## Privileges
 
-macOS only lets an unprivileged process fully inspect processes that run as the same user. Process
-Informer runs in one of three modes. The current mode appears in the status bar and the window subtitle.
+macOS only lets an unprivileged process fully inspect processes that run as the same user. Procopticon
+runs in one of three modes. The current mode appears in the status bar and the window subtitle.
 
 | Mode | How | Behaviour |
 | --- | --- | --- |
 | **Standard** | Normal launch | You see your own processes in full and other processes in outline. If an action is denied, you are asked for an administrator password once, which starts the helper (below). |
-| **Elevated helper** | Toolbar 🔒 button, *File ▸ Show Details for All Processes*, or *Settings ▸ Privileges ▸ Authorize at launch* | `informer-helper` is started as root through the standard macOS authorization dialog. If `sudo` needs no password, it is started with `sudo -n` and no dialog appears. The helper listens on a `0600` Unix socket in your per-user temporary directory and serves exactly one client: every connection is checked against the app's PID and UID. Tools it may run are allowlisted. It exits when the app quits. |
-| **Root ("sudo mode")** | `sudo "/Applications/Process Informer.app/Contents/MacOS/ProcessInformer"` or *File ▸ Relaunch as Root…* | The whole app runs as root. Everything executes in-process and **you are never prompted**. Your own processes are still recognized through `SUDO_UID`. |
+| **Elevated helper** | Toolbar 🔒 button, *File ▸ Show Details for All Processes*, or *Settings ▸ Privileges ▸ Authorize at launch* | `procopticon-helper` is started as root through the standard macOS authorization dialog. If `sudo` needs no password, it is started with `sudo -n` and no dialog appears. The helper listens on a `0600` Unix socket in your per-user temporary directory and serves exactly one client: every connection is checked against the app's PID and UID. Tools it may run are allowlisted. It exits when the app quits. |
+| **Root ("sudo mode")** | `sudo "/Applications/Procopticon.app/Contents/MacOS/Procopticon"` or *File ▸ Relaunch as Root…* | The whole app runs as root. Everything executes in-process and **you are never prompted**. Your own processes are still recognized through `SUDO_UID`. |
 
 System Integrity Protection still applies in every mode. Apple platform binaries cannot be attached to,
 but `sample`, `vmmap` and libproc data remain available for them when you run as root.
@@ -127,13 +127,13 @@ but `sample`, `vmmap` and libproc data remain available for them when you run as
 You need Xcode 26 or later and macOS 26 or later (the project was developed with Xcode 27 on macOS 27).
 
 ```sh
-./scripts/build-app.sh               # release build → build/Process Informer.app (ad-hoc signed)
+./scripts/build-app.sh               # release build → build/Procopticon.app (ad-hoc signed)
 SIGN_IDENTITY="Apple Development: …" ./scripts/build-app.sh   # sign with a certificate
 swift test                           # unit tests for the samplers and parsers
 ```
 
-You can also use `swift build` and `swift run ProcessInformer` while developing.
-`VARIANT=dev ./scripts/build-app.sh` builds **Process Informer Dev.app**. It has its own bundle
+You can also use `swift build` and `swift run Procopticon` while developing.
+`VARIANT=dev ./scripts/build-app.sh` builds **Procopticon Dev.app**. It has its own bundle
 identifier, executable name and preferences, so it can run next to the installed app without
 sharing settings or window positions.
 
@@ -151,10 +151,12 @@ Launch arguments are useful for scripting and testing:
 ## Layout
 
 ```text
-Sources/CSysInfo         C: libproc/sysctl/Mach/IOKit wrappers (processes, FDs, sockets, threads, VM regions, host stats)
-Sources/InformerCore     Swift: samplers, process/network stores, launchd services, code signing, Mach-O parser,
-                         privileged request protocol, executor, helper transport, elevation broker
-Sources/informer-helper  Root helper executable
-Sources/ProcessInformer  SwiftUI/AppKit app
-Tests/InformerCoreTests  Unit tests
+Sources/CSysInfo            C: libproc/sysctl/Mach/IOKit wrappers (processes, FDs, sockets, threads, VM regions, host stats)
+Sources/ProcopticonCore     Swift: samplers, process/network stores, launchd services, code signing, Mach-O parser,
+                            privileged request protocol, executor, helper transport, elevation broker
+Sources/procopticon-helper  Root helper executable
+Sources/Procopticon         SwiftUI/AppKit app
+Tests/ProcopticonCoreTests  Unit tests
+Resources/AppIcon.png       App icon artwork: a full-bleed square. scripts/make-icon.swift adds the macOS icon shape,
+                            rim light and shadow, and renders every size.
 ```

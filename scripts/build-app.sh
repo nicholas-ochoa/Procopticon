@@ -1,41 +1,42 @@
 #!/bin/bash
-# Builds "Process Informer.app" into ./build.
+# Builds "Procopticon.app" into ./build.
 #   CONFIG=debug|release (default release)
 #   SIGN_IDENTITY="Apple Development: …" to sign with a certificate (default: ad-hoc)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 CONFIG="${CONFIG:-release}"
-# VARIANT=dev builds "Process Informer Dev" with its own bundle id, executable name and preferences,
+# VARIANT=dev builds "Procopticon Dev" with its own bundle id, executable name and preferences,
 # so a test build can run next to the installed app without sharing settings or window state.
 VARIANT="${VARIANT:-release}"
 if [ "$VARIANT" = dev ]; then
-    APP_NAME="Process Informer Dev"
-    EXEC_NAME="ProcessInformerDev"
-    BUNDLE_ID="${BUNDLE_ID:-com.processinformer.ProcessInformer.dev}"
+    APP_NAME="Procopticon Dev"
+    EXEC_NAME="ProcopticonDev"
+    BUNDLE_ID="${BUNDLE_ID:-com.procopticon.Procopticon.dev}"
 else
-    APP_NAME="Process Informer"
-    EXEC_NAME="ProcessInformer"
-    BUNDLE_ID="${BUNDLE_ID:-com.processinformer.ProcessInformer}"
+    APP_NAME="Procopticon"
+    EXEC_NAME="Procopticon"
+    BUNDLE_ID="${BUNDLE_ID:-com.procopticon.Procopticon}"
 fi
 VERSION="${VERSION:-1.0.0}"
 BUILD_NUMBER="${BUILD_NUMBER:-$(git rev-list --count HEAD 2>/dev/null || echo 1)}"
 OUT="build/${APP_NAME}.app"
 
-swift build -c "$CONFIG" --product ProcessInformer
-swift build -c "$CONFIG" --product informer-helper
+swift build -c "$CONFIG" --product Procopticon
+swift build -c "$CONFIG" --product procopticon-helper
 BIN="$(swift build -c "$CONFIG" --show-bin-path)"
 
 rm -rf "$OUT"
 mkdir -p "$OUT/Contents/MacOS" "$OUT/Contents/Resources"
-cp "$BIN/ProcessInformer" "$OUT/Contents/MacOS/$EXEC_NAME"
-cp "$BIN/informer-helper" "$OUT/Contents/MacOS/informer-helper"
+cp "$BIN/Procopticon" "$OUT/Contents/MacOS/$EXEC_NAME"
+cp "$BIN/procopticon-helper" "$OUT/Contents/MacOS/procopticon-helper"
 
 # Icon
 ICONSET="build/AppIcon.iconset"
-if [ ! -f build/AppIcon.icns ] || [ scripts/make-icon.swift -nt build/AppIcon.icns ]; then
+if [ ! -f build/AppIcon.icns ] || [ scripts/make-icon.swift -nt build/AppIcon.icns ] \
+    || [ Resources/AppIcon.png -nt build/AppIcon.icns ]; then
     rm -rf "$ICONSET"
-    swift scripts/make-icon.swift "$ICONSET"
+    swift scripts/make-icon.swift Resources/AppIcon.png "$ICONSET"
     iconutil -c icns "$ICONSET" -o build/AppIcon.icns
     rm -rf "$ICONSET"
 fi
@@ -60,12 +61,12 @@ cat > "$OUT/Contents/Info.plist" <<PLIST
     <key>LSMinimumSystemVersion</key><string>26.0</string>
     <key>NSHighResolutionCapable</key><true/>
     <key>NSSupportsAutomaticTermination</key><false/>
-    <key>NSHumanReadableCopyright</key><string>Process Informer — a process explorer for macOS.</string>
+    <key>NSHumanReadableCopyright</key><string>Procopticon — a process explorer for macOS.</string>
 </dict>
 </plist>
 PLIST
 
 IDENTITY="${SIGN_IDENTITY:--}"
-codesign --force --sign "$IDENTITY" --timestamp=none --identifier "${BUNDLE_ID}.helper" "$OUT/Contents/MacOS/informer-helper"
+codesign --force --sign "$IDENTITY" --timestamp=none --identifier "${BUNDLE_ID}.helper" "$OUT/Contents/MacOS/procopticon-helper"
 codesign --force --sign "$IDENTITY" --timestamp=none "$OUT"
 echo "Built $OUT"
