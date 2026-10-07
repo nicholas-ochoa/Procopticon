@@ -433,9 +433,37 @@ public final class ProcessStore: ObservableObject {
         }
     }
 
+    /// While true (the app sets it while a menu is open), finished samples are held instead of
+    /// published, so views don't rebuild under the menu and keep it from responding. Clearing it
+    /// publishes the latest one. Held for at most `maxHold` in case it's never cleared.
+    public var holdsUpdates = false {
+        didSet {
+            guard holdsUpdates != oldValue else { return }
+            if holdsUpdates {
+                heldSince = Date()
+            } else {
+                releaseHeldSnapshot()
+            }
+        }
+    }
+    private static let maxHold: TimeInterval = 30
+    private var heldSince: Date?
+    private var heldSnapshot: (snapshot: Snapshot, generation: Int)?
+
+    private func releaseHeldSnapshot() {
+        heldSince = nil
+        guard let held = heldSnapshot else { return }
+        heldSnapshot = nil
+        publish(held.snapshot, generation: held.generation)
+    }
+
     private func publish(_ s: Snapshot, generation gen: Int) {
         // A newer request (e.g. another keystroke) supersedes this one; its result will follow.
         guard gen == generation else { return }
+        if holdsUpdates, let heldSince, Date().timeIntervalSince(heldSince) < Self.maxHold {
+            heldSnapshot = (s, gen)
+            return
+        }
         items = s.items
         roots = s.roots
         visibleItems = s.visible

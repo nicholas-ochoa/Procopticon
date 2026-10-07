@@ -724,7 +724,7 @@ final class OutlineTableCoordinator<Item>: NSObject, NSOutlineViewDataSource, NS
         outline.endUpdates()
         flatKeys = p.flat
         if !created.isEmpty {
-            restoreExpansion()
+            expandNew(created)
         }
         refreshVisibleRows()
         let rows = IndexSet(selectedKeys.compactMap { k -> Int? in
@@ -742,12 +742,32 @@ final class OutlineTableCoordinator<Item>: NSObject, NSOutlineViewDataSource, NS
         return true
     }
 
-    private func restoreExpansion() {
+    /// Expands newly inserted nodes (`created` lists children before their parents), and parents
+    /// that just gained their first children. Walking the whole tree instead, on every refresh that
+    /// adds a process, kept the main thread busy.
+    private func expandNew(_ created: [OutlineNode<Item>]) {
+        guard let outline, parent.children != nil else { return }
+        let fresh = Set(created.map { ObjectIdentifier($0) })
+        for node in created {
+            if let joined = node.parentNode, !fresh.contains(ObjectIdentifier(joined)), shouldExpand(joined), !outline.isItemExpanded(joined) {
+                outline.expandItem(joined)
+            }
+        }
+        for node in created.reversed() where !node.children.isEmpty && shouldExpand(node) && !outline.isItemExpanded(node) {
+            outline.expandItem(node)
+        }
+    }
+
+    private func shouldExpand(_ node: OutlineNode<Item>) -> Bool {
+        parent.expandByDefault ? !collapsed.contains(node.key) : expandedExplicitly.contains(node.key)
+    }
+
+    /// Expands nodes under `list` (the whole tree by default) as the user left them.
+    private func restoreExpansion(_ list: [OutlineNode<Item>]? = nil) {
         guard let outline, parent.children != nil else { return }
         func expand(_ list: [OutlineNode<Item>]) {
             for n in list where !n.children.isEmpty {
-                let shouldExpand = parent.expandByDefault ? !collapsed.contains(n.key) : expandedExplicitly.contains(n.key)
-                if shouldExpand {
+                if shouldExpand(n) {
                     if !outline.isItemExpanded(n) {
                         outline.expandItem(n)
                     }
@@ -755,7 +775,7 @@ final class OutlineTableCoordinator<Item>: NSObject, NSOutlineViewDataSource, NS
                 }
             }
         }
-        expand(rootNodes)
+        expand(list ?? rootNodes)
     }
 
     private var expandedExplicitly = Set<AnyHashable>()
