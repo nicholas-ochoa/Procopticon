@@ -146,7 +146,7 @@ struct TextReportView: View {
                     Text("Collecting…").foregroundStyle(.secondary)
                 }
                 Spacer()
-                FilterField($search, prompt: "Filter lines", width: 220)
+                FilterField($search, width: 220)
                 Button("Copy") {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(text, forType: .string)

@@ -322,10 +322,12 @@ struct MainSearchField: View {
     @ObservedObject private var settings = AppSettings.shared
 
     var body: some View {
-        ToolbarSearchField(
+        RegexSearchFieldView(
             text: state.searchBinding,
             regex: $settings.searchUsesRegex,
-            prompt: state.tab == .processes ? "Search processes" : "Search \(state.tab.rawValue.lowercased())")
+            prompt: state.tab == .processes ? "Search processes" : "Search \(state.tab.rawValue.lowercased())",
+            toolTip: "Filter the list by name, PID, path, command line or user. Use /pattern/ for a regular expression (⌘F)",
+            focusOnFind: true)
             .frame(minWidth: 180, idealWidth: 260, maxWidth: 360)
     }
 }
@@ -740,12 +742,17 @@ private struct ToolbarClusterCell<Label: View>: View {
     }
 }
 
-/// Native search field for the toolbar (⌘F focuses it), with a ".*" regular-expression toggle at its
-/// trailing edge.
-struct ToolbarSearchField: NSViewRepresentable {
+/// Native search field with a ".*" regular-expression toggle at its trailing edge, used for the
+/// toolbar search and the filter fields above lists.
+struct RegexSearchFieldView: NSViewRepresentable {
     @Binding var text: String
     @Binding var regex: Bool
     var prompt: String
+    var toolTip: String?
+    /// The search is invalid (e.g. a malformed regular expression); the toggle turns red.
+    var isInvalid = false
+    /// Find (⌘F) focuses this field.
+    var focusOnFind = false
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -755,15 +762,18 @@ struct ToolbarSearchField: NSViewRepresentable {
         field.regexButton.target = context.coordinator
         field.regexButton.action = #selector(Coordinator.toggleRegex(_:))
         field.isRegex = regex
+        field.isInvalid = isInvalid
         field.sendsSearchStringImmediately = true
         field.sendsWholeSearchString = false
         field.placeholderString = prompt
         field.stringValue = text
-        field.toolTip = "Filter the list by name, PID, path, command line or user. Use /pattern/ for a regular expression (⌘F)"
-        context.coordinator.focusObserver = NotificationCenter.default.addObserver(
-            forName: .focusSearch, object: nil, queue: .main) { [weak field] _ in
-            guard let field else { return }
-            field.window?.makeFirstResponder(field)
+        field.toolTip = toolTip
+        if focusOnFind {
+            context.coordinator.focusObserver = NotificationCenter.default.addObserver(
+                forName: .focusSearch, object: nil, queue: .main) { [weak field] _ in
+                guard let field else { return }
+                field.window?.makeFirstResponder(field)
+            }
         }
         return field
     }
@@ -776,16 +786,22 @@ struct ToolbarSearchField: NSViewRepresentable {
         if field.isRegex != regex {
             field.isRegex = regex
         }
+        if field.isInvalid != isInvalid {
+            field.isInvalid = isInvalid
+        }
         if field.placeholderString != prompt {
             field.placeholderString = prompt
+        }
+        if field.toolTip != toolTip {
+            field.toolTip = toolTip
         }
     }
 
     final class Coordinator: NSObject, NSSearchFieldDelegate {
-        var parent: ToolbarSearchField
+        var parent: RegexSearchFieldView
         var focusObserver: NSObjectProtocol?
 
-        init(_ parent: ToolbarSearchField) {
+        init(_ parent: RegexSearchFieldView) {
             self.parent = parent
         }
 
@@ -828,6 +844,10 @@ final class RegexSearchField: NSSearchField {
         didSet { updateRegexButton() }
     }
 
+    var isInvalid = false {
+        didSet { updateRegexButton() }
+    }
+
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         regexButton.setButtonType(.pushOnPushOff)
@@ -850,7 +870,7 @@ final class RegexSearchField: NSSearchField {
 
     private func updateRegexButton() {
         regexButton.state = isRegex ? .on : .off
-        regexButton.contentTintColor = isRegex ? .controlAccentColor : .secondaryLabelColor
+        regexButton.contentTintColor = isInvalid ? .systemRed : isRegex ? .controlAccentColor : .secondaryLabelColor
         regexButton.toolTip = isRegex
             ? "Search text is a regular expression. Click for plain text matching (⌥⌘R)"
             : "Treat search text as a regular expression (⌥⌘R)"

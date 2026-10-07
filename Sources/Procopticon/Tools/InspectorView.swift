@@ -189,7 +189,7 @@ struct InspectorView: View {
         case .symbols:
             VStack(spacing: 0) {
                 HStack {
-                    FilterField($symbolFilter, prompt: "Filter symbols", width: 400)
+                    FilterField($symbolFilter, width: 260)
                     Text("\(filteredSymbols(f).count) of \(Fmt.count(f.symbols.count))").foregroundStyle(.secondary)
                 }
                 .padding(8)

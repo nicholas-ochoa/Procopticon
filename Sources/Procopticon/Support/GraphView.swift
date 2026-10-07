@@ -209,36 +209,34 @@ struct UsageBar: View {
 }
 
 /// Text field used for list filters: shows a regex toggle and flags invalid patterns.
+/// Filter field for the bar above a list, with the ".*" regular-expression toggle inside it.
+/// Callers put it at the trailing end of the bar.
 struct FilterField: View {
     @Binding var text: String
-    var prompt: String = "Filter"
     var width: CGFloat = 220
     @ObservedObject private var settings = AppSettings.shared
 
-    init(_ text: Binding<String>, prompt: String = "Filter", width: CGFloat = 220) {
+    init(_ text: Binding<String>, width: CGFloat = 220) {
         _text = text
-        self.prompt = prompt
         self.width = width
     }
 
     var body: some View {
         let matcher = settings.matcher(text)
         HStack(spacing: 4) {
-            TextField(settings.searchUsesRegex ? prompt + " (regex)" : prompt, text: $text)
-                .textFieldStyle(.roundedBorder)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 5)
-                        .strokeBorder(matcher.isValid ? Color.clear : Color.red, lineWidth: 1.5))
-                .help(matcher.error ?? "Plain text matches anywhere. Enable .* or type /pattern/ for a regular expression (/pattern/c is case-sensitive).")
-            RegexToggle()
-                .toggleStyle(.button)
             if let error = matcher.error {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .foregroundStyle(.red)
                     .help(error)
             }
+            RegexSearchFieldView(
+                text: $text,
+                regex: $settings.searchUsesRegex,
+                prompt: "Filter",
+                toolTip: matcher.error ?? "Plain text matches anywhere. Enable .* or type /pattern/ for a regular expression (/pattern/c is case-sensitive).",
+                isInvalid: matcher.error != nil)
+                .frame(width: width)
         }
-        .frame(maxWidth: width + 50)
     }
 }
 
