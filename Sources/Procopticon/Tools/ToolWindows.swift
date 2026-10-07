@@ -32,6 +32,7 @@ struct FindView: View {
                     .toggleStyle(.button)
                 Toggle("Include libraries & mapped files", isOn: $includeLibraries).toggleStyle(.checkbox)
                 Button("Find", action: search)
+                    .help("Search every process's open files, sockets and loaded libraries")
                     .keyboardShortcut(.defaultAction)
                     .disabled(query.trimmingCharacters(in: .whitespaces).isEmpty || searching)
             }
@@ -141,6 +142,7 @@ struct HiddenProcessesView: View {
                 Text(summary).foregroundStyle(.secondary).lineLimit(3)
                 Spacer()
                 Button("Scan", action: scan).disabled(scanning).keyboardShortcut(.defaultAction)
+                    .help("Probe every possible PID and compare with the kernel's process list, to find processes hidden from it")
             }
             .padding(10)
             Divider()
@@ -304,6 +306,7 @@ struct RunView: View {
                     .menuStyle(.borderlessButton)
                     .frame(width: 30)
                     .disabled(history.isEmpty)
+                    .help("Recent commands")
                 Button("Choose…") {
                     let panel = NSOpenPanel()
                     panel.canChooseFiles = true
@@ -312,6 +315,7 @@ struct RunView: View {
                         command = url.path.shellQuoted
                     }
                 }
+                .help("Pick a program or application in a file browser")
             }
             Toggle("Run as root", isOn: $asRoot).toggleStyle(.checkbox)
             if asRoot, Elevation.shared.mode == .standard {
@@ -320,8 +324,10 @@ struct RunView: View {
             HStack {
                 Spacer()
                 Button("Cancel") { WindowManager.shared.close(id: "run") }.keyboardShortcut(.cancelAction)
+                    .help("Close without running anything (Esc)")
                 Button("Run", action: run).keyboardShortcut(.defaultAction)
                     .disabled(command.trimmingCharacters(in: .whitespaces).isEmpty)
+                    .help("Run the command (Return)")
             }
         }
         .padding(16)

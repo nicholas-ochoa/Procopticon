@@ -44,7 +44,7 @@ struct PrivilegedListView<Row>: View {
                         FilterField($search, width: 200)
                     }
                     Button { reload() } label: { Image(systemName: "arrow.clockwise") }
-                        .help("Refresh")
+                        .help("Reload the list")
                 }
                 .padding(.horizontal, 8)
                 .padding(.vertical, 6)
@@ -123,7 +123,9 @@ struct ThreadsTab: View {
                     .truncationMode(.tail)
                 Spacer()
                 Button("Stack…") { if let t = selected.first { showStack(t) } }.disabled(selected.isEmpty)
+                    .help("Capture the selected thread's call stack (uses sample)")
                 Button("Sample All Threads…") { ProcessActions.sample(item) }
+                    .help("Record what every thread is doing for a few seconds (sample)")
             }
             .padding(8)
         }
@@ -246,8 +248,11 @@ struct MemoryTab: View {
                 Toggle("Hide unallocated regions", isOn: $hideReserved).toggleStyle(.checkbox)
                 Spacer()
                 Button("vmmap…") { ProcessActions.vmmap(item, summary: false) }
+                    .help("Full virtual memory map from vmmap")
                 Button("Summary…") { ProcessActions.vmmap(item, summary: true) }
+                    .help("Memory use by region type (vmmap -summary)")
                 Button("Heap…") { ProcessActions.heap(item) }
+                    .help("Objects on the malloc heap, by class (heap)")
             }
             .padding(.horizontal, 8)
             .padding(.top, 6)
@@ -326,6 +331,7 @@ struct ArgumentsTab: View {
                         Text("\(rows.count) \(rows.count == 1 ? "argument" : "arguments")").foregroundStyle(.secondary)
                         Spacer()
                         Button("Copy Command Line") { ProcessActions.copy(item.record.commandLine ?? rows.map(\.value).shellJoined) }
+                            .help("Copy the arguments as one shell-quoted command line")
                     }
                     if let note {
                         // A line limit, not fixedSize: measured at the window's minimum width, a

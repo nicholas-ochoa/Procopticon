@@ -164,6 +164,7 @@ struct PrivilegeSettings: View {
                     Text("A privileged helper is serving this session. It only accepts connections from this app's process and exits when the app quits.")
                         .font(.caption).foregroundStyle(.secondary)
                     Button("Stop Helper") { Elevation.shared.stopHelper(); revision &+= 1 }
+                        .help("Quit the privileged helper; other users' processes show limited details again")
                 case .standard:
                     Text("Only your own processes can be fully inspected. Actions on other users' processes will ask for administrator credentials once per session.")
                         .font(.caption).foregroundStyle(.secondary)
@@ -173,6 +174,7 @@ struct PrivilegeSettings: View {
                             revision &+= 1
                         }
                     }
+                    .help("Authorize once (administrator password) to see every process in full for this session")
                 }
             }
             Section("Startup") {
@@ -193,6 +195,7 @@ struct PrivilegeSettings: View {
                         Alerts.error("Unable to relaunch", error.localizedDescription)
                     }
                 }
+                .help("Quit and start Procopticon again as root (asks for an administrator password)")
                 .disabled(mode == .root)
             }
         }

@@ -28,7 +28,9 @@ struct EventLogView: View {
                 Button("Copy") {
                     ProcessActions.copy(rows.map { "\(Fmt.date($0.date.timeIntervalSince1970))\t\($0.kind.rawValue)\t\($0.message)" }.joined(separator: "\n"))
                 }
+                .help("Copy the events shown (after filtering) as tab-separated text")
                 Button("Clear") { log.clear() }
+                    .help("Remove all recorded events")
             }
             .padding(8)
             Divider()
@@ -97,6 +99,7 @@ struct WindowListView: View {
                 Spacer()
                 Toggle("On-screen only", isOn: $onScreenOnly).toggleStyle(.checkbox)
                 Button { load() } label: { Image(systemName: "arrow.clockwise") }
+                    .help("Reload the window list")
             }
             .padding(8)
             Divider()

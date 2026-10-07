@@ -238,6 +238,7 @@ struct AccessDeniedView: View {
                     }
                 }
                 .buttonStyle(.borderedProminent)
+                .help("Authorize once (administrator password) to see every process in full")
             }
         }
         .padding()
@@ -322,8 +323,11 @@ struct GeneralTab: View {
                     }
                     HStack {
                         Button("Reveal in Finder") { ProcessActions.revealInFinder(item) }.disabled(r.path == nil)
+                            .help("Show the executable in Finder")
                         Button("Inspect Executable…") { if let p = r.path { InspectorWindow.open(path: p) } }.disabled(r.path == nil)
+                            .help("Open the executable in the inspector: Mach-O header, libraries, symbols and signature")
                         Button("Copy Command Line") { ProcessActions.copy(r.commandLine ?? "") }.disabled(r.commandLine == nil)
+                            .help("Copy the command line, shell-quoted, to the clipboard")
                     }
                     .padding(.top, 6)
                 }
@@ -337,6 +341,7 @@ struct GeneralTab: View {
                                 Text(parentDescription).textSelection(.enabled)
                                 if ProcessStore.shared.item(pid: r.ppid) != nil, r.ppid != r.pid {
                                     Button("Show") { ProcessSelection.shared.reveal(pid: r.ppid) }.controlSize(.small)
+                                        .help("Select the parent process in the process list")
                                 }
                             }
                         }
@@ -346,6 +351,7 @@ struct GeneralTab: View {
                                 HStack {
                                     Text(processName(resp)).textSelection(.enabled)
                                     Button("Show") { ProcessSelection.shared.reveal(pid: resp) }.controlSize(.small)
+                                        .help("Select the responsible process in the process list")
                                 }
                             }
                         }
@@ -370,12 +376,16 @@ struct GeneralTab: View {
                 }
                 HStack {
                     Button("Terminate") { ProcessActions.terminate([item]) }
+                        .help("Ask the process to quit (SIGTERM)")
                     if r.isStopped {
                         Button("Resume") { ProcessActions.resume([item]) }
+                            .help("Let the suspended process run again (SIGCONT)")
                     } else {
                         Button("Suspend") { ProcessActions.suspend([item]) }
+                            .help("Pause the process until it's resumed (SIGSTOP)")
                     }
                     Button("Sample…") { ProcessActions.sample(item) }
+                        .help("Record what the process's threads are doing for a few seconds (sample)")
                     Spacer()
                 }
             }

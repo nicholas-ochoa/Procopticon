@@ -616,6 +616,7 @@ struct StatusBarView: View {
                 }
                 .controlSize(.small)
                 .buttonStyle(.link)
+                .help("Clear the search and turn off every filter, showing all processes")
             }
             if let searchError {
                 Label(searchError, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red)

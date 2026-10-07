@@ -97,13 +97,17 @@ struct MenuBarContent: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .help("Show \(p.name) (\(p.pid)) in the process list")
             }
             Divider()
             HStack {
                 Button("Show Procopticon") { activateMain() }
+                    .help("Bring the process list to the front")
                 Button("System Information") { SystemInfoWindow.open(); NSApp.activate() }
+                    .help("Open the CPU, memory, disk, network, GPU and power graphs")
                 Spacer()
                 Button("Quit") { NSApp.terminate(nil) }
+                    .help("Quit Procopticon")
             }
         }
         .padding(12)

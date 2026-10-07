@@ -179,6 +179,7 @@ struct SavedFiltersSettings: View {
                                 settings.savedFilters.append(f)
                             }
                         }
+                        .help("Add back any of the example filters that were deleted")
                     }
                     .padding()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)

@@ -102,8 +102,11 @@ struct ServiceTab: View {
                                 }
                                 HStack {
                                     Button("Service Properties…") { ServicePropertiesWindow.open(s) }
+                                        .help("Open the service's properties: controls, launchd state and property list")
                                     Button("Restart Service") { ServiceActions.run(.restart, [s]) }
+                                        .help("Stop the service and start it again (launchctl kickstart -k)")
                                     Button("Stop Service") { ServiceActions.run(.stop, [s]) }
+                                        .help("Send the service SIGTERM (launchctl kill); launchd may start it again")
                                 }
                                 .padding(.top, 6)
                             }
@@ -127,6 +130,7 @@ struct ServiceTab: View {
                     await Reports.runTool("/bin/launchctl", ["procinfo", "\(pid)"], requiresRoot: true)
                 }
             }
+            .help("What launchd knows about this process (launchctl procinfo; asks for administrator authorization)")
         }
     }
 }

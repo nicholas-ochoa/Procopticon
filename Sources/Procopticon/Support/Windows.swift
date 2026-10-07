@@ -151,10 +151,13 @@ struct TextReportView: View {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(text, forType: .string)
                 }
+                .help("Copy the whole report to the clipboard (ignores the filter)")
                 Button("Save…") {
                     Alerts.save(text: text, suggestedName: title.replacingOccurrences(of: "/", with: "-") + ".txt")
                 }
+                .help("Save the whole report as a text file")
                 Button("Refresh") { Task { await load() } }
+                    .help("Collect the report again")
             }
             .padding(8)
             Divider()
