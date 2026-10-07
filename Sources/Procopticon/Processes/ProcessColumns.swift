@@ -19,13 +19,13 @@ enum ProcessColumns {
 
         cols.append(.number("pid", "PID", width: 60, value: { $0.pid }, text: { "\($0.pid)" }))
         cols.append(.number("cpu", "CPU", width: 55, help: "CPU usage (percent of total system capacity, or of one core — see Settings)",
-                            value: { $0.cpu }, text: { Fmt.percent($0.cpu) }))
+                            value: { shown($0.cpu) }, text: { Fmt.percent($0.cpu) }))
         cols.append(.number("memory", "Memory", width: 85, help: "Physical footprint: memory attributed to the process, including compressed pages",
                             value: { $0.stats?.physFootprint ?? 0 }, text: { s($0.stats?.physFootprint) }))
         cols.append(.number("ioTotalRate", "Disk rate", width: 80, help: "Disk read + write bytes per second",
                             value: { $0.ioTotalRate }, text: { Fmt.rate($0.ioTotalRate) }))
         cols.append(.number("gpu", "GPU", width: 55, help: "GPU usage: the share of the GPU's time spent on the process's work",
-                            value: { $0.gpu }, text: { Fmt.percent($0.gpu) }))
+                            value: { shown($0.gpu) }, text: { Fmt.percent($0.gpu) }))
         cols.append(.number("gpuTime", "GPU time", width: 90, visible: false,
                             help: "GPU time used by the process's open connections to the GPU",
                             value: { $0.gpuTimeNs }, text: { $0.gpuTimeNs > 0 ? Fmt.duration(nanoseconds: $0.gpuTimeNs) : "" }))
@@ -234,6 +234,13 @@ enum ProcessColumns {
         text.append(NSAttributedString(string: "  "))
         part("↑", .systemRed, p.netOutRate)
         return text
+    }
+
+    /// A percentage as displayed (two decimals), for sorting: rows that show the same value tie
+    /// and keep a stable order, instead of trading places every refresh over digits nobody sees,
+    /// which also moved and redrew rows for nothing.
+    private static func shown(_ percent: Double) -> Double {
+        (percent * 100).rounded()
     }
 
     private static func c(_ v: UInt64?) -> String {
