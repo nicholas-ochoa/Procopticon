@@ -229,6 +229,7 @@ enum ServicePropertiesWindow {
 
 struct ServicePropertiesView: View {
     let service: ServiceItem
+    @ObservedObject private var store = ServiceStore.shared
     @State private var page = Page.general
     @State private var plistText = ""
 
@@ -249,65 +250,158 @@ struct ServicePropertiesView: View {
         }
     }
 
+    /// The service as launchd last reported it, so the page follows starts and stops.
+    private var current: ServiceItem {
+        store.items.first { $0.id == service.id } ?? service
+    }
+
     var body: some View {
         SidebarPagesView(selection: $page) { page in
             switch page {
             case .general: general
-            case .launchdState: TextReportView(title: service.label) { await ServiceProvider.details(of: service) }
+            case .launchdState: TextReportView(title: service.label) { await ServiceProvider.details(of: current) }
             case .propertyList: propertyList
             }
         }
         .frame(minWidth: 680, minHeight: 420)
+        .task { store.refreshIfNeeded() }
     }
 
     private var general: some View {
-        ScrollView {
+        let s = current
+        return ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                HStack(spacing: 14) {
-                    Image(nsImage: icon)
-                        .resizable()
-                        .frame(width: 48, height: 48)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(service.label).font(.title2.weight(.semibold)).textSelection(.enabled)
-                        Text("\(service.kind.rawValue) · \(service.domain.displayName) · \(service.statusDescription)")
-                            .foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                }
-                SectionBox(title: "Service") {
-                    Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 6) {
-                        InfoRow("Label", service.label)
-                        InfoRow("Domain", "\(service.domain.displayName) (\(service.domain.target))")
-                        InfoRow("Type", service.kind.rawValue)
-                        InfoRow("Status", service.statusDescription)
-                        InfoRow("PID", service.pid.map { "\($0)" } ?? "")
-                        InfoRow("Last exit status", service.lastExitStatus)
-                        InfoRow("Enabled", service.disabled == true ? "No" : "Yes")
-                        InfoRow("Start", service.startTypeDescription)
-                        InfoRow("Run as user", service.userName ?? "")
-                        InfoRow("Program", service.executable ?? "")
-                        InfoRow("Arguments", service.arguments.shellJoined)
-                        InfoRow("Property list", service.plistPath ?? "")
-                        InfoRow("Mach services", service.machServices.joined(separator: "\n"))
-                    }
-                }
-                HStack {
-                    ForEach(ServiceProvider.Action.allCases, id: \.self) { action in
-                        Button(action.rawValue) { ServiceActions.run(action, [service]) }
-                    }
-                    if let pid = service.pid, pid > 0 {
-                        Button("Process Properties…") {
-                            if let item = ProcessStore.shared.item(pid: pid) { PropertiesWindow.open(item) }
-                        }
-                    }
-                }
-                if service.domain.requiresRoot, Elevation.shared.mode == .standard {
-                    Label("Controlling system services requires administrator authorization.", systemImage: "lock")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
+                header(s)
+                control(s)
+                details(s)
             }
             .padding()
             .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    // MARK: Header
+
+    private func header(_ s: ServiceItem) -> some View {
+        HStack(spacing: 14) {
+            Image(nsImage: icon)
+                .resizable()
+                .frame(width: 48, height: 48)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(s.label).font(.title2.weight(.semibold)).textSelection(.enabled)
+                Text("\(s.kind.rawValue) · \(s.domain.displayName)").foregroundStyle(.secondary)
+            }
+            Spacer()
+            StatusBadge(text: s.statusDescription, color: statusColor(s))
+        }
+    }
+
+    private func statusColor(_ s: ServiceItem) -> Color {
+        if s.isRunning { return .green }
+        if !s.loaded { return .secondary }
+        if s.disabled == true { return .orange }
+        return .gray
+    }
+
+    // MARK: Control
+
+    /// One row per thing that can be changed: its state, then the actions that apply to it.
+    private func control(_ s: ServiceItem) -> some View {
+        SectionBox(title: "Control") {
+            Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 12, verticalSpacing: 10) {
+                GridRow {
+                    rowLabel("Process")
+                    Text(s.isRunning ? "Running, PID " + String(s.pid ?? 0) : "Not running")
+                    HStack(spacing: 6) {
+                        Button { run(.start) } label: { Label("Start", systemImage: "play.fill") }
+                            .disabled(s.isRunning)
+                            .help("Start the service now (launchctl kickstart)")
+                        Button { run(.stop) } label: { Label("Stop", systemImage: "stop.fill") }
+                            .disabled(!s.isRunning)
+                            .help("Send the service SIGTERM (launchctl kill)")
+                        Button { run(.restart) } label: { Label("Restart", systemImage: "arrow.clockwise") }
+                            .disabled(!s.loaded)
+                            .help("Stop the service if it runs, then start it (launchctl kickstart -k)")
+                    }
+                }
+                GridRow {
+                    rowLabel("launchd")
+                    Text(s.loaded ? "Loaded in \(s.domain.target)" : "Not loaded")
+                    if s.loaded {
+                        Button { run(.unload) } label: { Label("Unload", systemImage: "eject") }
+                            .help("Remove the job from launchd until it's loaded again (launchctl bootout)")
+                    } else {
+                        Button { run(.load) } label: { Label("Load", systemImage: "square.and.arrow.down") }
+                            .disabled(s.plistPath == nil)
+                            .help(s.plistPath == nil ? "There's no property list on disk to load" : "Load the job from its property list (launchctl bootstrap)")
+                    }
+                }
+                GridRow {
+                    rowLabel("Startup")
+                    Text(s.disabled == true ? "Disabled: launchd won't load it" : "Enabled")
+                    if s.disabled == true {
+                        Button { run(.enable) } label: { Label("Enable", systemImage: "checkmark.circle") }
+                            .help("Let launchd load the job (launchctl enable)")
+                    } else {
+                        Button { run(.disable) } label: { Label("Disable", systemImage: "nosign") }
+                            .help("Keep launchd from loading the job, including at the next login or boot (launchctl disable)")
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            if s.domain.requiresRoot, Elevation.shared.mode == .standard {
+                Label("Changing system services asks for administrator authorization.", systemImage: "lock")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.top, 8)
+            }
+        }
+    }
+
+    private func rowLabel(_ text: String) -> some View {
+        Text(text).foregroundStyle(.secondary).gridColumnAlignment(.trailing)
+    }
+
+    private func run(_ action: ServiceProvider.Action) {
+        ServiceActions.run(action, [current])
+    }
+
+    // MARK: Details
+
+    private func details(_ s: ServiceItem) -> some View {
+        SectionBox(title: "Service") {
+            Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 6) {
+                LinkedInfoRow("Label", s.label) {
+                    AccessoryButton("Copy label", "doc.on.doc") { ProcessActions.copy(s.label) }
+                }
+                InfoRow("Domain", "\(s.domain.displayName) (\(s.domain.target))")
+                InfoRow("Type", s.kind.rawValue)
+                LinkedInfoRow("PID", s.pid.map { "\($0)" } ?? "") {
+                    if let pid = s.pid, pid > 0 {
+                        AccessoryButton("Process properties", "info.circle") {
+                            if let item = ProcessStore.shared.item(pid: pid) { PropertiesWindow.open(item) }
+                        }
+                        AccessoryButton("Show in the process list", "list.bullet.indent") { ProcessSelection.shared.reveal(pid: pid) }
+                    }
+                }
+                InfoRow("Last exit status", s.lastExitStatus)
+                InfoRow("Start", s.startTypeDescription)
+                InfoRow("Run as user", s.userName ?? "")
+                LinkedInfoRow("Program", s.executable ?? "") {
+                    if let exe = s.executable, FileManager.default.fileExists(atPath: exe) {
+                        AccessoryButton("Inspect executable", "magnifyingglass") { InspectorWindow.open(path: exe) }
+                        AccessoryButton("Reveal in Finder", "folder") { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: exe)]) }
+                    }
+                }
+                InfoRow("Arguments", s.arguments.shellJoined)
+                LinkedInfoRow("Property list", s.plistPath ?? "") {
+                    if let plist = s.plistPath {
+                        AccessoryButton("Show contents", "doc.text") { page = .propertyList }
+                        AccessoryButton("Reveal in Finder", "folder") { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: plist)]) }
+                    }
+                }
+                InfoRow("Mach services", s.machServices.joined(separator: "\n"))
+            }
         }
     }
 
@@ -330,5 +424,74 @@ struct ServicePropertiesView: View {
             return NSWorkspace.shared.icon(forFile: bundle)
         }
         return NSImage(systemSymbolName: "gearshape.2", accessibilityDescription: nil) ?? ProcessIcons.executable
+    }
+}
+
+/// Capsule with a colored dot, for a status at a glance.
+private struct StatusBadge: View {
+    let text: String
+    let color: Color
+
+    var body: some View {
+        Label {
+            Text(text)
+        } icon: {
+            Circle().fill(color).frame(width: 8, height: 8)
+        }
+        .font(.callout.weight(.medium))
+        .padding(.horizontal, 10)
+        .padding(.vertical, 4)
+        .background(color.opacity(0.15), in: Capsule())
+    }
+}
+
+/// `InfoRow` with small buttons after the value for what can be done with it.
+private struct LinkedInfoRow<Accessories: View>: View {
+    let label: String
+    let value: String
+    @ViewBuilder var accessories: Accessories
+
+    init(_ label: String, _ value: String, @ViewBuilder accessories: () -> Accessories) {
+        self.label = label
+        self.value = value
+        self.accessories = accessories()
+    }
+
+    var body: some View {
+        GridRow(alignment: .firstTextBaseline) {
+            Text(label)
+                .foregroundStyle(.secondary)
+                .gridColumnAlignment(.trailing)
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text(value.isEmpty ? "—" : value)
+                    .textSelection(.enabled)
+                    .lineLimit(4)
+                accessories
+            }
+            .gridColumnAlignment(.leading)
+        }
+    }
+}
+
+/// Icon-only borderless button with its title as the tooltip.
+private struct AccessoryButton: View {
+    let title: String
+    let symbol: String
+    let action: () -> Void
+
+    init(_ title: String, _ symbol: String, action: @escaping () -> Void) {
+        self.title = title
+        self.symbol = symbol
+        self.action = action
+    }
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+        }
+        .buttonStyle(.borderless)
+        .foregroundStyle(.secondary)
+        .help(title)
+        .accessibilityLabel(title)
     }
 }
