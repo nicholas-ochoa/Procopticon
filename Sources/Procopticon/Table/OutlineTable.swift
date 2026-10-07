@@ -17,6 +17,9 @@ struct TableColumnSpec<Item> {
     var monospacedDigits = true
     var kind: Kind = .text
     var text: (Item) -> String
+    /// Colored version of `text`, shown in place of it (sorting, filtering and copying still use
+    /// `text`). Only its colors are used; the cell supplies the font.
+    var attributedText: ((Item) -> NSAttributedString)?
     /// Ascending comparator; nil disables sorting by this column.
     var less: ((Item, Item) -> Bool)?
     var image: ((Item) -> NSImage?)?
@@ -848,11 +851,12 @@ final class OutlineTableCoordinator<Item>: NSObject, NSOutlineViewDataSource, NS
             return
         }
         guard let cell = view as? TextCellView else { return }
-        let text = spec.text(node.value)
-        if cell.textField?.stringValue != text {
-            cell.textField?.stringValue = text
-        }
         cell.textField?.alignment = spec.alignment
+        if let attributed = spec.attributedText {
+            cell.setText(attributed(node.value))
+        } else {
+            cell.setText(spec.text(node.value))
+        }
         if let imageFn = spec.image {
             let image = imageFn(node.value)
             if cell.imageView?.image !== image {
@@ -1212,6 +1216,10 @@ final class TextCellView: NSTableCellView, NSViewToolTipOwner {
     var tooltipProvider: (() -> String?)?
     /// Off where the table shows a rich tooltip instead.
     var showsToolTip = true
+    /// Colored text being shown, if any; see `setText(_: NSAttributedString)`.
+    private var styledText: NSAttributedString?
+    /// What `showStyledText()` last gave the text field, to skip redrawing unchanged text.
+    private var appliedText: NSAttributedString?
 
     init(identifier: NSUserInterfaceItemIdentifier, withImage: Bool) {
         hasImage = withImage
@@ -1241,6 +1249,55 @@ final class TextCellView: NSTableCellView, NSViewToolTipOwner {
         textField?.font = font
         lineHeight = ceil(font.ascender - font.descender + font.leading) + 1
         needsLayout = true
+        showStyledText()
+    }
+
+    func setText(_ text: String) {
+        if styledText != nil || textField?.stringValue != text {
+            styledText = nil
+            appliedText = nil
+            textField?.stringValue = text
+        }
+    }
+
+    /// Shows text in the colors of its `.foregroundColor` runs, in the cell's font. A selected row
+    /// shows it uncolored, since its highlight would drown the colors out.
+    func setText(_ text: NSAttributedString) {
+        styledText = text
+        showStyledText()
+    }
+
+    override var backgroundStyle: NSView.BackgroundStyle {
+        didSet {
+            if backgroundStyle != oldValue {
+                showStyledText()
+            }
+        }
+    }
+
+    private func showStyledText() {
+        guard let field = textField, let styledText else { return }
+        guard backgroundStyle != .emphasized else {
+            if appliedText != nil || field.stringValue != styledText.string {
+                appliedText = nil
+                field.stringValue = styledText.string
+            }
+            return
+        }
+        let text = NSMutableAttributedString(attributedString: styledText)
+        let range = NSRange(location: 0, length: text.length)
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = field.alignment
+        paragraph.lineBreakMode = .byTruncatingTail
+        text.addAttributes([.font: field.font ?? Self.defaultFont, .paragraphStyle: paragraph], range: range)
+        text.enumerateAttribute(.foregroundColor, in: range) { color, run, _ in
+            if color == nil {
+                text.addAttribute(.foregroundColor, value: field.textColor ?? .labelColor, range: run)
+            }
+        }
+        guard appliedText?.isEqual(to: text) != true else { return }
+        appliedText = text
+        field.attributedStringValue = text
     }
 
     static func make(identifier: NSUserInterfaceItemIdentifier, withImage: Bool) -> TextCellView {

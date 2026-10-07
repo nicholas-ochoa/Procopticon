@@ -115,28 +115,16 @@ struct ProcessToolTipView: View {
         return directory + file
     }
 
-    /// Shell-quoted arguments with the executable dimmed and options colored.
+    /// Shell-quoted arguments in the command line colors.
     static func commandText(_ arguments: [String]) -> AttributedString {
         var text = AttributedString()
-        for (index, argument) in arguments.enumerated() {
-            if index > 0 {
-                text += AttributedString(" ")
+        for segment in CommandLineSyntax.segments(commandLine: arguments) {
+            // Word joiners keep lines from breaking at an option's hyphens.
+            var part = AttributedString(segment.role == .option ? segment.text.replacingOccurrences(of: "-", with: "-\u{2060}") : segment.text)
+            if let color = CommandLineStyle.color(segment.role) {
+                part.foregroundColor = Color(nsColor: color)
             }
-            let quoted = argument.shellQuoted
-            if index == 0 {
-                var part = AttributedString(quoted)
-                part.foregroundColor = .secondary
-                text += part
-            } else if argument.hasPrefix("-"), argument.count > 1 {
-                // "--name=value": color the option, leave the value plain. Word joiners keep lines
-                // from breaking at the option's hyphens.
-                let optionEnd = quoted.firstIndex(of: "=") ?? quoted.endIndex
-                var option = AttributedString(quoted[..<optionEnd].replacingOccurrences(of: "-", with: "-\u{2060}"))
-                option.foregroundColor = Color(nsColor: .systemTeal)
-                text += option + AttributedString(quoted[optionEnd...])
-            } else {
-                text += AttributedString(quoted)
-            }
+            text += part
         }
         text.font = mono
         return text

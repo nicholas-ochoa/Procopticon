@@ -42,7 +42,10 @@ enum ProcessColumns {
         cols.append(.string("version", "Version", width: 90, visible: false) { $0.bundleInfo?.versionString ?? "" })
         cols.append(.string("bundleId", "Bundle identifier", width: 180, visible: false) { $0.bundleInfo?.bundleIdentifier ?? "" })
         cols.append(.string("path", "File name", width: 260, visible: false) { $0.record.path ?? "" })
-        cols.append(.string("commandLine", "Command line", width: 300, visible: false) { $0.record.commandLine ?? "" })
+        var commandLine = ProcessColumn.string("commandLine", "Command line", width: 300, visible: false) { $0.record.commandLine ?? "" }
+        commandLine.attributedText = { CommandLineStyle.commandLine($0.record.commandLineArguments ?? []) }
+        commandLine.richTooltip = { AnyView(ProcessToolTipView(item: $0)) }
+        cols.append(commandLine)
         cols.append(.string("arch", "Architecture", width: 90, visible: false) { $0.record.architecture })
         cols.append(.number("ppid", "Parent PID", width: 70, visible: false, value: { $0.record.ppid }, text: { "\($0.record.ppid)" }))
         cols.append(.number("responsible", "Responsible PID", width: 80, visible: false,

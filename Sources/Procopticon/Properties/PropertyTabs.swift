@@ -380,10 +380,11 @@ struct ArgumentsTab: View {
         loader.load(.arguments(pid: item.pid)) { if case .arguments(let a) = $0 { return a } else { return nil } }
     }
 
-    static let columns: [TableColumnSpec<Argument>] = [
-        .number("index", "#", width: 40, value: { $0.index }, text: { "\($0.index)" }),
-        .string("value", "Argument", width: 620) { $0.value },
-    ]
+    static let columns: [TableColumnSpec<Argument>] = {
+        var value = TableColumnSpec<Argument>.string("value", "Argument", width: 620) { $0.value }
+        value.attributedText = { CommandLineStyle.attributed(CommandLineSyntax.segments(argument: $0.value, index: $0.index)) }
+        return [.number("index", "#", width: 40, value: { $0.index }, text: { "\($0.index)" }), value]
+    }()
 }
 
 // MARK: - Environment
