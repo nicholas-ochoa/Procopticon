@@ -166,13 +166,6 @@ struct MainView: View {
             }
         }
         ToolbarSpacer(.fixed, placement: .primaryAction)
-        ToolbarItem(id: "group.search", placement: .primaryAction) {
-            ToolbarGroup("Search & Display", "textformat") {
-                RegexToggle()
-                FontToggle()
-            }
-        }
-        ToolbarSpacer(.fixed, placement: .primaryAction)
         ToolbarItem(id: "group.privileges", placement: .primaryAction) {
             ToolbarGroup("Privileges & Settings", "lock.shield") {
                 ElevationButton()
@@ -216,8 +209,6 @@ struct MainView: View {
         ToolbarItem(id: "mine", placement: .primaryAction, showsByDefault: false) { ProcessesOnly { MineToggle() } }
         ToolbarItem(id: "treeList", placement: .primaryAction, showsByDefault: false) { ProcessesOnly { TreeToggle() } }
         ToolbarItem(id: "filters", placement: .primaryAction, showsByDefault: false) { ProcessesOnly { FiltersMenu() } }
-        ToolbarItem(id: "regex", placement: .primaryAction, showsByDefault: false) { RegexToggle() }
-        ToolbarItem(id: "font", placement: .primaryAction, showsByDefault: false) { FontToggle() }
     }
 
     @ToolbarContentBuilder
@@ -297,22 +288,13 @@ struct MainStatusBar: View {
 // MARK: - Toolbar item views
 
 struct WindowTitleView: View {
-    @ObservedObject private var state = MainWindowState.shared
+    @ObservedObject private var store = ProcessStore.shared
 
     var body: some View {
-        let subtitle: String = {
-            _ = state.elevationRevision
-            switch Elevation.shared.mode {
-            case .root: return "Running as root"
-            case .helper: return "Elevated"
-            case .standard: return ""
-            }
-        }()
+        let subtitle = store.processCount == 1 ? "1 process" : "\(Fmt.count(store.processCount)) processes"
         VStack(alignment: .leading, spacing: 0) {
             Text("Procopticon").font(.headline)
-            if !subtitle.isEmpty {
-                Text(subtitle).font(.caption).foregroundStyle(.secondary)
-            }
+            Text(subtitle).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
         }
         .fixedSize()
         .padding(.horizontal, 6)
@@ -342,8 +324,8 @@ struct MainSearchField: View {
     var body: some View {
         ToolbarSearchField(
             text: state.searchBinding,
-            prompt: (state.tab == .processes ? "Search processes" : "Search \(state.tab.rawValue.lowercased())")
-                + (settings.searchUsesRegex ? " (regex)" : ""))
+            regex: $settings.searchUsesRegex,
+            prompt: state.tab == .processes ? "Search processes" : "Search \(state.tab.rawValue.lowercased())")
             .frame(minWidth: 180, idealWidth: 260, maxWidth: 360)
     }
 }
@@ -415,15 +397,6 @@ struct TreeToggle: View {
         .help(settings.treeView
             ? "Processes are shown as a parent/child tree. Click to show a flat list (⌥⌘T)"
             : "Processes are shown as a flat list. Click to show the parent/child tree (⌥⌘T)")
-    }
-}
-
-struct FontToggle: View {
-    @ObservedObject private var settings = AppSettings.shared
-
-    var body: some View {
-        Toggle(isOn: $settings.processListMonospaced) { Label("Fixed Width", systemImage: "textformat.size") }
-            .help("Use a fixed-width font in the process list so columns of numbers line up")
     }
 }
 
@@ -767,16 +740,21 @@ private struct ToolbarClusterCell<Label: View>: View {
     }
 }
 
-/// Native search field for the toolbar (⌘F focuses it).
+/// Native search field for the toolbar (⌘F focuses it), with a ".*" regular-expression toggle at its
+/// trailing edge.
 struct ToolbarSearchField: NSViewRepresentable {
     @Binding var text: String
+    @Binding var regex: Bool
     var prompt: String
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
-    func makeNSView(context: Context) -> NSSearchField {
-        let field = NSSearchField()
+    func makeNSView(context: Context) -> RegexSearchField {
+        let field = RegexSearchField()
         field.delegate = context.coordinator
+        field.regexButton.target = context.coordinator
+        field.regexButton.action = #selector(Coordinator.toggleRegex(_:))
+        field.isRegex = regex
         field.sendsSearchStringImmediately = true
         field.sendsWholeSearchString = false
         field.placeholderString = prompt
@@ -790,10 +768,13 @@ struct ToolbarSearchField: NSViewRepresentable {
         return field
     }
 
-    func updateNSView(_ field: NSSearchField, context: Context) {
+    func updateNSView(_ field: RegexSearchField, context: Context) {
         context.coordinator.parent = self
         if field.stringValue != text {
             field.stringValue = text
+        }
+        if field.isRegex != regex {
+            field.isRegex = regex
         }
         if field.placeholderString != prompt {
             field.placeholderString = prompt
@@ -817,6 +798,10 @@ struct ToolbarSearchField: NSViewRepresentable {
             parent.text = field.stringValue
         }
 
+        @objc func toggleRegex(_ sender: NSButton) {
+            parent.regex = sender.state == .on
+        }
+
         func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
             // Escape clears the search, like the standard toolbar search field.
             if selector == #selector(NSResponder.cancelOperation(_:)) {
@@ -826,6 +811,75 @@ struct ToolbarSearchField: NSViewRepresentable {
             }
             return false
         }
+    }
+}
+
+/// Search field with a ".*" toggle inside its trailing edge. The cell narrows the text area and moves
+/// the clear button left so the two don't overlap.
+final class RegexSearchField: NSSearchField {
+    let regexButton = NSButton(title: ".*", target: nil, action: nil)
+
+    override class var cellClass: AnyClass? {
+        get { RegexSearchFieldCell.self }
+        set {}
+    }
+
+    var isRegex = false {
+        didSet { updateRegexButton() }
+    }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        regexButton.setButtonType(.pushOnPushOff)
+        regexButton.isBordered = false
+        regexButton.font = .monospacedSystemFont(ofSize: 12, weight: .semibold)
+        regexButton.setAccessibilityLabel("Regular expression")
+        addSubview(regexButton)
+        updateRegexButton()
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) is not used")
+    }
+
+    override func layout() {
+        super.layout()
+        let width = RegexSearchFieldCell.accessoryWidth
+        regexButton.frame = NSRect(x: bounds.maxX - width - 6, y: bounds.minY, width: width, height: bounds.height)
+    }
+
+    private func updateRegexButton() {
+        regexButton.state = isRegex ? .on : .off
+        regexButton.contentTintColor = isRegex ? .controlAccentColor : .secondaryLabelColor
+        regexButton.toolTip = isRegex
+            ? "Search text is a regular expression. Click for plain text matching (⌥⌘R)"
+            : "Treat search text as a regular expression (⌥⌘R)"
+    }
+}
+
+final class RegexSearchFieldCell: NSSearchFieldCell {
+    static let accessoryWidth: CGFloat = 24
+
+    override func searchTextRect(forBounds rect: NSRect) -> NSRect {
+        var r = super.searchTextRect(forBounds: rect)
+        r.size.width -= Self.accessoryWidth
+        return r
+    }
+
+    override func cancelButtonRect(forBounds rect: NSRect) -> NSRect {
+        var r = super.cancelButtonRect(forBounds: rect)
+        r.origin.x -= Self.accessoryWidth
+        return r
+    }
+
+    // The field's accessibility element is this cell, which lists only the search and clear buttons;
+    // add the toggle so VoiceOver can reach it.
+    override func accessibilityChildren() -> [Any]? {
+        var children = super.accessibilityChildren() ?? []
+        if let field = controlView as? RegexSearchField, let toggle = NSAccessibility.unignoredDescendant(of: field.regexButton) {
+            children.append(toggle)
+        }
+        return children
     }
 }
 

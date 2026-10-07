@@ -63,6 +63,32 @@ struct RowStyle: Equatable {
     var background: NSColor?
 }
 
+/// Lays a table out the way AppKit apps such as Activity Monitor do: its scroll view runs up under the
+/// toolbar and an optional bar of filter controls, with the column header just below them. The
+/// toolbar, filter bar and column header then share one background, and rows scroll under them.
+struct TableUnderToolbar<Bar: View, Table: View>: View {
+    @ViewBuilder var bar: Bar
+    var table: (_ topInset: CGFloat) -> Table
+    @State private var barHeight: CGFloat = 0
+
+    var body: some View {
+        GeometryReader { proxy in
+            ZStack(alignment: .top) {
+                table(proxy.safeAreaInsets.top + barHeight)
+                    .ignoresSafeArea(.container, edges: .top)
+                bar
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { barHeight = $0 }
+            }
+        }
+    }
+}
+
+extension TableUnderToolbar where Bar == EmptyView {
+    init(table: @escaping (_ topInset: CGFloat) -> Table) {
+        self.init(bar: { EmptyView() }, table: table)
+    }
+}
+
 /// SwiftUI wrapper around a view-based NSOutlineView suitable for large, frequently updated lists.
 struct OutlineTable<Item>: NSViewRepresentable {
     var roots: [Item]
@@ -85,6 +111,9 @@ struct OutlineTable<Item>: NSViewRepresentable {
     /// Inactive tables (e.g. a hidden tab) are hidden and defer updates until shown again, so
     /// switching tabs never rebuilds a table from scratch.
     var isActive = true
+    /// Set by `TableUnderToolbar`: the height of the bars the scroll view runs under. The column
+    /// header and first row start below them.
+    var topInset: CGFloat?
 
     func makeCoordinator() -> OutlineTableCoordinator<Item> {
         OutlineTableCoordinator(self)
@@ -110,7 +139,7 @@ struct OutlineTable<Item>: NSViewRepresentable {
         outline.indentationPerLevel = 14
         outline.autoresizesOutlineColumn = false
         outline.gridStyleMask = []
-        outline.headerView = NSTableHeaderView()
+        outline.headerView = ResizeCursorHeaderView()
 
         let coordinator = context.coordinator
         coordinator.outline = outline
@@ -130,10 +159,19 @@ struct OutlineTable<Item>: NSViewRepresentable {
         }
         scroll.documentView = outline
         scroll.isHidden = !isActive
+        applyTopInset(to: scroll)
         coordinator.applyFont()
         coordinator.reload(force: true)
         coordinator.bindController()
         return scroll
+    }
+
+    private func applyTopInset(to scroll: NSScrollView) {
+        guard let topInset else { return }
+        scroll.automaticallyAdjustsContentInsets = false
+        if scroll.contentInsets.top != topInset {
+            scroll.contentInsets = NSEdgeInsets(top: topInset, left: 0, bottom: 0, right: 0)
+        }
     }
 
     /// The table always fills the space it is offered. Answering directly keeps SwiftUI from
@@ -150,6 +188,7 @@ struct OutlineTable<Item>: NSViewRepresentable {
         if nsView.isHidden == isActive {
             nsView.isHidden = !isActive
         }
+        applyTopInset(to: nsView)
         coordinator.applyFont()
         let changed = previousRevision != revision
         if !isActive {
@@ -1000,6 +1039,64 @@ final class ColoredRowView: NSTableRowView {
     }
 }
 
+/// Column header that shows the column-resize cursor over the edges between columns. AppKit's own
+/// cursor rects for this don't take effect in these SwiftUI-hosted windows, so the header tracks the
+/// pointer and sets the cursor itself.
+final class ResizeCursorHeaderView: NSTableHeaderView {
+    private var trackingArea: NSTrackingArea?
+    private var showingResizeCursor = false
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let trackingArea {
+            removeTrackingArea(trackingArea)
+        }
+        let area = NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .cursorUpdate, .activeInKeyWindow, .inVisibleRect],
+                                  owner: self, userInfo: nil)
+        addTrackingArea(area)
+        trackingArea = area
+    }
+
+    override func cursorUpdate(with event: NSEvent) {
+        updateCursor(event)
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        super.mouseMoved(with: event)
+        updateCursor(event)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        if showingResizeCursor {
+            showingResizeCursor = false
+            NSCursor.arrow.set()
+        }
+    }
+
+    private func updateCursor(_ event: NSEvent) {
+        let overEdge = isOverResizableEdge(convert(event.locationInWindow, from: nil))
+        if overEdge {
+            NSCursor.columnResize.set()
+        } else if showingResizeCursor {
+            NSCursor.arrow.set()
+        }
+        showingResizeCursor = overEdge
+    }
+
+    /// Within a few points of the right edge of a column the user can resize.
+    private func isOverResizableEdge(_ point: NSPoint) -> Bool {
+        guard let table = tableView, table.allowsColumnResizing else { return false }
+        for (index, column) in table.tableColumns.enumerated()
+        where !column.isHidden && column.resizingMask.contains(.userResizingMask) {
+            if abs(point.x - headerRect(ofColumn: index).maxX) <= 4 {
+                return true
+            }
+        }
+        return false
+    }
+}
+
 /// Table cell with optional icon. Uses manual frame layout (no Auto Layout) because cells are
 /// created and reconfigured constantly while lists refresh.
 final class TextCellView: NSTableCellView, NSViewToolTipOwner {
@@ -1008,14 +1105,9 @@ final class TextCellView: NSTableCellView, NSViewToolTipOwner {
     private let hasImage: Bool
     private var tipTag: NSView.ToolTipTag?
 
-    /// Computed only when the user hovers, instead of on every refresh.
-    var tooltipProvider: (() -> String?)? {
-        didSet {
-            if (oldValue == nil) != (tooltipProvider == nil) {
-                needsLayout = true
-            }
-        }
-    }
+    /// Computed only when the user hovers, instead of on every refresh. Without one, a cell whose
+    /// text is cut off shows its full text instead.
+    var tooltipProvider: (() -> String?)?
 
     init(identifier: NSUserInterfaceItemIdentifier, withImage: Bool) {
         hasImage = withImage
@@ -1063,15 +1155,17 @@ final class TextCellView: NSTableCellView, NSViewToolTipOwner {
         textField?.frame = NSRect(x: x, y: floor((b.height - h) / 2), width: max(0, b.width - x - 2), height: h)
         if let tipTag {
             removeToolTip(tipTag)
-            self.tipTag = nil
         }
-        if tooltipProvider != nil {
-            tipTag = addToolTip(b, owner: self, userData: nil)
-        }
+        tipTag = addToolTip(b, owner: self, userData: nil)
     }
 
     func view(_ view: NSView, stringForToolTip tag: NSView.ToolTipTag, point: NSPoint, userData data: UnsafeMutableRawPointer?) -> String {
-        tooltipProvider?() ?? ""
+        if let tip = tooltipProvider?(), !tip.isEmpty {
+            return tip
+        }
+        // The cell's natural size is what it needs to show all of its text on one line.
+        guard let field = textField, let cell = field.cell else { return "" }
+        return cell.cellSize.width > field.bounds.width ? field.stringValue : ""
     }
 }
 

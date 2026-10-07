@@ -21,7 +21,7 @@ struct SettingsView: View {
                 .tabItem { Label("Filters", systemImage: "line.3.horizontal.decrease.circle") }
                 .tag(SettingsTab.filters)
             HighlightSettings()
-                .frame(width: 620, height: 500)
+                .frame(width: 620, height: 640)
                 .tabItem { Label("Highlighting", systemImage: "paintpalette") }
                 .tag(SettingsTab.highlighting)
             PrivilegeSettings()
@@ -86,23 +86,30 @@ struct HighlightSettings: View {
     @ObservedObject private var settings = AppSettings.shared
 
     var body: some View {
-        VStack(alignment: .leading) {
-            List {
-                ForEach(HighlightRule.allCases) { rule in
-                    HStack {
-                        Toggle(rule.title, isOn: Binding(
-                            get: { settings.highlights[rule]?.enabled ?? false },
-                            set: { settings.highlights[rule]?.enabled = $0 }))
-                        Spacer()
-                        ColorPicker("", selection: Binding(
-                            get: { Color(nsColor: settings.highlights[rule]?.color ?? .clear) },
-                            set: { settings.highlights[rule]?.color = NSColor($0) }), supportsOpacity: false)
-                            .labelsHidden()
+        VStack(spacing: 0) {
+            Form {
+                Section {
+                    ForEach(HighlightRule.allCases) { rule in
+                        HStack {
+                            Toggle(rule.title, isOn: Binding(
+                                get: { settings.highlights[rule]?.enabled ?? false },
+                                set: { settings.highlights[rule]?.enabled = $0 }))
+                                .toggleStyle(.checkbox)
+                            Spacer()
+                            ColorPicker("", selection: Binding(
+                                get: { Color(nsColor: settings.highlights[rule]?.color ?? .clear) },
+                                set: { settings.highlights[rule]?.color = NSColor($0) }), supportsOpacity: false)
+                                .labelsHidden()
+                                .controlSize(.small)
+                        }
                     }
+                } footer: {
+                    Text("Rules are listed from highest to lowest priority.")
                 }
             }
+            .formStyle(.grouped)
+            .scrollContentBackground(.hidden)
             HStack {
-                Text("Rules are listed from highest to lowest priority.").font(.caption).foregroundStyle(.secondary)
                 Spacer()
                 Button("Enable All") { settings.setAllHighlights(enabled: true) }
                     .disabled(settings.highlights.values.allSatisfy(\.enabled))
@@ -113,9 +120,29 @@ struct HighlightSettings: View {
                 Button("Restore Defaults") { settings.resetHighlights() }
                     .help("Restore the default rules and colors")
             }
-            .padding(8)
+            .padding([.horizontal, .bottom], 20)
         }
-        .padding(8)
+        .settingsPaneBackground()
+    }
+}
+
+/// The grouped-form background, for tabs that combine a form with other views.
+private struct SettingsPaneBackground: ViewModifier {
+    func body(content: Content) -> some View {
+        // An empty grouped form draws exactly what the all-form tabs show, including under the
+        // toolbar; the tab's own forms hide their background so it isn't drawn twice.
+        content.background {
+            Form {}
+                .formStyle(.grouped)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
+    }
+}
+
+extension View {
+    func settingsPaneBackground() -> some View {
+        modifier(SettingsPaneBackground())
     }
 }
 

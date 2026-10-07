@@ -30,6 +30,14 @@ struct ProcessTreeView: View {
     private let columns = ProcessColumns.shared
 
     var body: some View {
+        TableUnderToolbar { topInset in
+            table(topInset: topInset)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .highlightsChanged)) { _ in highlightRevision &+= 1 }
+        .onReceive(NotificationCenter.default.publisher(for: SigningCache.didUpdateNotification)) { _ in highlightRevision &+= 1 }
+    }
+
+    private func table(topInset: CGFloat) -> some View {
         OutlineTable(
             roots: store.roots,
             children: { $0.children },
@@ -44,10 +52,9 @@ struct ProcessTreeView: View {
             onDeleteKey: { ProcessActions.terminate($0) },
             controller: ProcessSelection.shared.table,
             font: settings.processListFont,
-            isActive: active
+            isActive: active,
+            topInset: topInset
         )
-        .onReceive(NotificationCenter.default.publisher(for: .highlightsChanged)) { _ in highlightRevision &+= 1 }
-        .onReceive(NotificationCenter.default.publisher(for: SigningCache.didUpdateNotification)) { _ in highlightRevision &+= 1 }
     }
 }
 
@@ -146,10 +153,11 @@ enum ProcessMenu {
 
 @MainActor
 enum PropertiesWindow {
-    static func open(_ item: ProcessItem) {
+    static func open(_ item: ProcessItem, tab: ProcessPropertiesView.PropertyTab = .general) {
         let key = item.key
-        WindowManager.shared.show(id: "props-\(key)", title: "\(item.name) (\(item.pid)) Properties", size: NSSize(width: 760, height: 620)) {
-            ProcessPropertiesView(key: key)
+        WindowManager.shared.show(id: "props-\(key)", title: "\(item.name) (\(item.pid)) Properties",
+                                  size: NSSize(width: 820, height: 620), fullSizeContent: true) {
+            ProcessPropertiesView(key: key, tab: tab)
         }
     }
 }

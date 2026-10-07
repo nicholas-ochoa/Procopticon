@@ -88,7 +88,7 @@ public final class ProcessItem: Identifiable {
     /// Text used by the search filter.
     public func matches(_ m: SearchMatcher) -> Bool {
         if m.matchesIdentifier(String(record.pid)) { return true }
-        if m.matchesAny(name, record.path, record.commandLine, userName) { return true }
+        if m.matchesAny(name, record.path, record.commandLine, record.title, userName) { return true }
         if let b = bundleInfo, m.matchesAny(b.displayName, b.bundleIdentifier) { return true }
         return false
     }

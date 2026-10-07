@@ -24,7 +24,15 @@ enum ProcessColumns {
         cols.append(.number("ioTotalRate", "Disk rate", width: 80, help: "Disk read + write bytes per second",
                             value: { $0.ioTotalRate }, text: { Fmt.rate($0.ioTotalRate) }))
         cols.append(.string("user", "User name", width: 100) { $0.userName })
-        cols.append(.string("description", "Description", width: 180) { $0.displayDescription })
+        // Falls back to the process title, so retitled processes (often without a bundle) aren't blank.
+        cols.append(.string("description", "Description", width: 180) { p in
+            let description = p.displayDescription
+            return description.isEmpty ? p.record.title ?? "" : description
+        })
+        cols.append(.string("title", "Process title", width: 220,
+                            help: "The title a process set for itself in place of its command line (as htop shows after “│”)") {
+            $0.record.title ?? ""
+        })
 
         // Identity / image
         cols.append(.string("company", "Company", width: 150, visible: false, help: "Organization from the code signing certificate") {

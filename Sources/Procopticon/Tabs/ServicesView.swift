@@ -65,7 +65,7 @@ struct ServicesView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
+        TableUnderToolbar {
             FilterBar {
                 Text("Domain").foregroundStyle(.secondary).fixedSize()
                 Picker(selection: $domainFilter) {
@@ -83,7 +83,7 @@ struct ServicesView: View {
                 Text("\(filtered.count) of \(store.items.count) services").foregroundStyle(.secondary).lineLimit(1)
                 Button { store.refresh() } label: { Image(systemName: "arrow.clockwise") }.help("Refresh services")
             }
-            Divider()
+        } table: { topInset in
             OutlineTable(
                 roots: filtered,
                 children: nil,
@@ -95,7 +95,8 @@ struct ServicesView: View {
                 menu: { ServiceActions.menu(for: $0) },
                 onDoubleClick: { ServicePropertiesWindow.open($0) },
                 defaultSort: (column: "label", ascending: true),
-                isActive: active)
+                isActive: active,
+                topInset: topInset)
         }
         .task(id: active) {
             // Poll launchd only while this tab is visible.

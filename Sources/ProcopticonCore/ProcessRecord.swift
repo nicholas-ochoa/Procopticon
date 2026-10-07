@@ -109,6 +109,11 @@ public struct ProcessRecord: Codable, Sendable {
     public var comm: String
     public var path: String?
     public var arguments: [String]?
+    /// The title the process gave itself, if any; see `customTitle(arguments:path:comm:)`.
+    public var title: String?
+    /// For a retitled process, its arguments as read before it set the title (when Procopticon saw
+    /// it start); retitling overwrites them in the process.
+    public var launchArguments: [String]?
     public var stats: TaskStats?
     public var fdCount: Int32?
     public var csFlags: UInt32?
@@ -129,12 +134,82 @@ public struct ProcessRecord: Codable, Sendable {
         return comm
     }
 
+    /// The command line as launched. For a process that replaced argv[0] with a title, this is the
+    /// command line from before the title when it was seen, otherwise the executable followed by
+    /// whatever arguments the title left in place.
     public var commandLine: String? {
         guard let arguments, !arguments.isEmpty else {
             return nil
         }
-        return arguments.shellJoined
+        guard title != nil else {
+            return arguments.shellJoined
+        }
+        if let launchArguments, !launchArguments.isEmpty {
+            return launchArguments.shellJoined
+        }
+        guard let path else {
+            return arguments.shellJoined
+        }
+        return ([path] + survivingArguments).shellJoined
     }
+
+    /// True when the process overwrote its arguments with its title and they weren't seen before,
+    /// so `commandLine` can only show the executable.
+    public var argumentsOverwritten: Bool {
+        guard title != nil, launchArguments == nil, let arguments, arguments.count > 1 else {
+            return false
+        }
+        return survivingArguments.isEmpty
+    }
+
+    /// Arguments after argv[0], minus the empty ones a retitle leaves at the end.
+    private var survivingArguments: [String] {
+        Array((arguments ?? []).dropFirst().reversed().drop(while: \.isEmpty).reversed())
+    }
+
+    /// The title a process gave itself by overwriting argv[0] (setproctitle, Node's `process.title`,
+    /// "postgres: checkpointer"), or nil when argv[0] is just how the process was started: the
+    /// executable's path or name, a symlink or version-manager shim with the same name, another
+    /// existing file, or a command on the usual PATH. A login shell's leading "-" is ignored.
+    public static func customTitle(arguments: [String], path: String?, comm: String) -> String? {
+        guard let original = arguments.first, let path, !path.isEmpty else {
+            return nil
+        }
+        var first = original
+        if first.hasPrefix("-") {
+            first.removeFirst()
+        }
+        while first.hasPrefix("./") {
+            first.removeFirst(2)
+        }
+        guard !first.trimmingCharacters(in: .whitespaces).isEmpty else {
+            return nil
+        }
+        let name = (first as NSString).lastPathComponent
+        if first == path || name == (path as NSString).lastPathComponent {
+            return nil
+        }
+        // comm is the name of the file that was executed, cut to 16 bytes.
+        if !comm.isEmpty, name == comm || (comm.utf8.count >= 15 && name.hasPrefix(comm)) {
+            return nil
+        }
+        if first.contains("/") {
+            if first.hasPrefix("/"), FileManager.default.fileExists(atPath: first) {
+                return nil
+            }
+        } else if commandDirectories.contains(where: { FileManager.default.isExecutableFile(atPath: $0 + "/" + first) }) {
+            return nil
+        }
+        return original.trimmingCharacters(in: .whitespaces)
+    }
+
+    /// Where a bare command name in argv[0] would usually have been found.
+    private static let commandDirectories: [String] = {
+        let standard = ["/usr/bin", "/bin", "/usr/sbin", "/sbin", "/usr/local/bin", "/opt/homebrew/bin", "/opt/homebrew/sbin"]
+        let path = (ProcessInfo.processInfo.environment["PATH"] ?? "").split(separator: ":").map(String.init)
+        var seen = Set<String>()
+        return (path + standard).filter { !$0.isEmpty && seen.insert($0).inserted }
+    }()
 
     public var isTranslated: Bool { flags & 0x0002_0000 != 0 }   // P_TRANSLATED
     public var isTraced: Bool { flags & 0x0000_0800 != 0 }       // P_TRACED

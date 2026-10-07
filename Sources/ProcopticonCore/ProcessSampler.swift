@@ -46,6 +46,16 @@ public struct ProcessArguments: Codable, Sendable {
             args.append(s)
             index += 1
         }
+        // A process that retitled itself (Node's process.title, setproctitle) zeroed the rest of its
+        // argv area, so the environment starts after a run of zeros. Normally it follows directly; a
+        // single zero there means the environment is empty.
+        var zeros = 0
+        while index + zeros < raw.count, raw[index + zeros] == 0 {
+            zeros += 1
+        }
+        if zeros >= 2 || (zeros > 0 && args.last?.isEmpty == true) {
+            skipNulls()
+        }
         var env: [String] = []
         while index < raw.count {
             guard let s = readString(), !s.isEmpty else { break }
@@ -63,6 +73,9 @@ public final class ProcessSampler {
     private struct StaticInfo {
         var path: String?
         var arguments: [String]?
+        var title: String?
+        /// The arguments as last read before the process retitled itself.
+        var launchArguments: [String]?
         var csFlags: UInt32?
         var sandboxed: Bool?
         var responsiblePid: Int32?
@@ -70,10 +83,14 @@ public final class ProcessSampler {
     }
 
     private var cache: [ProcessKey: StaticInfo] = [:]
+    private var sampleCount = 0
+    /// Arguments are re-read every this many samples, since processes can retitle themselves.
+    private static let argumentRefreshInterval = 5
 
     public init() {}
 
     public func sample() -> [ProcessRecord] {
+        sampleCount &+= 1
         var list: UnsafeMutablePointer<si_kinfo>?
         let count = si_list_kinfo(&list)
         guard count > 0, let list else {
@@ -99,11 +116,25 @@ public final class ProcessSampler {
 
             var info = cache[key] ?? StaticInfo(complete: false)
             if !info.complete {
-                info = loadStatic(pid: k.pid, existing: info)
+                info = loadStatic(pid: k.pid, comm: comm, existing: info)
                 cache[key] = info
+            } else if info.arguments != nil, (Int(k.pid) &+ sampleCount) % Self.argumentRefreshInterval == 0 {
+                // Staggered by PID so each sample re-reads only a fifth of the processes.
+                if case .success(let args) = ProcessArguments.read(pid: k.pid) {
+                    let title = ProcessRecord.customTitle(arguments: args.arguments, path: info.path, comm: comm)
+                    // Retitling overwrites the original arguments, so keep the ones read before it.
+                    if title != nil, info.title == nil, info.launchArguments == nil {
+                        info.launchArguments = info.arguments
+                    }
+                    info.arguments = args.arguments
+                    info.title = title
+                    cache[key] = info
+                }
             }
             record.path = info.path
             record.arguments = info.arguments
+            record.title = info.title
+            record.launchArguments = info.launchArguments
             record.csFlags = info.csFlags
             record.sandboxed = info.sandboxed
             record.responsiblePid = info.responsiblePid
@@ -134,7 +165,7 @@ public final class ProcessSampler {
         return si_cs_status(pid, &flags) == 0 ? flags : nil
     }
 
-    private func loadStatic(pid: Int32, existing: StaticInfo) -> StaticInfo {
+    private func loadStatic(pid: Int32, comm: String, existing: StaticInfo) -> StaticInfo {
         var info = existing
         if info.path == nil {
             var buf = [CChar](repeating: 0, count: Int(MAXPATHLEN) * 4)
@@ -149,6 +180,9 @@ public final class ProcessSampler {
                     info.path = args.executablePath
                 }
             }
+        }
+        if let arguments = info.arguments {
+            info.title = ProcessRecord.customTitle(arguments: arguments, path: info.path, comm: comm)
         }
         if info.sandboxed == nil {
             let s = si_is_sandboxed(pid)

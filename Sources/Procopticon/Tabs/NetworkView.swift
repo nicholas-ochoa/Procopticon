@@ -12,7 +12,7 @@ struct NetworkView: View {
     @State private var protocolFilter = "All"
 
     var body: some View {
-        VStack(spacing: 0) {
+        TableUnderToolbar {
             FilterBar {
                 Text("Protocol").foregroundStyle(.secondary).fixedSize()
                 Picker(selection: $protocolFilter) {
@@ -32,7 +32,7 @@ struct NetworkView: View {
                 }
                 Text("\(filtered.count) connections").foregroundStyle(.secondary).lineLimit(1)
             }
-            Divider()
+        } table: { topInset in
             OutlineTable(
                 roots: filtered,
                 children: nil,
@@ -46,7 +46,8 @@ struct NetworkView: View {
                     if let p = ProcessStore.shared.item(pid: c.connection.pid) { PropertiesWindow.open(p) }
                 },
                 defaultSort: (column: "process", ascending: true),
-                isActive: active)
+                isActive: active,
+                topInset: topInset)
         }
         .task(id: active) {
             // Enumerate sockets only while this tab is visible.
@@ -153,7 +154,7 @@ struct DiskView: View {
     @State private var activeOnly = true
 
     var body: some View {
-        VStack(spacing: 0) {
+        TableUnderToolbar {
             FilterBar {
                 Toggle("Only processes with recent disk activity", isOn: $activeOnly).toggleStyle(.checkbox).fixedSize()
             } trailing: {
@@ -162,7 +163,7 @@ struct DiskView: View {
                     .monospacedDigit()
                     .lineLimit(1)
             }
-            Divider()
+        } table: { topInset in
             OutlineTable(
                 roots: active ? rows : [],
                 children: nil,
@@ -175,7 +176,8 @@ struct DiskView: View {
                 onDoubleClick: { PropertiesWindow.open($0) },
                 defaultSort: (column: "total", ascending: false),
                 font: settings.processListFont,
-                isActive: active)
+                isActive: active,
+                topInset: topInset)
         }
     }
 

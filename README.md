@@ -13,15 +13,18 @@ Columns cover CPU (user/kernel), physical footprint, peak memory, resident and v
 read/write rates, threads, open files, cycles, instructions and IPC, context switches, system calls,
 wake-ups, energy and power, nice/priority, start time, command line, bundle identifier/version,
 architecture (arm64 or Rosetta), sandbox, code-signing verification and signer, and team ID. There are
-also CPU, memory and disk history graph columns.
+also CPU, memory and disk history graph columns. The **Process title** column shows the title a process
+gave itself by overwriting its first argument (Node's `process.title`, `setproctitle`, "postgres:
+checkpointer"); it stays empty for processes started under their own name, a symlink or shim. Hover over a
+cut-off value to see all of it.
 
 * Row highlighting: new/terminated, stopped, zombie, traced, Rosetta,
   elevated (setuid/sudo), unsigned, sandboxed, applications, own, root and service-account
   processes. Colors and priorities are configurable.
 * Search by name, PID, path, command line, user or bundle ID. Every search and filter field accepts
-  **regular expressions**. Toggle `.*` in the toolbar or use *View ▸ Use Regular Expressions in Search*
-  (⌥⌘R), or write `/pattern/` at any time. Patterns are case-insensitive; `/pattern/c` makes one
-  case-sensitive. An invalid pattern is reported in the status bar.
+  **regular expressions**. Click `.*` at the right end of the search field or use *View ▸ Use Regular
+  Expressions in Search* (⌥⌘R), or write `/pattern/` at any time. Patterns are case-insensitive;
+  `/pattern/c` makes one case-sensitive. An invalid pattern is reported in the status bar.
 * **Quick filters** in the toolbar: **Apps** (GUI applications only), **Mine** (your processes only),
   **Tree/List**, and a **Filters** menu (hide root/system, Apple-signed or zombie processes). While a
   filter is active, the status bar shows "Showing N of M" with a **Clear Filters** link.
@@ -29,11 +32,12 @@ also CPU, memory and disk history graph columns.
   from *View ▸ Saved Filters* (⌃⌘1–9). Manage them in *Settings ▸ Filters*: create one from the current
   state, edit, duplicate, reorder or delete.
 * **Customizable toolbar**: *View ▸ Customize Toolbar…*. By default the buttons are right-aligned and
-  arranged in groups: Quick Filters, Updates, Tools, Search & Display, and Privileges & Settings. More
-  groups are available in the palette: Process Actions, Inspection Windows, Files & Programs. So is every
-  individual button, plus Space, Flexible Space and the search field.
-* An optional **fixed-width font** (and font size) for the process list. You can also hide other users' processes,
-  system processes, Apple-signed processes or zombies, or switch to a flat list.
+  arranged in groups: Quick Filters, Updates, Tools, and Privileges & Settings. More groups are available
+  in the palette: Process Actions, Inspection Windows, Files & Programs. So is every individual button,
+  plus Space, Flexible Space and the search field.
+* An optional **fixed-width font** (and font size) for the process list, set in *Settings ▸ General*.
+  You can also hide other users' processes, system processes, Apple-signed processes or zombies, or
+  switch to a flat list.
 * Actions:
   * Terminate, Terminate Tree, Force Kill, Suspend/Resume (also for a whole tree), Restart.
   * Send any signal, set the `nice` value, or switch background (throttled) scheduling.
@@ -43,17 +47,19 @@ also CPU, memory and disk history graph columns.
 * Diagnostics: `sample`, `spindump`, `vmmap`, `footprint`, `heap`, `leaks`, `lsof` and core dumps.
   When needed, these run elevated automatically.
 
-**Process properties** have these tabs:
+**Process properties** open in a window with these sections in a sidebar. The window resizes to fit
+each section as you switch:
 
 | Tab | Contents |
 | --- | --- |
-| General | Image, command line, working directory, parent and responsible process, user, code signature |
+| General | Image, command line, process title, working directory, parent and responsible process, user, code signature |
 | Statistics | CPU, memory, I/O, Mach message, system call and energy counters |
 | Performance | CPU, memory and disk graphs |
 | Threads | Live thread list; double-click a thread to capture its stack |
 | Modules | Loaded images, including the dyld shared cache |
 | Memory | VM regions with type, protection, share mode, and resident, dirty and swapped sizes |
-| Environment | Arguments and environment variables |
+| Arguments | The command line, one argument per row. For a process that replaced them with a title, the arguments as launched when Procopticon saw it start |
+| Environment | Environment variables |
 | Files | Open file descriptors: files, sockets, pipes, kqueues and shared memory |
 | Network | The process's sockets |
 | Security | Credentials and groups, signing details, certificate chain and entitlements |
@@ -111,7 +117,7 @@ query with `EXC_GUARD` for some targets.
 ## Privileges
 
 macOS only lets an unprivileged process fully inspect processes that run as the same user. Procopticon
-runs in one of three modes. The current mode appears in the status bar and the window subtitle.
+runs in one of three modes. The current mode appears at the right end of the status bar.
 
 | Mode | How | Behaviour |
 | --- | --- | --- |

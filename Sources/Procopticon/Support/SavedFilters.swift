@@ -186,6 +186,7 @@ struct SavedFiltersSettings: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .settingsPaneBackground()
         .onAppear {
             if selection == nil { selection = settings.savedFilters.first?.id }
         }
@@ -269,5 +270,6 @@ struct SavedFilterEditor: View {
             }
         }
         .formStyle(.grouped)
+        .scrollContentBackground(.hidden)
     }
 }

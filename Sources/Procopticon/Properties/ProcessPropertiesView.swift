@@ -5,9 +5,16 @@ import SwiftUI
 struct ProcessPropertiesView: View {
     let key: ProcessKey
     @ObservedObject private var store = ProcessStore.shared
-    @AppStorage("propertiesTab") private var tab: PropertyTab = .general
+    @State private var tab: PropertyTab
+    /// Height last used for the table tabs, restored when switching back to one.
+    @AppStorage("propertiesTableHeight") private var tableHeight: Double = 520
     /// Last known state, kept so the window stays useful after the process exits.
     @State private var snapshot: ProcessItem?
+    @State private var window: NSWindow?
+    @State private var detailHeight: CGFloat = 0
+    @State private var page: PageFit?
+    /// Set when the tab changes; the window fits the new tab while its content settles.
+    @State private var fitUntil: Date?
 
     enum PropertyTab: String, CaseIterable, Identifiable {
         case general = "General"
@@ -16,12 +23,55 @@ struct ProcessPropertiesView: View {
         case threads = "Threads"
         case modules = "Modules"
         case memory = "Memory"
+        case arguments = "Arguments"
         case environment = "Environment"
         case files = "Files"
         case network = "Network"
         case security = "Security"
         case service = "Service"
         var id: String { rawValue }
+
+        var symbol: String {
+            switch self {
+            case .general: return "info.circle"
+            case .statistics: return "chart.bar"
+            case .performance: return "waveform.path.ecg"
+            case .threads: return "square.stack.3d.up"
+            case .modules: return "shippingbox"
+            case .memory: return "memorychip"
+            case .arguments: return "list.number"
+            case .environment: return "terminal"
+            case .files: return "doc.on.doc"
+            case .network: return "network"
+            case .security: return "lock.shield"
+            case .service: return "gearshape.2"
+            }
+        }
+
+        /// How the window sizes itself for this tab.
+        var fit: Fit {
+            switch self {
+            case .general, .statistics, .security, .service: return .content
+            case .performance: return .height(540)
+            case .threads, .modules, .memory, .arguments, .environment, .files, .network: return .table
+            }
+        }
+    }
+
+    enum Fit {
+        /// As tall as the page's content (up to the screen height).
+        case content
+        /// A fixed height for the tab's content area.
+        case height(CGFloat)
+        /// The height last used for a table tab.
+        case table
+    }
+
+    static let minHeight: CGFloat = 440
+
+    init(key: ProcessKey, tab: PropertyTab = .general) {
+        self.key = key
+        _tab = State(initialValue: tab)
     }
 
     var item: ProcessItem? { store.item(key) ?? snapshot }
@@ -29,28 +79,43 @@ struct ProcessPropertiesView: View {
     var body: some View {
         Group {
             if let item {
-                VStack(spacing: 0) {
-                    Picker("", selection: $tab) {
-                        ForEach(PropertyTab.allCases) { Text($0.rawValue).tag($0) }
+                NavigationSplitView {
+                    List(selection: Binding(get: { tab }, set: { if let t = $0 { tab = t } })) {
+                        ForEach(PropertyTab.allCases) { t in
+                            Label(t.rawValue, systemImage: t.symbol).tag(t)
+                        }
                     }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
-                    .padding(8)
-                    if item.isRemoved || store.item(key) == nil {
-                        Label("This process has exited.", systemImage: "exclamationmark.triangle")
-                            .foregroundStyle(.orange)
-                            .padding(.bottom, 4)
+                    .navigationSplitViewColumnWidth(min: 150, ideal: 170, max: 220)
+                } detail: {
+                    VStack(spacing: 0) {
+                        if item.isRemoved || store.item(key) == nil {
+                            Label("This process has exited.", systemImage: "exclamationmark.triangle")
+                                .foregroundStyle(.orange)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 6)
+                            Divider()
+                        }
+                        content(item)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentAreaResized($0) }
                     }
-                    Divider()
-                    content(item)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-                .onAppear { snapshot = item }
+                .onAppear {
+                    snapshot = item
+                    startFitting()
+                }
             } else {
                 ContentUnavailableView("Process not found", systemImage: "questionmark.app", description: Text("PID \(key.pid) is no longer running."))
             }
         }
-        .frame(minWidth: 620, minHeight: 460)
+        // Tall enough for every sidebar item.
+        .frame(minWidth: 680, minHeight: Self.minHeight)
+        .background(WindowAccessor { window = $0; fitWindow() })
+        .onPreferenceChange(PageFitKey.self) { value in
+            page = value
+            fitWindow()
+        }
+        .onChange(of: tab) { startFitting() }
     }
 
     @ViewBuilder
@@ -62,11 +127,88 @@ struct ProcessPropertiesView: View {
         case .threads: ThreadsTab(item: item)
         case .modules: ModulesTab(item: item)
         case .memory: MemoryTab(item: item)
+        case .arguments: ArgumentsTab(item: item)
         case .environment: EnvironmentTab(item: item)
         case .files: FilesTab(item: item)
         case .network: ProcessNetworkTab(item: item)
         case .security: SecurityTab(item: item)
         case .service: ServiceTab(item: item)
+        }
+    }
+
+    // MARK: Fitting the window to the tab
+
+    private func startFitting() {
+        // Content that loads asynchronously (signatures, working directory) can grow the page
+        // shortly after the switch; keep fitting until it settles, then leave the size alone.
+        fitUntil = Date().addingTimeInterval(1.5)
+        DispatchQueue.main.async { fitWindow() }
+    }
+
+    private var isFitting: Bool {
+        fitUntil.map { Date() < $0 } ?? false
+    }
+
+    private func contentAreaResized(_ height: CGFloat) {
+        detailHeight = height
+        // Remember the size the user picks for tables.
+        if case .table = tab.fit, !isFitting, height > 0 {
+            tableHeight = Double(height)
+        }
+    }
+
+    private func fitWindow() {
+        guard let window, isFitting, detailHeight > 0 else { return }
+        let desired: CGFloat
+        switch tab.fit {
+        case .content:
+            guard let page, page.tab == tab.rawValue else { return }
+            desired = page.height
+        case .height(let h):
+            desired = h
+        case .table:
+            desired = CGFloat(tableHeight)
+        }
+        let visible = (window.screen ?? NSScreen.main)?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        var frame = window.frame
+        let height = min(max(frame.height + desired - detailHeight, window.minSize.height, Self.minHeight), visible.height)
+        guard abs(height - frame.height) > 1 else { return }
+        // Keep the top edge where it is, and the window on screen.
+        frame.origin.y = max(frame.maxY - height, visible.minY)
+        frame.size.height = height
+        window.setFrame(frame, display: true, animate: true)
+    }
+}
+
+/// Height of a form-like property page's content, so the window can fit it.
+struct PageFit: Equatable {
+    var tab: String
+    var height: CGFloat
+}
+
+struct PageFitKey: PreferenceKey {
+    static let defaultValue: PageFit? = nil
+    static func reduce(value: inout PageFit?, nextValue: () -> PageFit?) {
+        value = nextValue() ?? value
+    }
+}
+
+/// Scrolling page for the form-like property tabs. It reports its content height so the window can
+/// grow or shrink to fit when the tab is selected.
+struct PropertyPage<Content: View>: View {
+    let tab: ProcessPropertiesView.PropertyTab
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        ScrollView {
+            content
+                .padding()
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background {
+                    GeometryReader { proxy in
+                        Color.clear.preference(key: PageFitKey.self, value: PageFit(tab: tab.rawValue, height: proxy.size.height))
+                    }
+                }
         }
     }
 }
@@ -141,7 +283,7 @@ struct GeneralTab: View {
         let r = item.record
         let bundle = item.bundleInfo
         let signing = item.signing
-        ScrollView {
+        PropertyPage(tab: .general) {
             VStack(alignment: .leading, spacing: 14) {
                 HStack(spacing: 14) {
                     Image(nsImage: bigIcon)
@@ -160,7 +302,11 @@ struct GeneralTab: View {
                 SectionBox(title: "Image") {
                     Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 6) {
                         InfoRow("Path", r.path ?? "")
-                        InfoRow("Command line", r.commandLine ?? "(unavailable — requires elevation)")
+                        InfoRow("Command line", (r.commandLine ?? "(unavailable — requires elevation)")
+                                    + (r.argumentsOverwritten ? "  (the process overwrote its arguments when it set its title)" : ""))
+                        if let title = r.title {
+                            InfoRow("Process title", title)
+                        }
                         InfoRow("Working directory", cwd)
                         InfoRow("Bundle", bundle?.bundlePath ?? "")
                         InfoRow("Bundle identifier", bundle?.bundleIdentifier ?? "")
@@ -231,7 +377,6 @@ struct GeneralTab: View {
                     Spacer()
                 }
             }
-            .padding()
         }
         .task(id: item.key) {
             let pid = item.pid
@@ -274,12 +419,13 @@ struct StatisticsTab: View {
 
     var body: some View {
         let s = item.stats
-        ScrollView {
+        PropertyPage(tab: .statistics) {
             if s == nil {
                 AccessDeniedView(message: "Statistics for processes owned by other users require administrator privileges.") {}
                     .frame(height: 260)
             }
-            LazyVGrid(columns: [GridItem(.flexible(), alignment: .top), GridItem(.flexible(), alignment: .top)], spacing: 14) {
+            // Two columns when there's room, one when the window is narrow.
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 300), spacing: 14, alignment: .top)], spacing: 14) {
                 SectionBox(title: "CPU") {
                     Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 5) {
                         InfoRow("Usage", Fmt.percent(item.cpu) + "%")
@@ -332,7 +478,6 @@ struct StatisticsTab: View {
                     }
                 }
             }
-            .padding()
         }
     }
 }

@@ -161,7 +161,8 @@ struct InfoRow: View {
     }
 
     var body: some View {
-        GridRow {
+        // Labels line up with the first line of values that wrap.
+        GridRow(alignment: .firstTextBaseline) {
             Text(label)
                 .foregroundStyle(.secondary)
                 .gridColumnAlignment(.trailing)

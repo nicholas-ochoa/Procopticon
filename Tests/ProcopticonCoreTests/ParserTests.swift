@@ -25,6 +25,40 @@ final class ParserTests: XCTestCase {
         XCTAssertEqual(parsed.environment, ["A=1", "B=two"])
     }
 
+    func testRetitledProcArgsParsing() {
+        // A retitle (libuv) writes the title over argv[0] and zeroes the rest of the argv area.
+        var bytes: [UInt8] = []
+        withUnsafeBytes(of: Int32(3)) { bytes += $0 }
+        bytes += Array("/bin/node".utf8) + [0, 0]
+        bytes += Array("api".utf8) + [UInt8](repeating: 0, count: 20)
+        bytes += Array("A=1".utf8) + [0] + Array("B=two".utf8) + [0] + [0]
+        bytes += Array("executable_path=/bin/node".utf8) + [0]
+        let parsed = bytes.withUnsafeBytes { ProcessArguments.parse($0) }
+        XCTAssertEqual(parsed.arguments, ["api", "", ""])
+        XCTAssertEqual(parsed.environment, ["A=1", "B=two"])
+
+        // Only argv[0], shortened by the title.
+        bytes = []
+        withUnsafeBytes(of: Int32(1)) { bytes += $0 }
+        bytes += Array("/bin/node".utf8) + [0, 0]
+        bytes += Array("api".utf8) + [UInt8](repeating: 0, count: 8)
+        bytes += Array("A=1".utf8) + [0] + [0]
+        let single = bytes.withUnsafeBytes { ProcessArguments.parse($0) }
+        XCTAssertEqual(single.arguments, ["api"])
+        XCTAssertEqual(single.environment, ["A=1"])
+    }
+
+    func testEmptyEnvironmentParsing() {
+        var bytes: [UInt8] = []
+        withUnsafeBytes(of: Int32(1)) { bytes += $0 }
+        bytes += Array("/bin/tool".utf8) + [0, 0]
+        bytes += Array("tool".utf8) + [0] + [0]
+        bytes += Array("executable_path=/bin/tool".utf8) + [0]
+        let parsed = bytes.withUnsafeBytes { ProcessArguments.parse($0) }
+        XCTAssertEqual(parsed.arguments, ["tool"])
+        XCTAssertEqual(parsed.environment, [])
+    }
+
     func testLaunchctlPrintParsing() {
         let text = """
         system = {

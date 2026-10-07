@@ -138,7 +138,7 @@ struct HiddenProcessesView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
-                Text(summary).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                Text(summary).foregroundStyle(.secondary).lineLimit(3)
                 Spacer()
                 Button("Scan", action: scan).disabled(scanning).keyboardShortcut(.defaultAction)
             }

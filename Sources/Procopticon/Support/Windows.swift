@@ -10,8 +10,11 @@ final class WindowManager: NSObject, NSWindowDelegate {
     private var windows: [String: NSWindow] = [:]
 
     @discardableResult
+    /// `fullSizeContent` lets the content run under a transparent title bar, for windows with a
+    /// sidebar that should reach the top edge (like System Settings).
     func show<Content: View>(id: String, title: String, size: NSSize = NSSize(width: 720, height: 560),
-                             autosave: String? = nil, @ViewBuilder content: () -> Content) -> NSWindow {
+                             autosave: String? = nil, fullSizeContent: Bool = false,
+                             @ViewBuilder content: () -> Content) -> NSWindow {
         if let existing = windows[id] {
             existing.makeKeyAndOrderFront(nil)
             return existing
@@ -20,6 +23,10 @@ final class WindowManager: NSObject, NSWindowDelegate {
         let window = NSWindow(contentViewController: controller)
         window.title = title
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
+        if fullSizeContent {
+            window.styleMask.insert(.fullSizeContentView)
+            window.titlebarAppearsTransparent = true
+        }
         window.setContentSize(size)
         window.isReleasedWhenClosed = false
         window.delegate = self

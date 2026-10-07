@@ -278,10 +278,10 @@ enum LaunchArguments {
             SystemInfoWindow.open()
         }
         if let pidText = value("--show-properties"), let pid = Int32(pidText), let item = ProcessStore.shared.item(pid: pid) {
-            if let tab = value("--properties-tab") {
-                UserDefaults.standard.set(tab, forKey: "propertiesTab")
+            let tab = value("--properties-tab").flatMap { name in
+                ProcessPropertiesView.PropertyTab.allCases.first { $0.rawValue.lowercased() == name.lowercased() }
             }
-            PropertiesWindow.open(item)
+            PropertiesWindow.open(item, tab: tab ?? .general)
         }
         if let q = value("--show-find") {
             UserDefaults.standard.set(q, forKey: "findQuery")

@@ -35,6 +35,8 @@ struct PrivilegedListView<Row>: View {
                 HStack {
                     if let header, let rows = loader.value {
                         header(rows)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
                     }
                     Spacer()
                     if loader.loading { ProgressView().controlSize(.small) }
@@ -117,6 +119,8 @@ struct ThreadsTab: View {
             Divider()
             HStack {
                 Text("Double-click a thread to capture its stack (uses sample).").font(.caption).foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
                 Spacer()
                 Button("Stack…") { if let t = selected.first { showStack(t) } }.disabled(selected.isEmpty)
                 Button("Sample All Threads…") { ProcessActions.sample(item) }
@@ -296,6 +300,92 @@ struct MemoryTab: View {
     ]
 }
 
+// MARK: - Arguments
+
+struct ArgumentsTab: View {
+    let item: ProcessItem
+    @StateObject private var loader = PrivilegedLoader<ProcessArguments>()
+
+    struct Argument: Hashable {
+        var index: Int
+        var value: String
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            if let e = loader.error, loader.value == nil {
+                if e.isPermissionDenied {
+                    AccessDeniedView(message: "The arguments of processes owned by other users require administrator privileges.") { load() }
+                } else {
+                    ContentUnavailableView("Unavailable", systemImage: "exclamationmark.triangle", description: Text(e.message))
+                }
+            } else if let args = loader.value {
+                let rows = arguments(args)
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text("\(rows.count) \(rows.count == 1 ? "argument" : "arguments")").foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Copy Command Line") { ProcessActions.copy(item.record.commandLine ?? rows.map(\.value).shellJoined) }
+                    }
+                    if let note {
+                        // A line limit, not fixedSize: measured at the window's minimum width, a
+                        // fixed-height paragraph wraps per character and makes the window enormous.
+                        Text(note).font(.caption).foregroundStyle(.secondary).lineLimit(3)
+                    }
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                Divider()
+                OutlineTable(
+                    roots: rows,
+                    children: nil,
+                    revision: rows.hashValue,
+                    columns: Self.columns,
+                    autosaveName: "ArgumentsTable",
+                    key: { AnyHashable($0.index) },
+                    menu: { rows in
+                        let m = NSMenu()
+                        m.add("Copy Argument") { ProcessActions.copy(rows.map(\.value).joined(separator: "\n")) }
+                        return m
+                    })
+            } else {
+                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .task { load() }
+    }
+
+    /// The arguments as launched when known; a retitle overwrites them in the process.
+    private func arguments(_ args: ProcessArguments) -> [Argument] {
+        var values = item.record.launchArguments ?? args.arguments
+        while values.count > 1, values.last?.isEmpty == true {
+            values.removeLast()
+        }
+        return values.enumerated().map { Argument(index: $0.offset, value: $0.element) }
+    }
+
+    private var note: String? {
+        let r = item.record
+        guard let title = r.title else { return nil }
+        if r.launchArguments != nil {
+            return "Shown as launched. The process has since replaced them with its title “\(title)”."
+        }
+        if r.argumentsOverwritten {
+            return "The process replaced its arguments with its title “\(title)” before Procopticon saw it, so the original arguments are gone."
+        }
+        return "The first argument is the process's title, “\(title)”, not the name it was started with."
+    }
+
+    private func load() {
+        loader.load(.arguments(pid: item.pid)) { if case .arguments(let a) = $0 { return a } else { return nil } }
+    }
+
+    static let columns: [TableColumnSpec<Argument>] = [
+        .number("index", "#", width: 40, value: { $0.index }, text: { "\($0.index)" }),
+        .string("value", "Argument", width: 620) { $0.value },
+    ]
+}
+
 // MARK: - Environment
 
 struct EnvironmentTab: View {
@@ -318,25 +408,19 @@ struct EnvironmentTab: View {
                     ContentUnavailableView("Unavailable", systemImage: "exclamationmark.triangle", description: Text(e.message))
                 }
             } else if let args = loader.value {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Arguments").font(.headline)
-                    ScrollView(.horizontal) {
-                        Text(args.arguments.enumerated().map { "[\($0.offset)] \($0.element)" }.joined(separator: "\n"))
-                            .font(.system(.body, design: .monospaced))
-                            .textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .frame(maxHeight: 110)
-                    HStack {
-                        Text("Environment (\(args.environment.count))").font(.headline)
-                        Spacer()
-                        FilterField($search, width: 200)
-                    }
+                HStack {
+                    Text("\(args.environment.count) variables").foregroundStyle(.secondary)
+                    Spacer()
+                    FilterField($search, width: 200)
                 }
-                .padding(8)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                Divider()
                 if args.environment.isEmpty {
                     ContentUnavailableView("No environment", systemImage: "list.bullet.rectangle",
                                            description: Text("macOS only exposes the environment of processes you own (or all processes when running elevated), and hardened processes may hide it."))
+                        // Fill the space below the filter bar so the bar stays at the top.
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     OutlineTable(
                         roots: variables(args),
@@ -350,7 +434,8 @@ struct EnvironmentTab: View {
                             m.add("Copy Value") { ProcessActions.copy(rows.map(\.value).joined(separator: "\n")) }
                             m.add("Copy as export") { ProcessActions.copy(rows.map { "export \($0.name)=\($0.value.shellQuoted)" }.joined(separator: "\n")) }
                             return m
-                        })
+                        },
+                        defaultSort: (column: "name", ascending: true))
                 }
             } else {
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
