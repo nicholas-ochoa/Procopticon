@@ -18,7 +18,7 @@ struct ProcessPropertiesView: View {
     /// Set when the tab changes; the window fits the new tab while its content settles.
     @State private var fitUntil: Date?
 
-    enum PropertyTab: String, CaseIterable, Identifiable {
+    enum PropertyTab: String, SidebarPage {
         case general = "General"
         case statistics = "Statistics"
         case performance = "Performance"
@@ -32,6 +32,7 @@ struct ProcessPropertiesView: View {
         case security = "Security"
         case service = "Service"
         var id: String { rawValue }
+        var title: String { rawValue }
 
         var symbol: String {
             switch self {
@@ -81,14 +82,7 @@ struct ProcessPropertiesView: View {
     var body: some View {
         Group {
             if let item {
-                NavigationSplitView {
-                    List(selection: Binding(get: { tab }, set: { if let t = $0 { tab = t } })) {
-                        ForEach(PropertyTab.allCases) { t in
-                            Label(t.rawValue, systemImage: t.symbol).tag(t)
-                        }
-                    }
-                    .navigationSplitViewColumnWidth(min: 150, ideal: 170, max: 220)
-                } detail: {
+                SidebarPagesView(selection: $tab) { tab in
                     VStack(spacing: 0) {
                         if item.isRemoved || store.item(key) == nil {
                             Label("This process has exited.", systemImage: "exclamationmark.triangle")
@@ -97,7 +91,7 @@ struct ProcessPropertiesView: View {
                                 .padding(.vertical, 6)
                             Divider()
                         }
-                        content(item)
+                        content(item, tab)
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentAreaResized($0) }
                     }
@@ -127,7 +121,7 @@ struct ProcessPropertiesView: View {
     }
 
     @ViewBuilder
-    private func content(_ item: ProcessItem) -> some View {
+    private func content(_ item: ProcessItem, _ tab: PropertyTab) -> some View {
         switch tab {
         case .general: GeneralTab(item: item, revision: store.revision)
         case .statistics: StatisticsTab(item: item, revision: store.revision)

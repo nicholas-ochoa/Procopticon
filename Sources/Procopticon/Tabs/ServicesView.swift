@@ -220,7 +220,8 @@ enum ServiceActions {
 @MainActor
 enum ServicePropertiesWindow {
     static func open(_ s: ServiceItem) {
-        WindowManager.shared.show(id: "service-\(s.id)", title: "\(s.label) Properties", size: NSSize(width: 720, height: 600)) {
+        WindowManager.shared.show(id: "service-\(s.id)", title: "\(s.label) Properties", size: NSSize(width: 820, height: 580),
+                                  fullSizeContent: true) {
             ServicePropertiesView(service: s)
         }
     }
@@ -228,68 +229,106 @@ enum ServicePropertiesWindow {
 
 struct ServicePropertiesView: View {
     let service: ServiceItem
-    @State private var tab = 0
+    @State private var page = Page.general
     @State private var plistText = ""
 
-    var body: some View {
-        VStack(spacing: 0) {
-            Picker("", selection: $tab) {
-                Text("General").tag(0)
-                Text("launchd State").tag(1)
-                Text("Property List").tag(2)
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .padding(8)
-            Divider()
-            switch tab {
-            case 0:
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 12) {
-                        SectionBox(title: "Service") {
-                            Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 6) {
-                                InfoRow("Label", service.label)
-                                InfoRow("Domain", "\(service.domain.displayName) (\(service.domain.target))")
-                                InfoRow("Type", service.kind.rawValue)
-                                InfoRow("Status", service.statusDescription)
-                                InfoRow("PID", service.pid.map { "\($0)" } ?? "")
-                                InfoRow("Last exit status", service.lastExitStatus)
-                                InfoRow("Enabled", service.disabled == true ? "No" : "Yes")
-                                InfoRow("Start", service.startTypeDescription)
-                                InfoRow("Run as user", service.userName ?? "")
-                                InfoRow("Program", service.executable ?? "")
-                                InfoRow("Arguments", service.arguments.shellJoined)
-                                InfoRow("Property list", service.plistPath ?? "")
-                                InfoRow("Mach services", service.machServices.joined(separator: "\n"))
-                            }
-                        }
-                        HStack {
-                            ForEach(ServiceProvider.Action.allCases, id: \.self) { action in
-                                Button(action.rawValue) { ServiceActions.run(action, [service]) }
-                            }
-                        }
-                        if service.domain.requiresRoot, Elevation.shared.mode == .standard {
-                            Label("Controlling system services requires administrator authorization.", systemImage: "lock")
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
-                    }
-                    .padding()
-                }
-            case 1:
-                TextReportView(title: service.label) { await ServiceProvider.details(of: service) }
-            default:
-                MonospacedTextView(text: plistText)
-                    .task {
-                        if let p = service.plistPath, let data = FileManager.default.contents(atPath: p),
-                           let obj = try? PropertyListSerialization.propertyList(from: data, format: nil),
-                           let xml = try? PropertyListSerialization.data(fromPropertyList: obj, format: .xml, options: 0) {
-                            plistText = String(decoding: xml, as: UTF8.self)
-                        } else {
-                            plistText = "No property list on disk for this job (it may be registered by an application at runtime)."
-                        }
-                    }
+    enum Page: String, SidebarPage {
+        case general = "General"
+        case launchdState = "launchd State"
+        case propertyList = "Property List"
+
+        var id: String { rawValue }
+        var title: String { rawValue }
+
+        var symbol: String {
+            switch self {
+            case .general: return "info.circle"
+            case .launchdState: return "gearshape.2"
+            case .propertyList: return "doc.text"
             }
         }
-        .frame(minWidth: 560, minHeight: 420)
+    }
+
+    var body: some View {
+        SidebarPagesView(selection: $page) { page in
+            switch page {
+            case .general: general
+            case .launchdState: TextReportView(title: service.label) { await ServiceProvider.details(of: service) }
+            case .propertyList: propertyList
+            }
+        }
+        .frame(minWidth: 680, minHeight: 420)
+    }
+
+    private var general: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(spacing: 14) {
+                    Image(nsImage: icon)
+                        .resizable()
+                        .frame(width: 48, height: 48)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(service.label).font(.title2.weight(.semibold)).textSelection(.enabled)
+                        Text("\(service.kind.rawValue) · \(service.domain.displayName) · \(service.statusDescription)")
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                }
+                SectionBox(title: "Service") {
+                    Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 6) {
+                        InfoRow("Label", service.label)
+                        InfoRow("Domain", "\(service.domain.displayName) (\(service.domain.target))")
+                        InfoRow("Type", service.kind.rawValue)
+                        InfoRow("Status", service.statusDescription)
+                        InfoRow("PID", service.pid.map { "\($0)" } ?? "")
+                        InfoRow("Last exit status", service.lastExitStatus)
+                        InfoRow("Enabled", service.disabled == true ? "No" : "Yes")
+                        InfoRow("Start", service.startTypeDescription)
+                        InfoRow("Run as user", service.userName ?? "")
+                        InfoRow("Program", service.executable ?? "")
+                        InfoRow("Arguments", service.arguments.shellJoined)
+                        InfoRow("Property list", service.plistPath ?? "")
+                        InfoRow("Mach services", service.machServices.joined(separator: "\n"))
+                    }
+                }
+                HStack {
+                    ForEach(ServiceProvider.Action.allCases, id: \.self) { action in
+                        Button(action.rawValue) { ServiceActions.run(action, [service]) }
+                    }
+                    if let pid = service.pid, pid > 0 {
+                        Button("Process Properties…") {
+                            if let item = ProcessStore.shared.item(pid: pid) { PropertiesWindow.open(item) }
+                        }
+                    }
+                }
+                if service.domain.requiresRoot, Elevation.shared.mode == .standard {
+                    Label("Controlling system services requires administrator authorization.", systemImage: "lock")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            .padding()
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private var propertyList: some View {
+        MonospacedTextView(text: plistText)
+            .task {
+                if let p = service.plistPath, let data = FileManager.default.contents(atPath: p),
+                   let obj = try? PropertyListSerialization.propertyList(from: data, format: nil),
+                   let xml = try? PropertyListSerialization.data(fromPropertyList: obj, format: .xml, options: 0) {
+                    plistText = String(decoding: xml, as: UTF8.self)
+                } else {
+                    plistText = "No property list on disk for this job (it may be registered by an application at runtime)."
+                }
+            }
+    }
+
+    /// The program's app icon when it lives in a bundle, otherwise a generic service icon.
+    private var icon: NSImage {
+        if let exe = service.executable, let bundle = BundleInfoCache.outermostApplicationPath(exe) ?? BundleInfoCache.enclosingBundlePath(exe) {
+            return NSWorkspace.shared.icon(forFile: bundle)
+        }
+        return NSImage(systemSymbolName: "gearshape.2", accessibilityDescription: nil) ?? ProcessIcons.executable
     }
 }

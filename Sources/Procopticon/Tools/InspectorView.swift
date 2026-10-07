@@ -14,7 +14,7 @@ enum InspectorWindow {
             target = exe
         }
         WindowManager.shared.show(id: "inspect-\(target)", title: "\((target as NSString).lastPathComponent) — Executable Inspector",
-                                  size: NSSize(width: 860, height: 640)) {
+                                  size: NSSize(width: 900, height: 640), fullSizeContent: true) {
             InspectorView(path: target)
         }
     }
@@ -42,7 +42,7 @@ struct InspectorView: View {
     @State private var symbolFilter = ""
     @ObservedObject private var settings = AppSettings.shared
 
-    enum Tab: String, CaseIterable, Identifiable {
+    enum Tab: String, SidebarPage {
         case general = "General"
         case loadCommands = "Load Commands"
         case segments = "Segments"
@@ -50,47 +50,70 @@ struct InspectorView: View {
         case symbols = "Symbols"
         case signature = "Signature"
         case infoPlist = "Info.plist"
+
         var id: String { rawValue }
+        var title: String { rawValue }
+
+        var symbol: String {
+            switch self {
+            case .general: return "info.circle"
+            case .loadCommands: return "list.bullet.rectangle"
+            case .segments: return "square.stack"
+            case .libraries: return "books.vertical"
+            case .symbols: return "function"
+            case .signature: return "signature"
+            case .infoPlist: return "doc.text"
+            }
+        }
     }
 
     var body: some View {
-        VStack(spacing: 0) {
+        Group {
             if let error {
                 ContentUnavailableView("Cannot inspect file", systemImage: "doc.questionmark", description: Text(error))
             } else if let file {
-                HStack {
-                    Image(nsImage: NSWorkspace.shared.icon(forFile: BundleInfoCache.enclosingBundlePath(path) ?? path))
-                        .resizable().frame(width: 32, height: 32)
-                    VStack(alignment: .leading) {
-                        Text((path as NSString).lastPathComponent).font(.headline)
-                        Text(path).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
-                    }
-                    Spacer()
+                SidebarPagesView(selection: $tab) { tab in
+                    content(file, tab)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } footer: {
                     if file.slices.count > 1 {
-                        Picker("Architecture", selection: Binding(get: { slice ?? file.selectedSlice }, set: { slice = $0; load() })) {
-                            ForEach(Array(file.slices.enumerated()), id: \.offset) { i, s in
-                                Text(s.architecture).tag(i)
-                            }
-                        }
-                        .frame(width: 200)
+                        architecturePicker(file)
                     }
                 }
-                .padding(10)
-                Picker("", selection: $tab) {
-                    ForEach(Tab.allCases) { Text($0.rawValue).tag($0) }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .padding(.horizontal, 10)
-                .padding(.bottom, 8)
-                Divider()
-                content(file)
             } else {
                 ProgressView("Reading…").frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .frame(minWidth: 640, minHeight: 440)
+        .frame(minWidth: 720, minHeight: 440)
         .task { load() }
+    }
+
+    /// For universal files: which slice every page shows.
+    private func architecturePicker(_ file: MachOFile) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Architecture").font(.caption).foregroundStyle(.secondary)
+            Picker("Architecture", selection: Binding(get: { slice ?? file.selectedSlice }, set: { slice = $0; load() })) {
+                ForEach(Array(file.slices.enumerated()), id: \.offset) { i, s in
+                    Text(s.architecture).tag(i)
+                }
+            }
+            .labelsHidden()
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var header: some View {
+        HStack(spacing: 14) {
+            Image(nsImage: NSWorkspace.shared.icon(forFile: BundleInfoCache.enclosingBundlePath(path) ?? path))
+                .resizable()
+                .frame(width: 48, height: 48)
+            VStack(alignment: .leading, spacing: 2) {
+                Text((path as NSString).lastPathComponent).font(.title2.weight(.semibold))
+                Text(path).foregroundStyle(.secondary).textSelection(.enabled)
+            }
+            Spacer()
+        }
     }
 
     private func load() {
@@ -112,11 +135,12 @@ struct InspectorView: View {
     }
 
     @ViewBuilder
-    private func content(_ f: MachOFile) -> some View {
+    private func content(_ f: MachOFile, _ tab: Tab) -> some View {
         switch tab {
         case .general:
             ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 14) {
+                    header
                     SectionBox(title: "Header") {
                         Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 5) {
                             InfoRow("Type", f.fileTypeName)
@@ -152,6 +176,7 @@ struct InspectorView: View {
                     }
                 }
                 .padding()
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         case .loadCommands:
             OutlineTable(roots: f.loadCommands, children: nil, revision: f.loadCommands.count &+ (slice ?? 0),
@@ -189,10 +214,13 @@ struct InspectorView: View {
         case .symbols:
             VStack(spacing: 0) {
                 HStack {
+                    Text("\(Fmt.count(filteredSymbols(f).count)) of \(Fmt.count(f.symbols.count)) symbols").foregroundStyle(.secondary)
+                    Spacer()
                     FilterField($symbolFilter, width: 260)
-                    Text("\(filteredSymbols(f).count) of \(Fmt.count(f.symbols.count))").foregroundStyle(.secondary)
                 }
-                .padding(8)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                Divider()
                 OutlineTable(roots: filteredSymbols(f), children: nil, revision: symbolFilter.hashValue &+ (slice ?? 0) &+ (settings.searchUsesRegex ? 1 : 0),
                              columns: [
                                  .string("name", "Name", width: 420) { $0.name },
@@ -220,6 +248,7 @@ struct InspectorView: View {
                     }
                 }
                 .padding()
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         case .infoPlist:
             MonospacedTextView(text: infoPlistText(f))
