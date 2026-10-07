@@ -17,13 +17,17 @@ struct SidebarPagesView<Page: SidebarPage, Detail: View, Footer: View>: View {
 
     var body: some View {
         NavigationSplitView {
-            List(selection: Binding(get: { selection }, set: { if let page = $0 { selection = page } })) {
-                ForEach(Page.allCases) { page in
-                    Label(page.title, systemImage: page.symbol).tag(page)
+            // Not `safeAreaInset`: with an empty footer, that lays a view over the whole list which
+            // swallows clicks on the rows.
+            VStack(spacing: 0) {
+                List(selection: Binding(get: { selection }, set: { if let page = $0 { selection = page } })) {
+                    ForEach(Page.allCases) { page in
+                        Label(page.title, systemImage: page.symbol).tag(page)
+                    }
                 }
+                footer
             }
             .navigationSplitViewColumnWidth(min: 150, ideal: 170, max: 220)
-            .safeAreaInset(edge: .bottom, spacing: 0) { footer }
         } detail: {
             detail(selection)
         }
