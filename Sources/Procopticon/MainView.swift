@@ -162,6 +162,7 @@ struct MainView: View {
         ToolbarItem(id: "group.tools", placement: .primaryAction) {
             ToolbarGroup("Tools", "wrench.and.screwdriver") {
                 ToolbarActionButton(.sysinfo)
+                ToolbarActionButton(.history)
                 ToolbarActionButton(.find)
             }
         }
@@ -232,6 +233,7 @@ struct MainView: View {
     @ToolbarContentBuilder
     private var individualToolItems: some CustomizableToolbarContent {
         ToolbarItem(id: "sysinfo", placement: .primaryAction, showsByDefault: false) { ToolbarActionButton(.sysinfo) }
+        ToolbarItem(id: "history", placement: .primaryAction, showsByDefault: false) { ToolbarActionButton(.history) }
         ToolbarItem(id: "find", placement: .primaryAction, showsByDefault: false) { ToolbarActionButton(.find) }
         ToolbarItem(id: "log", placement: .primaryAction, showsByDefault: false) { ToolbarActionButton(.log) }
         ToolbarItem(id: "windows", placement: .primaryAction, showsByDefault: false) { ToolbarActionButton(.windows) }
@@ -436,7 +438,7 @@ struct PauseToggle: View {
 /// Plain action buttons used in groups and as individual palette items.
 struct ToolbarActionButton: View {
     enum Action {
-        case sysinfo, find, settings, properties, terminate, kill, inspect, run, log, windows, users, hidden, export
+        case sysinfo, history, find, settings, properties, terminate, kill, inspect, run, log, windows, users, hidden, export
     }
 
     let action: Action
@@ -456,6 +458,7 @@ struct ToolbarActionButton: View {
     private func perform() {
         switch action {
         case .sysinfo: SystemInfoWindow.open()
+        case .history: ResourceHistoryWindow.open()
         case .find: FindWindow.open()
         case .settings: openSettings()
         case .properties: if let p = ProcessSelection.shared.items.first { PropertiesWindow.open(p) }
@@ -474,6 +477,7 @@ struct ToolbarActionButton: View {
     private var title: String {
         switch action {
         case .sysinfo: return "System Information"
+        case .history: return "Resource History"
         case .find: return "Find Files"
         case .settings: return "Settings"
         case .properties: return "Properties"
@@ -492,6 +496,7 @@ struct ToolbarActionButton: View {
     private var symbol: String {
         switch action {
         case .sysinfo: return "chart.xyaxis.line"
+        case .history: return "chart.bar.xaxis"
         case .find: return "doc.text.magnifyingglass"
         case .settings: return "gearshape"
         case .properties: return "info.circle"
@@ -510,6 +515,7 @@ struct ToolbarActionButton: View {
     private var help: String {
         switch action {
         case .sysinfo: return "Open System Information: CPU, memory, disk, network, GPU and power graphs (⌘I)"
+        case .history: return "Open a floating window of CPU core, GPU and memory history graphs (⌥⌘G)"
         case .find: return "Find which processes have a file, socket or library open (⇧⌘F)"
         case .settings: return "Open Settings: updates, filters, highlighting and privileges (⌘,)"
         case .properties: return "Show details of the selected process: threads, files, memory, security and more (⌘↩)"

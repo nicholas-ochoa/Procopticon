@@ -48,15 +48,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 try? await Elevation.shared.startHelper()
             }
         }
+        ResourceHistoryWindow.restore()
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { LaunchArguments.apply() }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        ResourceHistoryWindow.saveState()
         Elevation.shared.stopHelper()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        !AppSettings.shared.showMenuBarExtra
+        !AppSettings.shared.showMenuBarExtra && !ResourceHistoryWindow.isOpen
     }
 }
 
@@ -127,6 +129,8 @@ struct ViewMenuUpdateItems: View {
     var body: some View {
         Button("System Information") { SystemInfoWindow.open() }
             .keyboardShortcut("i")
+        Button("Resource History") { ResourceHistoryWindow.open() }
+            .keyboardShortcut("g", modifiers: [.command, .option])
         Button("Refresh") { ProcessStore.shared.refreshNow() }
             .keyboardShortcut("r")
         Toggle("Pause Updates", isOn: Binding(get: { pause.paused }, set: { ProcessStore.shared.paused = $0 }))
@@ -272,7 +276,7 @@ struct ToolsMenuItems: View {
 }
 
 /// Optional command line switches, e.g. `--tab network`, `--show-properties 1 --properties-tab files`,
-/// `--elevate`, `--search <text>`, `--show-sysinfo cpu`, `--show-find dyld`, `--inspect /bin/ls`, `--show-service com.apple.Finder`.
+/// `--elevate`, `--search <text>`, `--show-sysinfo cpu`, `--show-history`, `--show-find dyld`, `--inspect /bin/ls`, `--show-service com.apple.Finder`.
 @MainActor
 enum LaunchArguments {
     static func value(_ name: String) -> String? {
@@ -295,6 +299,7 @@ enum LaunchArguments {
             }
             SystemInfoWindow.open()
         }
+        if CommandLine.arguments.contains("--show-history") { ResourceHistoryWindow.open() }
         if let pidText = value("--show-properties"), let pid = Int32(pidText), let item = ProcessStore.shared.item(pid: pid) {
             let tab = value("--properties-tab").flatMap { name in
                 ProcessPropertiesView.PropertyTab.allCases.first { $0.rawValue.lowercased() == name.lowercased() }

@@ -642,6 +642,8 @@ public final class SystemMonitor {
     public private(set) var cpuUser = History()
     public private(set) var cpuKernel = History()
     public private(set) var perCore: [History] = []
+    /// System (kernel) share of each core, parallel to `perCore`.
+    public private(set) var perCoreKernel: [History] = []
     public private(set) var memoryUsed = History()
     public private(set) var memoryCompressed = History()
     public private(set) var memoryWired = History()
@@ -704,6 +706,7 @@ public final class SystemMonitor {
         defer { last = s }
         guard let prev = last else {
             perCore = Array(repeating: History(), count: s.cpus.count)
+            perCoreKernel = perCore
             for i in s.interfaces {
                 interfaceTotals[i.name] = interfaceBaseline?[i.name] ?? InterfaceCounters.Totals(i)
             }
@@ -713,6 +716,7 @@ public final class SystemMonitor {
         // CPU
         var totalUser: UInt64 = 0, totalSys: UInt64 = 0, totalAll: UInt64 = 0
         var cores: [Double] = []
+        var coresKernel: [Double] = []
         for (i, c) in s.cpus.enumerated() where i < prev.cpus.count {
             let p = prev.cpus[i]
             let u = (c.user &- p.user) &+ (c.nice &- p.nice)
@@ -722,12 +726,15 @@ public final class SystemMonitor {
             totalSys &+= sy
             totalAll &+= all
             cores.append(all > 0 ? Double(u + sy) / Double(all) * 100 : 0)
+            coresKernel.append(all > 0 ? Double(sy) / Double(all) * 100 : 0)
         }
         if perCore.count != cores.count {
             perCore = Array(repeating: History(), count: cores.count)
+            perCoreKernel = perCore
         }
         for (i, v) in cores.enumerated() {
             perCore[i].append(v)
+            perCoreKernel[i].append(coresKernel[i])
         }
         coreUsage = cores
         cpuUserUsage = totalAll > 0 ? Double(totalUser) / Double(totalAll) * 100 : 0

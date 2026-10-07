@@ -237,6 +237,9 @@ public struct MachineInfo: Sendable {
     public var logicalCores: Int
     public var performanceCores: Int
     public var efficiencyCores: Int
+    /// The core type of each logical CPU ("Efficiency", "Performance"), in CPU number order; empty
+    /// on Macs with a single core type.
+    public var coreTypes: [String]
     public var memoryBytes: UInt64
     public var osVersion: String
     public var kernelVersion: String
@@ -262,6 +265,14 @@ public struct MachineInfo: Sendable {
             }
             return size == 4 ? Int(Int32(truncatingIfNeeded: v)) : Int(v)
         }
+        // Logical CPUs are numbered from the least to the most powerful core type, and
+        // perflevel0 is the most powerful.
+        let levels = int("hw.nperflevels")
+        let coreTypes = levels > 1
+            ? (0..<levels).reversed().flatMap { level in
+                Array(repeating: str("hw.perflevel\(level).name"), count: int("hw.perflevel\(level).logicalcpu"))
+            }
+            : []
         let pv = ProcessInfo.processInfo.operatingSystemVersion
         return MachineInfo(
             modelIdentifier: str("hw.model"),
@@ -270,6 +281,7 @@ public struct MachineInfo: Sendable {
             logicalCores: int("hw.logicalcpu"),
             performanceCores: int("hw.perflevel0.physicalcpu"),
             efficiencyCores: int("hw.perflevel1.physicalcpu"),
+            coreTypes: coreTypes,
             memoryBytes: UInt64(int("hw.memsize")),
             osVersion: "macOS \(pv.majorVersion).\(pv.minorVersion).\(pv.patchVersion) (\(str("kern.osversion")))",
             kernelVersion: str("kern.version"),
