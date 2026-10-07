@@ -21,6 +21,8 @@ struct TableColumnSpec<Item> {
     var less: ((Item, Item) -> Bool)?
     var image: ((Item) -> NSImage?)?
     var tooltip: ((Item) -> String?)?
+    /// Shown in a styled panel (see `RichToolTipController`) in place of a standard tooltip.
+    var richTooltip: ((Item) -> AnyView)?
     var graph: ((Item) -> GraphCellData?)?
     var help: String?
 
@@ -153,6 +155,7 @@ struct OutlineTable<Item>: NSViewRepresentable {
         outline.headerView?.menu = coordinator.headerMenu()
         outline.keyHandler = { [weak coordinator] event in coordinator?.handleKey(event) ?? false }
         outline.copyHandler = { [weak coordinator] in coordinator?.copySelection() }
+        outline.richToolTip = { [weak coordinator] row, column in coordinator?.richToolTip(row: row, column: column) }
         coordinator.iconObserver = NotificationCenter.default.addObserver(
             forName: ProcessIcons.didLoadNotification, object: nil, queue: .main) { [weak coordinator] _ in
             coordinator?.refreshVisibleRows()
@@ -862,6 +865,16 @@ final class OutlineTableCoordinator<Item>: NSObject, NSOutlineViewDataSource, NS
         } else {
             cell.tooltipProvider = nil
         }
+        cell.showsToolTip = spec.richTooltip == nil
+    }
+
+    /// Builder for the rich tooltip of a cell, or nil when its column has none.
+    func richToolTip(row: Int, column: Int) -> (() -> AnyView)? {
+        guard let outline, outline.tableColumns.indices.contains(column),
+              let tip = columnMap[outline.tableColumns[column].identifier.rawValue]?.richTooltip,
+              let node = outline.item(atRow: row) as? OutlineNode<Item> else { return nil }
+        let value = node.value
+        return { tip(value) }
     }
 
     private static var rowIdentifier: NSUserInterfaceItemIdentifier { NSUserInterfaceItemIdentifier("row") }
@@ -1007,12 +1020,101 @@ final class OutlineTableCoordinator<Item>: NSObject, NSOutlineViewDataSource, NS
 final class KeyOutlineView: NSOutlineView {
     var keyHandler: ((NSEvent) -> Bool)?
     var copyHandler: (() -> Void)?
+    /// Rich tooltip for the cell at (row, column), if it has one.
+    var richToolTip: ((_ row: Int, _ column: Int) -> (() -> AnyView)?)?
+    private let toolTips = RichToolTipController()
+    private var toolTipArea: NSTrackingArea?
+
+    private struct Cell: Hashable {
+        var row: Int
+        var column: Int
+    }
 
     override func keyDown(with event: NSEvent) {
+        toolTips.dismiss()
         if keyHandler?(event) == true {
             return
         }
         super.keyDown(with: event)
+    }
+
+    // MARK: Rich tooltips
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let toolTipArea {
+            removeTrackingArea(toolTipArea)
+        }
+        let area = NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect],
+                                  owner: self, userInfo: nil)
+        addTrackingArea(area)
+        toolTipArea = area
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        super.mouseEntered(with: event)
+        if event.trackingArea === toolTipArea {
+            updateToolTip(event)
+        }
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        super.mouseMoved(with: event)
+        updateToolTip(event)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        if event.trackingArea === toolTipArea {
+            toolTips.pointerMoved(over: nil) { nil }
+        }
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        toolTips.dismiss(keepingArea: true)
+        super.mouseDown(with: event)
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        toolTips.dismiss(keepingArea: true)
+        super.rightMouseDown(with: event)
+    }
+
+    override func otherMouseDown(with event: NSEvent) {
+        toolTips.dismiss(keepingArea: true)
+        super.otherMouseDown(with: event)
+    }
+
+    override func scrollWheel(with event: NSEvent) {
+        toolTips.dismiss()
+        super.scrollWheel(with: event)
+    }
+
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        toolTips.dismiss()
+        super.viewWillMove(toWindow: newWindow)
+    }
+
+    override func viewDidHide() {
+        toolTips.dismiss()
+        super.viewDidHide()
+    }
+
+    private func updateToolTip(_ event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        let row = row(at: point)
+        let column = column(at: point)
+        guard row >= 0, column >= 0, isUnobstructed(event), let content = richToolTip?(row, column) else {
+            toolTips.pointerMoved(over: nil) { nil }
+            return
+        }
+        toolTips.pointerMoved(over: Cell(row: row, column: column)) { content() }
+    }
+
+    /// False over the column header, toolbar or filter bar, which the table scrolls under.
+    private func isUnobstructed(_ event: NSEvent) -> Bool {
+        guard let frameView = window?.contentView?.superview else { return false }
+        return frameView.hitTest(event.locationInWindow)?.isDescendant(of: self) == true
     }
 
     @objc func copy(_ sender: Any?) {
@@ -1108,6 +1210,8 @@ final class TextCellView: NSTableCellView, NSViewToolTipOwner {
     /// Computed only when the user hovers, instead of on every refresh. Without one, a cell whose
     /// text is cut off shows its full text instead.
     var tooltipProvider: (() -> String?)?
+    /// Off where the table shows a rich tooltip instead.
+    var showsToolTip = true
 
     init(identifier: NSUserInterfaceItemIdentifier, withImage: Bool) {
         hasImage = withImage
@@ -1160,6 +1264,7 @@ final class TextCellView: NSTableCellView, NSViewToolTipOwner {
     }
 
     func view(_ view: NSView, stringForToolTip tag: NSView.ToolTipTag, point: NSPoint, userData data: UnsafeMutableRawPointer?) -> String {
+        guard showsToolTip else { return "" }
         if let tip = tooltipProvider?(), !tip.isEmpty {
             return tip
         }

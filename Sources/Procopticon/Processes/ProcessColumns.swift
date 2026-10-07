@@ -1,5 +1,6 @@
 import AppKit
 import ProcopticonCore
+import SwiftUI
 
 typealias ProcessColumn = TableColumnSpec<ProcessItem>
 
@@ -12,7 +13,7 @@ enum ProcessColumns {
 
         var name = ProcessColumn.string("name", "Name", width: 240) { $0.displayName }
         name.image = { ProcessIcons.icon(for: $0.record) }
-        name.tooltip = { tooltip(for: $0) }
+        name.richTooltip = { AnyView(ProcessToolTipView(item: $0)) }
         name.monospacedDigits = false
         cols.append(name)
 
@@ -199,29 +200,5 @@ enum ProcessColumns {
 
     private static func ipc(_ p: ProcessItem) -> Double {
         p.cyclesDelta > 0 ? Double(p.instructionsDelta) / Double(p.cyclesDelta) : 0
-    }
-
-    static func tooltip(for p: ProcessItem) -> String {
-        var lines: [String] = []
-        if let path = p.record.path { lines.append(path) }
-        if let cmd = p.record.commandLine, cmd != p.record.path { lines.append("Command line: \(cmd)") }
-        if let b = p.bundleInfo {
-            if let name = b.displayName { lines.append("\(name) \(b.versionString)") }
-            if let id = b.bundleIdentifier { lines.append("Bundle: \(id)") }
-        }
-        if let s = p.signing, !s.signer.isEmpty {
-            lines.append("Signer: \(s.signer)")
-        }
-        var notes: [String] = []
-        if p.record.sandboxed == true { notes.append("Sandboxed") }
-        if p.record.isTranslated { notes.append("Running under Rosetta") }
-        if p.record.isTraced { notes.append("Being traced") }
-        if p.record.isStopped { notes.append("Stopped") }
-        if p.record.isElevated { notes.append("Elevated (euid root)") }
-        if let r = p.record.responsiblePid, r != p.pid, let rp = ProcessStore.shared.item(pid: r) {
-            notes.append("Responsible: \(rp.name) (\(r))")
-        }
-        if !notes.isEmpty { lines.append(notes.joined(separator: " · ")) }
-        return lines.joined(separator: "\n")
     }
 }

@@ -138,19 +138,24 @@ public struct ProcessRecord: Codable, Sendable {
     /// command line from before the title when it was seen, otherwise the executable followed by
     /// whatever arguments the title left in place.
     public var commandLine: String? {
+        commandLineArguments?.shellJoined
+    }
+
+    /// The arguments `commandLine` joins.
+    public var commandLineArguments: [String]? {
         guard let arguments, !arguments.isEmpty else {
             return nil
         }
         guard title != nil else {
-            return arguments.shellJoined
+            return arguments
         }
         if let launchArguments, !launchArguments.isEmpty {
-            return launchArguments.shellJoined
+            return launchArguments
         }
         guard let path else {
-            return arguments.shellJoined
+            return arguments
         }
-        return ([path] + survivingArguments).shellJoined
+        return [path] + survivingArguments
     }
 
     /// True when the process overwrote its arguments with its title and they weren't seen before,
