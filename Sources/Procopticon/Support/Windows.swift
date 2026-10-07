@@ -19,14 +19,22 @@ final class WindowManager: NSObject, NSWindowDelegate {
             existing.makeKeyAndOrderFront(nil)
             return existing
         }
-        let controller = NSHostingController(rootView: content().environmentObject(AppSettings.shared))
-        let window = NSWindow(contentViewController: controller)
-        window.title = title
-        window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
+        // The window gets its final style and size before the content arrives, and the content
+        // gets its size before it's attached. Creating the window around the hosting controller
+        // (sized to the content's ideal size), then changing the style and size, laid the whole
+        // SwiftUI page out three times: most of the time a properties window took to open.
+        var style: NSWindow.StyleMask = [.titled, .closable, .miniaturizable, .resizable]
         if fullSizeContent {
-            window.styleMask.insert(.fullSizeContentView)
-            window.titlebarAppearsTransparent = true
+            style.insert(.fullSizeContentView)
         }
+        let window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: style, backing: .buffered, defer: true)
+        window.title = title
+        window.titlebarAppearsTransparent = fullSizeContent
+        let controller = NSHostingController(rootView: content().environmentObject(AppSettings.shared))
+        // Pages set their minimum size; the window's size is the user's (or the page's own fitting).
+        controller.sizingOptions = [.minSize]
+        controller.view.frame = NSRect(origin: .zero, size: size)
+        window.contentViewController = controller
         window.setContentSize(size)
         window.isReleasedWhenClosed = false
         window.delegate = self

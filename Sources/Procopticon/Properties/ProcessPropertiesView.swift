@@ -17,6 +17,9 @@ struct ProcessPropertiesView: View {
     @State private var page: PageFit?
     /// Set when the tab changes; the window fits the new tab while its content settles.
     @State private var fitUntil: Date?
+    /// Height an animated fit is heading to, so fits requested meanwhile don't restart it.
+    @State private var fitTarget: CGFloat?
+    @State private var fittedOnce = false
 
     enum PropertyTab: String, SidebarPage {
         case general = "General"
@@ -174,11 +177,25 @@ struct ProcessPropertiesView: View {
         let visible = (window.screen ?? NSScreen.main)?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
         var frame = window.frame
         let height = min(max(frame.height + desired - detailHeight, window.minSize.height, Self.minHeight), visible.height)
-        guard abs(height - frame.height) > 1 else { return }
+        guard abs(height - frame.height) > 1, fitTarget.map({ abs($0 - height) > 1 }) ?? true else { return }
         // Keep the top edge where it is, and the window on screen.
         frame.origin.y = max(frame.maxY - height, visible.minY)
         frame.size.height = height
-        window.setFrame(frame, display: true, animate: true)
+        // Not setFrame(_:display:animate:), which blocks until the animation ends and lays the
+        // whole page out again on every frame: opening the window took half a second. The first
+        // fit (as the window opens) is immediate; later ones animate without blocking.
+        guard fittedOnce, window.isVisible else {
+            fittedOnce = true
+            window.setFrame(frame, display: true)
+            return
+        }
+        fitTarget = height
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.15
+            window.animator().setFrame(frame, display: true)
+        } completionHandler: {
+            fitTarget = nil
+        }
     }
 }
 
