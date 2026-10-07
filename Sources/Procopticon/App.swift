@@ -39,7 +39,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         IsolatedScanner.executablePath = Elevation.helperURL.path
         ProcessStore.shared.applicationPids = ApplicationPids.current
         AppSettings.shared.apply()
-        MenuTracking.shared.start()
         ProcessStore.shared.start()
         // Prefetch launchd jobs in the background so the Services tab opens instantly.
         ServiceStore.shared.refresh()
