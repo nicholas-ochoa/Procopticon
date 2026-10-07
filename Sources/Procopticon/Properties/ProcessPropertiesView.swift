@@ -8,6 +8,8 @@ struct ProcessPropertiesView: View {
     @State private var tab: PropertyTab
     /// Height last used for the table tabs, restored when switching back to one.
     @AppStorage("propertiesTableHeight") private var tableHeight: Double = 520
+    /// Width the window was last resized to; new properties windows open at it.
+    @AppStorage(PropertiesWindow.widthKey) private var windowWidth: Double = PropertiesWindow.defaultWidth
     /// Last known state, kept so the window stays useful after the process exits.
     @State private var snapshot: ProcessItem?
     @State private var window: NSWindow?
@@ -110,6 +112,12 @@ struct ProcessPropertiesView: View {
         }
         // Tall enough for every sidebar item.
         .frame(minWidth: 680, minHeight: Self.minHeight)
+        // Only the user changes the width (fitting changes the height), so remember it.
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width in
+            if width >= 680 {
+                windowWidth = Double(width)
+            }
+        }
         .background(WindowAccessor { window = $0; fitWindow() })
         .onPreferenceChange(PageFitKey.self) { value in
             page = value
