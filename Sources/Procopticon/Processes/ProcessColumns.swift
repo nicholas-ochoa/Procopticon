@@ -35,6 +35,11 @@ enum ProcessColumns {
                             value: { $0.netInRate }, text: { Fmt.rate($0.netInRate) }))
         cols.append(.number("netOutRate", "Send rate", width: 85, visible: false, help: "Bytes sent per second",
                             value: { $0.netOutRate }, text: { Fmt.rate($0.netOutRate) }))
+        var netRate = ProcessColumn.number("netRate", "Network rate", width: 160, visible: false,
+                                           help: "Receive (↓) and send (↑) rates; sorts by their total",
+                                           value: { $0.netTotalRate }, text: { networkRate($0).string })
+        netRate.attributedText = { networkRate($0) }
+        cols.append(netRate)
         cols.append(.number("netIn", "Received bytes", width: 90, visible: false,
                             help: "Data received by the process's sockets: what they had received when Procopticon first saw them, plus everything since",
                             value: { $0.network?.bytesIn ?? 0 }, text: { s($0.network?.bytesIn) }))
@@ -215,6 +220,20 @@ enum ProcessColumns {
     private static func s(_ v: UInt64?) -> String {
         guard let v, v > 0 else { return "" }
         return Fmt.bytes(v)
+    }
+
+    /// "↓ 1.4 MB/s  ↑ 56 KB/s" with colored arrows, or empty when there's no traffic.
+    private static func networkRate(_ p: ProcessItem) -> NSAttributedString {
+        let text = NSMutableAttributedString()
+        guard p.netInRate > 0 || p.netOutRate > 0 else { return text }
+        func part(_ arrow: String, _ color: NSColor, _ rate: Double) {
+            text.append(NSAttributedString(string: arrow + " ", attributes: [.foregroundColor: color]))
+            text.append(NSAttributedString(string: Fmt.rate(rate).ifEmpty("0 B/s")))
+        }
+        part("↓", .systemCyan, p.netInRate)
+        text.append(NSAttributedString(string: "  "))
+        part("↑", .systemRed, p.netOutRate)
+        return text
     }
 
     private static func c(_ v: UInt64?) -> String {
