@@ -75,45 +75,58 @@ struct ServiceTab: View {
 
     var body: some View {
         let matches = services.items.filter { $0.pid == item.pid }
-        PropertyPage(tab: .service) {
-            VStack(alignment: .leading, spacing: 10) {
-                if services.items.isEmpty {
-                    ProgressView("Loading launchd jobs…").frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else if matches.isEmpty {
-                    ContentUnavailableView {
-                        Label("Not a launchd job", systemImage: "gearshape.2")
-                    } description: {
-                        Text("No launchd service in the system or user domain currently reports PID \(item.pid).")
-                    } actions: {
-                        Button("Show launchd Process Info…") {
-                            let pid = item.pid
-                            Reports.show(title: "launchctl procinfo \(pid)") {
-                                await Reports.runTool("/bin/launchctl", ["procinfo", "\(pid)"], requiresRoot: true)
-                            }
-                        }
+        Group {
+            if services.items.isEmpty || matches.isEmpty {
+                // Centered in the pane rather than at the top of a scrolling page.
+                Group {
+                    if services.items.isEmpty {
+                        ProgressView("Loading launchd jobs…")
+                    } else {
+                        notAJob
                     }
-                } else {
-                    ForEach(matches) { s in
-                        SectionBox(title: s.label) {
-                            Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 5) {
-                                InfoRow("Domain", s.domain.displayName)
-                                InfoRow("Kind", s.kind.rawValue)
-                                InfoRow("Status", s.statusDescription)
-                                InfoRow("Start", s.startTypeDescription)
-                                InfoRow("Property list", s.plistPath ?? "")
-                                InfoRow("Program", s.executable ?? "")
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .preference(key: PageFitKey.self, value: PageFit(tab: ProcessPropertiesView.PropertyTab.service.rawValue, height: 300))
+            } else {
+                PropertyPage(tab: .service) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        ForEach(matches) { s in
+                            SectionBox(title: s.label) {
+                                Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 5) {
+                                    InfoRow("Domain", s.domain.displayName)
+                                    InfoRow("Kind", s.kind.rawValue)
+                                    InfoRow("Status", s.statusDescription)
+                                    InfoRow("Start", s.startTypeDescription)
+                                    InfoRow("Property list", s.plistPath ?? "")
+                                    InfoRow("Program", s.executable ?? "")
+                                }
+                                HStack {
+                                    Button("Service Properties…") { ServicePropertiesWindow.open(s) }
+                                    Button("Restart Service") { ServiceActions.run(.restart, [s]) }
+                                    Button("Stop Service") { ServiceActions.run(.stop, [s]) }
+                                }
+                                .padding(.top, 6)
                             }
-                            HStack {
-                                Button("Service Properties…") { ServicePropertiesWindow.open(s) }
-                                Button("Restart Service") { ServiceActions.run(.restart, [s]) }
-                                Button("Stop Service") { ServiceActions.run(.stop, [s]) }
-                            }
-                            .padding(.top, 6)
                         }
                     }
                 }
             }
         }
         .task { services.refreshIfNeeded() }
+    }
+
+    private var notAJob: some View {
+        ContentUnavailableView {
+            Label("Not a launchd job", systemImage: "gearshape.2")
+        } description: {
+            Text("No launchd service in the system or user domain currently reports PID \(item.pid).")
+        } actions: {
+            Button("Show launchd Process Info…") {
+                let pid = item.pid
+                Reports.show(title: "launchctl procinfo \(pid)") {
+                    await Reports.runTool("/bin/launchctl", ["procinfo", "\(pid)"], requiresRoot: true)
+                }
+            }
+        }
     }
 }
