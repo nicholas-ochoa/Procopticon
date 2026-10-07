@@ -30,9 +30,15 @@ public final class ProcessItem: Identifiable {
     public let instructionsDelta: UInt64
     public let messagesDelta: Int64
     public let power: Double
+    /// GPU usage (percent of the GPU's time) over the last interval.
+    public let gpu: Double
+    /// GPU time used by the process's GPU connections while Procopticon watched, plus what they had
+    /// used when first seen.
+    public let gpuTimeNs: UInt64
     public let cpuHistory: History
     public let memoryHistory: History
     public let ioHistory: History
+    public let gpuHistory: History
     public let firstSeen: Date
     public let removedAt: Date?
     public let isInitial: Bool
@@ -58,9 +64,12 @@ public final class ProcessItem: Identifiable {
         instructionsDelta = s.instructionsDelta
         messagesDelta = s.messagesDelta
         power = s.power
+        gpu = s.gpu
+        gpuTimeNs = s.gpuTimeNs
         cpuHistory = s.cpuHistory
         memoryHistory = s.memoryHistory
         ioHistory = s.ioHistory
+        gpuHistory = s.gpuHistory
         firstSeen = s.firstSeen
         removedAt = s.removedAt
         isInitial = s.isInitial
@@ -126,9 +135,14 @@ final class ProcessState {
     var instructionsDelta: UInt64 = 0
     var messagesDelta: Int64 = 0
     var power: Double = 0
+    var gpu: Double = 0
+    var gpuTimeNs: UInt64
+    /// The GPU time last read for the process; see `GPUUsage.sample()`.
+    private var lastGPUTime: UInt64
     var cpuHistory = History(capacity: 120)
     var memoryHistory = History(capacity: 120)
     var ioHistory = History(capacity: 120)
+    var gpuHistory = History(capacity: 120)
     let firstSeen = Date()
     var removedAt: Date?
     let isInitial: Bool
@@ -136,17 +150,24 @@ final class ProcessState {
     var bundleInfo: ExecutableBundleInfo?
     private var lastSampleTime: Double
 
-    init(record: ProcessRecord, time: Double, initial: Bool) {
+    init(record: ProcessRecord, time: Double, initial: Bool, gpuTime: UInt64 = 0) {
         self.record = record
         isInitial = initial
         lastSampleTime = time
+        gpuTimeNs = gpuTime
+        lastGPUTime = gpuTime
         userName = UserNames.name(record.uid)
         // Resolve file-system metadata here, off the main thread.
         bundleInfo = record.path.map { BundleInfoCache.shared.info(for: $0) }
     }
 
-    func update(record new: ProcessRecord, time: Double, cpuCount: Int, scaleToSystem: Bool) {
+    func update(record new: ProcessRecord, time: Double, cpuCount: Int, scaleToSystem: Bool, gpuTime: UInt64 = 0) {
         let dt = max(0.001, time - lastSampleTime)
+        // Closing a GPU connection takes its time out of the sum; count only growth.
+        let gpuDelta = gpuTime &- min(gpuTime, lastGPUTime)
+        gpuTimeNs &+= gpuDelta
+        lastGPUTime = gpuTime
+        gpu = Double(gpuDelta) / (dt * 1e9) * 100
         if let old = record.stats, let s = new.stats {
             let du = Double(s.userTimeNs &- min(s.userTimeNs, old.userTimeNs))
             let ds = Double(s.systemTimeNs &- min(s.systemTimeNs, old.systemTimeNs))
@@ -184,10 +205,12 @@ final class ProcessState {
         cpuHistory.append(cpu)
         memoryHistory.append(Double(new.stats?.physFootprint ?? 0))
         ioHistory.append(diskReadRate + diskWriteRate)
+        gpuHistory.append(gpu)
     }
 
     func markRemoved() {
         removedAt = Date()
+        gpu = 0
         cpu = 0
         cpuUser = 0
         cpuKernel = 0
@@ -325,11 +348,12 @@ public final class ProcessStore: ObservableObject {
         queue.async { [weak self] in
             guard let self else { return }
             let response = Elevation.shared.perform(.sampleProcesses)
+            let gpuTimes = GPUUsage.sample()
             let sys = SystemSampler.sample()
             let time = Date().timeIntervalSince1970
             var error: String?
             if case .processes(let records) = response {
-                self.merge(records, time: time, options: options)
+                self.merge(records, gpuTimes: gpuTimes, time: time, options: options)
             } else if case .failure(let e) = response {
                 error = e.message
             }
@@ -380,15 +404,16 @@ public final class ProcessStore: ObservableObject {
 
     // MARK: Background queue
 
-    private func merge(_ records: [ProcessRecord], time: Double, options: BuildOptions) {
+    private func merge(_ records: [ProcessRecord], gpuTimes: [Int32: UInt64], time: Double, options: BuildOptions) {
         var seen = Set<ProcessKey>()
         seen.reserveCapacity(records.count)
         for r in records {
             seen.insert(r.key)
             if let state = states[r.key] {
-                state.update(record: r, time: time, cpuCount: options.cpuCount, scaleToSystem: options.scaleCPUToSystem)
+                state.update(record: r, time: time, cpuCount: options.cpuCount, scaleToSystem: options.scaleCPUToSystem,
+                             gpuTime: gpuTimes[r.pid] ?? 0)
             } else {
-                states[r.key] = ProcessState(record: r, time: time, initial: !hasSampled)
+                states[r.key] = ProcessState(record: r, time: time, initial: !hasSampled, gpuTime: gpuTimes[r.pid] ?? 0)
                 if hasSampled {
                     EventLog.shared.add(.processStarted, pid: r.pid,
                                         "\(r.name) (\(r.pid)) started by \(UserNames.name(r.uid)), parent \(r.ppid)\(r.commandLine.map { ": \($0)" } ?? "")")
@@ -547,6 +572,7 @@ public final class SystemMonitor {
     /// Name of the top CPU consumer at each sample (parallel to cpuTotal).
     public private(set) var topCPUProcess: [String] = []
     public private(set) var topIOProcess: [String] = []
+    public private(set) var topGPUProcess: [String] = []
 
     public private(set) var cpuUsage: Double = 0
     public private(set) var cpuUserUsage: Double = 0
@@ -658,10 +684,12 @@ public final class SystemMonitor {
 
         var topCPU: ProcessItem?
         var topIO: ProcessItem?
+        var topGPU: ProcessItem?
         var watts = 0.0
         for p in processes where !p.isRemoved {
             if topCPU == nil || p.cpu > topCPU!.cpu { topCPU = p }
             if topIO == nil || p.ioTotalRate > topIO!.ioTotalRate { topIO = p }
+            if p.gpu > (topGPU?.gpu ?? 0) { topGPU = p }
             watts += p.power
         }
         processPower = watts
@@ -672,7 +700,9 @@ public final class SystemMonitor {
         }
         topCPUProcess.append(label(topCPU, String(format: "%.1f%%", topCPU?.cpu ?? 0)))
         topIOProcess.append(label(topIO, Fmt.rate(topIO?.ioTotalRate ?? 0)))
+        topGPUProcess.append(label(topGPU, String(format: "%.1f%%", topGPU?.gpu ?? 0)))
         if topCPUProcess.count > cpuTotal.capacity { topCPUProcess.removeFirst() }
         if topIOProcess.count > cpuTotal.capacity { topIOProcess.removeFirst() }
+        if topGPUProcess.count > cpuTotal.capacity { topGPUProcess.removeFirst() }
     }
 }

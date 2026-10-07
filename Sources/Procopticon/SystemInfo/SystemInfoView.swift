@@ -95,7 +95,8 @@ struct SummaryPanel: View {
                           formatter: { Fmt.rate($0).ifEmpty("0") })
                     .frame(height: 130)
                 GraphView(series: [GraphSeries(values: sys.gpu.ordered, color: .indigo, label: "GPU")],
-                          maxValue: 100, title: "GPU", valueText: percent(sys.gpu.last), formatter: { String(format: "%.0f%%", $0) })
+                          maxValue: 100, title: "GPU", valueText: percent(sys.gpu.last), formatter: { String(format: "%.0f%%", $0) },
+                          tooltips: sys.topGPUProcess)
                     .frame(height: 130)
                 GraphView(series: [GraphSeries(values: sys.power.ordered, color: .yellow, label: "Processes")],
                           title: "Process energy", valueText: Fmt.watts(sys.processPower).ifEmpty("0 W"), formatter: { Fmt.watts($0).ifEmpty("0 W") })
@@ -361,11 +362,15 @@ struct GPUPanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             GraphView(series: [GraphSeries(values: sys.gpu.ordered, color: .indigo, label: "Utilization")], maxValue: 100,
-                      title: "GPU utilization", valueText: percent(sys.gpu.last), formatter: { String(format: "%.0f%%", $0) })
+                      title: "GPU utilization", valueText: percent(sys.gpu.last), formatter: { String(format: "%.0f%%", $0) },
+                      tooltips: sys.topGPUProcess)
                 .frame(height: 180)
             ForEach(Array((sys.last?.gpus ?? []).enumerated()), id: \.offset) { _, g in
                 SectionBox(title: g.name) {
                     Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 5) {
+                        if let cores = g.coreCount {
+                            InfoRow("GPU cores", "\(cores)")
+                        }
                         InfoRow("Device utilization", String(format: "%.0f%%", g.utilization))
                         InfoRow("Renderer utilization", String(format: "%.0f%%", g.rendererUtilization))
                         InfoRow("Tiler utilization", String(format: "%.0f%%", g.tilerUtilization))
@@ -374,7 +379,48 @@ struct GPUPanel: View {
                     }
                 }
             }
+            SectionBox(title: "Processes using the GPU") {
+                let top = topProcesses
+                if top.isEmpty {
+                    Text("No process has used the GPU since Procopticon started watching.").foregroundStyle(.secondary)
+                } else {
+                    Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 5) {
+                        GridRow {
+                            Text("Process")
+                            Text("GPU").gridColumnAlignment(.trailing)
+                            Text("GPU time").gridColumnAlignment(.trailing)
+                        }
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        ForEach(top, id: \.key) { p in
+                            GridRow {
+                                Button { PropertiesWindow.open(p, tab: .performance) } label: {
+                                    Label {
+                                        Text("\(p.displayName)  \(Text(String(p.pid)).foregroundStyle(.secondary))")
+                                    } icon: {
+                                        Image(nsImage: ProcessIcons.icon(for: p.record))
+                                    }
+                                }
+                                .buttonStyle(.plain)
+                                .help("Open the process's properties")
+                                Text(p.gpu > 0 ? String(format: "%.1f%%", p.gpu) : "")
+                                Text(Fmt.duration(nanoseconds: p.gpuTimeNs))
+                            }
+                            .monospacedDigit()
+                        }
+                    }
+                }
+            }
         }
+    }
+
+    /// The busiest processes now, then those that used the most GPU time.
+    private var topProcesses: [ProcessItem] {
+        ProcessStore.shared.items.values
+            .filter { !$0.isRemoved && $0.gpuTimeNs > 0 }
+            .sorted { ($0.gpu, $0.gpuTimeNs) > ($1.gpu, $1.gpuTimeNs) }
+            .prefix(12)
+            .map { $0 }
     }
 }
 

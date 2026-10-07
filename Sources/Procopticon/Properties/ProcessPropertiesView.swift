@@ -55,7 +55,7 @@ struct ProcessPropertiesView: View {
         var fit: Fit {
             switch self {
             case .general, .statistics, .security, .service: return .content
-            case .performance: return .height(540)
+            case .performance: return .height(700)
             case .threads, .modules, .memory, .arguments, .environment, .files, .network: return .table
             }
         }
@@ -467,6 +467,12 @@ struct StatisticsTab: View {
                         InfoRow("Open files", item.record.fdCount.map { "\($0)" } ?? "")
                     }
                 }
+                SectionBox(title: "GPU") {
+                    Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 5) {
+                        InfoRow("Usage", (Fmt.percent(item.gpu).isEmpty ? "0" : Fmt.percent(item.gpu)) + "%")
+                        InfoRow("GPU time", Fmt.duration(nanoseconds: item.gpuTimeNs))
+                    }
+                }
                 SectionBox(title: "Other") {
                     Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 5) {
                         InfoRow("Mach messages sent", s.map { Fmt.count(Int($0.messagesSent)) } ?? "")
@@ -502,6 +508,10 @@ struct PerformanceTab: View {
             GraphView(series: [GraphSeries(values: item.ioHistory.ordered, color: .blue, label: "Disk")],
                       capacity: item.ioHistory.capacity, title: "Disk I/O",
                       valueText: "R \(Fmt.rate(item.diskReadRate)) · W \(Fmt.rate(item.diskWriteRate))", formatter: { Fmt.rate($0) })
+            GraphView(series: [GraphSeries(values: item.gpuHistory.ordered, color: .indigo, label: "GPU")],
+                      maxValue: 100, capacity: item.gpuHistory.capacity, title: "GPU",
+                      valueText: (Fmt.percent(item.gpu).isEmpty ? "0" : Fmt.percent(item.gpu)) + "%  (GPU time \(Fmt.duration(nanoseconds: item.gpuTimeNs)))",
+                      formatter: { String(format: "%.2f%%", $0) })
         }
         .padding()
     }

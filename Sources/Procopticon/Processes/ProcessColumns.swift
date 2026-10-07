@@ -24,6 +24,11 @@ enum ProcessColumns {
                             value: { $0.stats?.physFootprint ?? 0 }, text: { s($0.stats?.physFootprint) }))
         cols.append(.number("ioTotalRate", "Disk rate", width: 80, help: "Disk read + write bytes per second",
                             value: { $0.ioTotalRate }, text: { Fmt.rate($0.ioTotalRate) }))
+        cols.append(.number("gpu", "GPU", width: 55, help: "GPU usage: the share of the GPU's time spent on the process's work",
+                            value: { $0.gpu }, text: { Fmt.percent($0.gpu) }))
+        cols.append(.number("gpuTime", "GPU time", width: 90, visible: false,
+                            help: "GPU time used by the process's open connections to the GPU",
+                            value: { $0.gpuTimeNs }, text: { $0.gpuTimeNs > 0 ? Fmt.duration(nanoseconds: $0.gpuTimeNs) : "" }))
         cols.append(.string("user", "User name", width: 100) { $0.userName })
         // Falls back to the process title, so retitled processes (often without a bundle) aren't blank.
         cols.append(.string("description", "Description", width: 180) { p in
@@ -178,6 +183,10 @@ enum ProcessColumns {
         ioGraph.kind = .graph
         ioGraph.graph = { GraphCellData(values: $0.ioHistory.ordered, maxValue: max(1, $0.ioHistory.maxValue), color: .systemBlue) }
         cols.append(ioGraph)
+        var gpuGraph = ProcessColumn("gpuHistory", "GPU history", width: 80, visible: false, text: { _ in "" }, less: { $0.gpu < $1.gpu })
+        gpuGraph.kind = .graph
+        gpuGraph.graph = { GraphCellData(values: $0.gpuHistory.ordered, maxValue: 100, color: .systemIndigo) }
+        cols.append(gpuGraph)
 
         return cols
     }

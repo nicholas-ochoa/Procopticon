@@ -83,6 +83,7 @@ public struct GPUStats: Codable, Sendable {
     public var tilerUtilization: Double
     public var memoryUsed: UInt64
     public var memoryAllocated: UInt64
+    public var coreCount: Int?
 }
 
 public struct BatteryStats: Codable, Sendable {
@@ -183,7 +184,8 @@ public enum SystemSampler {
                 rendererUtilization: num("Renderer Utilization %"),
                 tilerUtilization: num("Tiler Utilization %"),
                 memoryUsed: UInt64(num("In use system memory")),
-                memoryAllocated: UInt64(num("Alloc system memory"))))
+                memoryAllocated: UInt64(num("Alloc system memory")),
+                coreCount: (dict["gpu-core-count"] as? NSNumber)?.intValue))
         }
         return result
     }
