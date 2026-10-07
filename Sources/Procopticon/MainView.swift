@@ -421,13 +421,13 @@ struct RefreshButton: View {
 }
 
 struct PauseToggle: View {
-    @ObservedObject private var store = ProcessStore.shared
+    @ObservedObject private var pause = PauseState.shared
 
     var body: some View {
-        Toggle(isOn: $store.paused) {
-            Label(store.paused ? "Resume" : "Pause", systemImage: store.paused ? "play.fill" : "pause.fill")
+        Toggle(isOn: Binding(get: { pause.paused }, set: { ProcessStore.shared.paused = $0 })) {
+            Label(pause.paused ? "Resume" : "Pause", systemImage: pause.paused ? "play.fill" : "pause.fill")
         }
-        .help(store.paused
+        .help(pause.paused
             ? "Updates are paused. Click to resume live updates (⌥⌘P)"
             : "Pause live updates so the lists stop changing while you look (⌥⌘P)")
     }

@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import ProcopticonCore
 import SwiftUI
 
@@ -118,20 +119,36 @@ struct FileMenuItems: View {
 
 struct ViewMenuUpdateItems: View {
     @ObservedObject private var settings = AppSettings.shared
-    @ObservedObject private var store = ProcessStore.shared
+    // Not ProcessStore itself: its revision changes on every sample, and menu content that
+    // observes it is rebuilt each time, so open menus flicker and submenus close.
+    @ObservedObject private var pause = PauseState.shared
 
     var body: some View {
         Button("System Information") { SystemInfoWindow.open() }
             .keyboardShortcut("i")
-        Button("Refresh") { store.refreshNow() }
+        Button("Refresh") { ProcessStore.shared.refreshNow() }
             .keyboardShortcut("r")
-        Toggle("Pause Updates", isOn: $store.paused)
+        Toggle("Pause Updates", isOn: Binding(get: { pause.paused }, set: { ProcessStore.shared.paused = $0 }))
             .keyboardShortcut("p", modifiers: [.command, .option])
         Picker("Update Interval", selection: $settings.refreshInterval) {
             ForEach([0.5, 1, 2, 3, 5, 10], id: \.self) { v in
                 Text(v < 1 ? "\(Int(v * 1000)) ms" : "\(Int(v)) s").tag(v)
             }
         }
+    }
+}
+
+/// `ProcessStore.paused` alone, for menus; see `ViewMenuUpdateItems`.
+@MainActor
+final class PauseState: ObservableObject {
+    static let shared = PauseState()
+    @Published private(set) var paused = ProcessStore.shared.paused
+    private var subscription: AnyCancellable?
+
+    private init() {
+        subscription = ProcessStore.shared.$paused
+            .removeDuplicates()
+            .sink { [weak self] in self?.paused = $0 }
     }
 }
 
