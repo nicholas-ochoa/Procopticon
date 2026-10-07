@@ -132,7 +132,10 @@ struct OutlineTable<Item>: NSViewRepresentable {
         scroll.borderType = .noBorder
 
         let outline = KeyOutlineView()
-        outline.usesAlternatingRowBackgroundColors = true
+        // Rows paint their own stripes (ColoredRowView.isOddRow): the table's built-in ones are drawn
+        // across the whole visible area and repainted whenever rows move, which made each refresh of a
+        // tree sorted by a changing column several times slower.
+        outline.usesAlternatingRowBackgroundColors = false
         outline.allowsMultipleSelection = true
         outline.allowsColumnReordering = true
         outline.allowsColumnResizing = true
@@ -689,18 +692,21 @@ final class OutlineTableCoordinator<Item>: NSObject, NSOutlineViewDataSource, NS
                 commit()
                 outline.removeItems(at: removeIdx, inParent: parentNode, withAnimation: [])
             }
-            // Inserts and moves, left to right.
-            for (i, k) in target.enumerated() {
-                if i < current.count, current[i].key == k { continue }
-                if let j = current[i...].firstIndex(where: { $0.key == k }) {
-                    let node = current.remove(at: j)
-                    current.insert(node, at: i)
-                    commit()
-                    outline.moveItem(at: j, inParent: parentNode, to: i, inParent: parentNode)
-                } else {
-                    current.insert(makeSubtree(k, parentNode: parentNode), at: i)
-                    commit()
-                    outline.insertItems(at: IndexSet(integer: i), inParent: parentNode, withAnimation: [])
+            // Inserts and the fewest moves (see ListReorder): rows already in order stay put, so a
+            // process changing rank moves one row, not every row between its old and new place.
+            if current.map(\.key) != target {
+                for step in ListReorder.steps(from: current.map(\.key), to: target) {
+                    switch step {
+                    case .move(let from, let to):
+                        let node = current.remove(at: from)
+                        current.insert(node, at: to)
+                        commit()
+                        outline.moveItem(at: from, inParent: parentNode, to: to, inParent: parentNode)
+                    case .insert(let at, let targetIndex):
+                        current.insert(makeSubtree(target[targetIndex], parentNode: parentNode), at: at)
+                        commit()
+                        outline.insertItems(at: IndexSet(integer: at), inParent: parentNode, withAnimation: [])
+                    }
                 }
             }
             // Recurse into nodes that existed before (new subtrees are already complete).
@@ -792,6 +798,19 @@ final class OutlineTableCoordinator<Item>: NSObject, NSOutlineViewDataSource, NS
                 applyStyle(rowView, node: node)
             }
         }
+        restripe()
+    }
+
+    /// Updates each row's stripe for its position; rows shift when others are inserted, removed,
+    /// expanded or collapsed above them.
+    func restripe() {
+        outline?.enumerateAvailableRowViews { rowView, row in
+            (rowView as? ColoredRowView)?.isOddRow = row % 2 == 1
+        }
+    }
+
+    func outlineView(_ outlineView: NSOutlineView, didAdd rowView: NSTableRowView, forRow row: Int) {
+        (rowView as? ColoredRowView)?.isOddRow = row % 2 == 1
     }
 
     func selectedNodes() -> [OutlineNode<Item>] {
@@ -929,12 +948,26 @@ final class OutlineTableCoordinator<Item>: NSObject, NSOutlineViewDataSource, NS
             collapsed.insert(node.key)
             expandedExplicitly.remove(node.key)
         }
+        scheduleRestripe()
     }
 
     func outlineViewItemDidExpand(_ notification: Notification) {
         if let node = notification.userInfo?["NSObject"] as? OutlineNode<Item> {
             collapsed.remove(node.key)
             expandedExplicitly.insert(node.key)
+        }
+        scheduleRestripe()
+    }
+
+    private var restripeScheduled = false
+
+    /// Expanding a whole tree posts one notification per node; restripe once afterwards.
+    private func scheduleRestripe() {
+        guard !restripeScheduled else { return }
+        restripeScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            self?.restripeScheduled = false
+            self?.restripe()
         }
     }
 
@@ -1038,6 +1071,14 @@ final class OutlineTableCoordinator<Item>: NSObject, NSOutlineViewDataSource, NS
 
 final class KeyOutlineView: NSOutlineView {
     var keyHandler: ((NSEvent) -> Bool)?
+
+    // The table draws nothing itself (rows paint their own backgrounds and the selection), so it
+    // gets a plain layer color instead of a backing store that moving rows would repaint.
+    override var wantsUpdateLayer: Bool { true }
+
+    override func updateLayer() {
+        layer?.backgroundColor = NSColor.alternatingContentBackgroundColors[0].cgColor
+    }
     var copyHandler: (() -> Void)?
     /// Rich tooltip for the cell at (row, column), if it has one.
     var richToolTip: ((_ row: Int, _ column: Int) -> (() -> AnyView)?)?
@@ -1151,10 +1192,41 @@ final class KeyOutlineView: NSOutlineView {
 final class ColoredRowView: NSTableRowView {
     var highlightColor: NSColor?
 
+    /// Alternating stripe, shown here rather than by the table (see `makeNSView`). It's the layer's
+    /// background color, which Core Animation composites, so rows that change parity as others
+    /// move above them don't redraw.
+    var isOddRow = false {
+        didSet {
+            if isOddRow != oldValue { updateStripe() }
+        }
+    }
+
+    private func updateStripe() {
+        let stripes = NSColor.alternatingContentBackgroundColors
+        let color = stripes[isOddRow ? 1 % stripes.count : 0]
+        var cgColor: CGColor?
+        effectiveAppearance.performAsCurrentDrawingAppearance { cgColor = color.cgColor }
+        layer?.backgroundColor = cgColor
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        updateStripe()
+    }
+
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         // One layer per row instead of one per cell: far less for Core Animation to commit.
         canDrawSubviewsIntoLayer = true
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        // On wide-color displays AppKit gives layers 16-bit float backing stores, where filling
+        // and blending a full-width row is several times slower than in 8 bits. Rows hold text on
+        // flat colors, so 8 bits loses nothing, and reordered rows redraw completely.
+        layer?.contentsFormat = .RGBA8Uint
+        updateStripe()
     }
 
     required init?(coder: NSCoder) {
@@ -1162,7 +1234,7 @@ final class ColoredRowView: NSTableRowView {
     }
 
     override func drawBackground(in dirtyRect: NSRect) {
-        super.drawBackground(in: dirtyRect)
+        // The stripe is the layer's background color (see `isOddRow`).
         if let highlightColor {
             highlightColor.setFill()
             bounds.fill()
