@@ -652,6 +652,15 @@ final class OutlineTableCoordinator<Item>: NSObject, NSOutlineViewDataSource, NS
         for (parentKey, kids) in p.childKeys {
             for k in kids { newParent[k] = .some(parentKey) }
         }
+        // Hundreds of new rows (e.g. clearing a search): reloading and expanding in bulk is cheaper
+        // than inserting and expanding subtree by subtree. (Removals are cheap either way.)
+        var kept = 0
+        for k in p.values.keys where nodes[k] != nil {
+            kept += 1
+        }
+        if p.values.count - kept > 200 {
+            return false
+        }
         // Reparenting is rare (orphans adopted by launchd); let reloadData handle it.
         for (k, node) in nodes {
             if let target = newParent[k], target != node.parentNode?.key {
@@ -769,6 +778,12 @@ final class OutlineTableCoordinator<Item>: NSObject, NSOutlineViewDataSource, NS
     /// Expands nodes under `list` (the whole tree by default) as the user left them.
     private func restoreExpansion(_ list: [OutlineNode<Item>]? = nil) {
         guard let outline, parent.children != nil else { return }
+        // Nothing collapsed by hand (the usual case): one bulk call instead of one per node, each
+        // of which updates the table's rows.
+        if list == nil, parent.expandByDefault, collapsed.isEmpty {
+            outline.expandItem(nil, expandChildren: true)
+            return
+        }
         func expand(_ list: [OutlineNode<Item>]) {
             for n in list where !n.children.isEmpty {
                 if shouldExpand(n) {
