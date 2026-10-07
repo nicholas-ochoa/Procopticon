@@ -477,6 +477,17 @@ struct StatisticsTab: View {
                         InfoRow("Open files", item.record.fdCount.map { "\($0)" } ?? "")
                     }
                 }
+                SectionBox(title: "Network") {
+                    Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 5) {
+                        let n = item.network
+                        InfoRow("Received", n.map { Fmt.bytes($0.bytesIn) } ?? "")
+                        InfoRow("Sent", n.map { Fmt.bytes($0.bytesOut) } ?? "")
+                        InfoRow("Packets received", n.map { Fmt.count($0.packetsIn) } ?? "")
+                        InfoRow("Packets sent", n.map { Fmt.count($0.packetsOut) } ?? "")
+                        InfoRow("Receive rate", Fmt.rate(item.netInRate))
+                        InfoRow("Send rate", Fmt.rate(item.netOutRate))
+                    }
+                }
                 SectionBox(title: "GPU") {
                     Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 5) {
                         InfoRow("Usage", (Fmt.percent(item.gpu).isEmpty ? "0" : Fmt.percent(item.gpu)) + "%")

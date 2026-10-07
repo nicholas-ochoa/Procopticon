@@ -29,6 +29,22 @@ enum ProcessColumns {
         cols.append(.number("gpuTime", "GPU time", width: 90, visible: false,
                             help: "GPU time used by the process's open connections to the GPU",
                             value: { $0.gpuTimeNs }, text: { $0.gpuTimeNs > 0 ? Fmt.duration(nanoseconds: $0.gpuTimeNs) : "" }))
+
+        // Network (from nettop: the process's sockets when first seen, plus their traffic since)
+        cols.append(.number("netInRate", "Receive rate", width: 85, visible: false, help: "Bytes received per second",
+                            value: { $0.netInRate }, text: { Fmt.rate($0.netInRate) }))
+        cols.append(.number("netOutRate", "Send rate", width: 85, visible: false, help: "Bytes sent per second",
+                            value: { $0.netOutRate }, text: { Fmt.rate($0.netOutRate) }))
+        cols.append(.number("netIn", "Received bytes", width: 90, visible: false,
+                            help: "Data received by the process's sockets: what they had received when Procopticon first saw them, plus everything since",
+                            value: { $0.network?.bytesIn ?? 0 }, text: { s($0.network?.bytesIn) }))
+        cols.append(.number("netOut", "Sent bytes", width: 90, visible: false,
+                            help: "Data sent by the process's sockets: what they had sent when Procopticon first saw them, plus everything since",
+                            value: { $0.network?.bytesOut ?? 0 }, text: { s($0.network?.bytesOut) }))
+        cols.append(.number("netInPackets", "Received packets", width: 90, visible: false, help: "Packets received by the process's sockets",
+                            value: { $0.network?.packetsIn ?? 0 }, text: { c($0.network?.packetsIn) }))
+        cols.append(.number("netOutPackets", "Sent packets", width: 90, visible: false, help: "Packets sent by the process's sockets",
+                            value: { $0.network?.packetsOut ?? 0 }, text: { c($0.network?.packetsOut) }))
         cols.append(.string("user", "User name", width: 100) { $0.userName })
         // Falls back to the process title, so retitled processes (often without a bundle) aren't blank.
         cols.append(.string("description", "Description", width: 180) { p in
@@ -187,6 +203,11 @@ enum ProcessColumns {
         gpuGraph.kind = .graph
         gpuGraph.graph = { GraphCellData(values: $0.gpuHistory.ordered, maxValue: 100, color: .systemIndigo) }
         cols.append(gpuGraph)
+        var netGraph = ProcessColumn("netHistory", "Network history", width: 80, visible: false, text: { _ in "" },
+                                     less: { $0.netTotalRate < $1.netTotalRate })
+        netGraph.kind = .graph
+        netGraph.graph = { GraphCellData(values: $0.netHistory.ordered, maxValue: max(1, $0.netHistory.maxValue), color: .systemTeal) }
+        cols.append(netGraph)
 
         return cols
     }
@@ -194,6 +215,11 @@ enum ProcessColumns {
     private static func s(_ v: UInt64?) -> String {
         guard let v, v > 0 else { return "" }
         return Fmt.bytes(v)
+    }
+
+    private static func c(_ v: UInt64?) -> String {
+        guard let v, v > 0 else { return "" }
+        return Fmt.count(v)
     }
 
     private static func t(_ ns: UInt64?) -> String {
