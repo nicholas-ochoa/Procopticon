@@ -70,6 +70,15 @@ public final class ProcessItem: Identifiable {
 
     public var pid: Int32 { record.pid }
     public var name: String { record.name }
+
+    /// The application's name for an app's main executable (e.g. "Parallels Desktop" for
+    /// prl_client_app), otherwise the executable name.
+    public var displayName: String {
+        if let b = bundleInfo, b.isApplication, b.isMainExecutable, let appName = b.displayName, !appName.isEmpty {
+            return appName
+        }
+        return name
+    }
     public var stats: TaskStats? { record.stats }
     public var isRemoved: Bool { removedAt != nil }
 

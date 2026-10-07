@@ -9,6 +9,7 @@ IOKit. Large lists use AppKit `NSOutlineView` so that thousands of rows can refr
 ## Features
 
 **Processes** — a live process tree with icons and about 70 optional columns (right-click the header).
+Applications appear under their app name (Parallels Desktop rather than `prl_client_app`).
 Columns cover CPU (user/kernel), physical footprint, peak memory, resident and virtual size, disk
 read/write rates, threads, open files, cycles, instructions and IPC, context switches, system calls,
 wake-ups, energy and power, nice/priority, start time, command line, bundle identifier/version,

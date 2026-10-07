@@ -11,6 +11,8 @@ public struct ExecutableBundleInfo: Sendable {
     public var copyright: String?
     public var minimumSystemVersion: String?
     public var isApplication: Bool
+    /// The executable is the bundle's own (CFBundleExecutable), not a helper tool inside it.
+    public var isMainExecutable = false
     public var fileSize: UInt64?
     public var fileModified: Date?
     public var fileCreated: Date?
@@ -93,6 +95,9 @@ public final class BundleInfoCache: @unchecked Sendable {
         info.copyright = (localized["NSHumanReadableCopyright"] ?? dict["NSHumanReadableCopyright"]) as? String
         info.minimumSystemVersion = dict["LSMinimumSystemVersion"] as? String
         info.isApplication = bundlePath.hasSuffix(".app")
+        if let main = bundle.executablePath {
+            info.isMainExecutable = main.caseInsensitiveCompare(executablePath) == .orderedSame
+        }
         return info
     }
 }

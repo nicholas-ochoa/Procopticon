@@ -10,7 +10,7 @@ enum ProcessColumns {
     static func all() -> [ProcessColumn] {
         var cols: [ProcessColumn] = []
 
-        var name = ProcessColumn.string("name", "Name", width: 240) { $0.name }
+        var name = ProcessColumn.string("name", "Name", width: 240) { $0.displayName }
         name.image = { ProcessIcons.icon(for: $0.record) }
         name.tooltip = { tooltip(for: $0) }
         name.monospacedDigits = false

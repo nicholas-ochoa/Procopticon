@@ -159,7 +159,7 @@ enum PropertiesWindow {
     static func open(_ item: ProcessItem, tab: ProcessPropertiesView.PropertyTab = .general) {
         let key = item.key
         let saved = UserDefaults.standard.double(forKey: widthKey)
-        WindowManager.shared.show(id: "props-\(key)", title: "\(item.name) (\(item.pid)) Properties",
+        WindowManager.shared.show(id: "props-\(key)", title: "\(item.displayName) (\(item.pid)) Properties",
                                   size: NSSize(width: saved > 0 ? saved : defaultWidth, height: 620), fullSizeContent: true) {
             ProcessPropertiesView(key: key, tab: tab)
         }
