@@ -1207,26 +1207,19 @@ final class KeyOutlineView: NSOutlineView {
 final class ColoredRowView: NSTableRowView {
     var highlightColor: NSColor?
 
-    /// Alternating stripe, shown here rather than by the table (see `makeNSView`). It's the layer's
-    /// background color, which Core Animation composites, so rows that change parity as others
-    /// move above them don't redraw.
+    /// Alternating stripe, shown by the row rather than the table (see `makeNSView`) through the row
+    /// view's `backgroundColor`. Set it every time a row view is placed: the table resets a reused
+    /// row view's background, even when its parity is unchanged.
     var isOddRow = false {
-        didSet {
-            if isOddRow != oldValue { updateStripe() }
-        }
+        didSet { applyStripe() }
     }
 
-    private func updateStripe() {
+    private func applyStripe() {
         let stripes = NSColor.alternatingContentBackgroundColors
         let color = stripes[isOddRow ? 1 % stripes.count : 0]
-        var cgColor: CGColor?
-        effectiveAppearance.performAsCurrentDrawingAppearance { cgColor = color.cgColor }
-        layer?.backgroundColor = cgColor
-    }
-
-    override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        updateStripe()
+        if backgroundColor != color {
+            backgroundColor = color
+        }
     }
 
     override init(frame frameRect: NSRect) {
@@ -1235,21 +1228,13 @@ final class ColoredRowView: NSTableRowView {
         canDrawSubviewsIntoLayer = true
     }
 
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        // On wide-color displays AppKit gives layers 16-bit float backing stores, where filling
-        // and blending a full-width row is several times slower than in 8 bits. Rows hold text on
-        // flat colors, so 8 bits loses nothing, and reordered rows redraw completely.
-        layer?.contentsFormat = .RGBA8Uint
-        updateStripe()
-    }
-
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 
     override func drawBackground(in dirtyRect: NSRect) {
-        // The stripe is the layer's background color (see `isOddRow`).
+        // Fills `backgroundColor`, the stripe.
+        super.drawBackground(in: dirtyRect)
         if let highlightColor {
             highlightColor.setFill()
             bounds.fill()
