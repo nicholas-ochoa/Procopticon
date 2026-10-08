@@ -32,7 +32,7 @@ enum SettingsTab: String, CaseIterable {
         case .appearance: return NSSize(width: 620, height: 440)
         case .filters: return NSSize(width: 620, height: 600)
         case .highlighting: return NSSize(width: 620, height: 640)
-        case .privileges: return NSSize(width: 620, height: 500)
+        case .privileges: return NSSize(width: 620, height: 380)
         }
     }
 
@@ -362,16 +362,6 @@ struct PrivilegeSettings: View {
                     }
                     .help("Authorize once (administrator password) to see every process in full for this session")
                 }
-            }
-            Section("Startup") {
-                Toggle("Authorize at launch (show details for all processes)", isOn: $settings.elevateAtLaunch)
-            }
-            Section("Sudo mode") {
-                Text("To run without any authorization prompts, start Procopticon as root from Terminal:")
-                    .font(.caption)
-                Text("sudo \"\(Bundle.main.executablePath ?? "/Applications/Procopticon.app/Contents/MacOS/Procopticon")\"")
-                    .font(.system(.caption, design: .monospaced))
-                    .textSelection(.enabled)
                 Button("Relaunch as Root…") {
                     do {
                         try Elevation.relaunchAsRoot()
@@ -383,6 +373,9 @@ struct PrivilegeSettings: View {
                 }
                 .help("Quit and start Procopticon again as root (asks for an administrator password)")
                 .disabled(mode == .root)
+            }
+            Section("Startup") {
+                Toggle("Authorize at launch (show details for all processes)", isOn: $settings.elevateAtLaunch)
             }
         }
         .formStyle(.grouped)
