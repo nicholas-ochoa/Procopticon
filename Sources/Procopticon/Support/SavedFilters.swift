@@ -186,11 +186,8 @@ struct SavedFiltersSettings: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            // Off the top edge by a point: a scroll view touching it extends up under the tab bar,
-            // and on macOS 26 hovering there lit the bar up over just this column, splitting it.
-            .padding(.top, 1)
         }
-        .settingsPaneBackground()
+        .settingsPane()
         .onAppear {
             if selection == nil { selection = settings.savedFilters.first?.id }
         }

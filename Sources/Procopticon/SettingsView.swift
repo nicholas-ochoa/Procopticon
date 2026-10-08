@@ -84,6 +84,8 @@ struct GeneralSettings: View {
             }
         }
         .formStyle(.grouped)
+        .scrollContentBackground(.hidden)
+        .settingsPane()
     }
 }
 
@@ -127,27 +129,31 @@ struct HighlightSettings: View {
             }
             .padding([.horizontal, .bottom], 20)
         }
-        .settingsPaneBackground()
+        .settingsPane()
     }
 }
 
-/// The grouped-form background, for tabs that combine a form with other views.
-private struct SettingsPaneBackground: ViewModifier {
+/// Lays out a settings tab below the tab bar, on the grouped-form background.
+private struct SettingsPane: ViewModifier {
     func body(content: Content) -> some View {
-        // An empty grouped form draws exactly what the all-form tabs show, including under the
-        // toolbar; the tab's own forms hide their background so it isn't drawn twice.
-        content.background {
-            Form {}
-                .formStyle(.grouped)
-                .allowsHitTesting(false)
-                .accessibilityHidden(true)
-        }
+        content
+            // Off the top edge by a point: a scroll view touching it extends up under the tab bar,
+            // and on macOS 26 hovering over the bar then lit it up (over just one column, in Filters).
+            .padding(.top, 1)
+            // An empty grouped form draws the usual background, including under the tab bar, without
+            // reacting to the pointer; the tab's own forms hide their background so it isn't drawn twice.
+            .background {
+                Form {}
+                    .formStyle(.grouped)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
     }
 }
 
 extension View {
-    func settingsPaneBackground() -> some View {
-        modifier(SettingsPaneBackground())
+    func settingsPane() -> some View {
+        modifier(SettingsPane())
     }
 }
 
@@ -205,6 +211,8 @@ struct PrivilegeSettings: View {
             }
         }
         .formStyle(.grouped)
+        .scrollContentBackground(.hidden)
+        .settingsPane()
         .id(revision)
         .onReceive(NotificationCenter.default.publisher(for: Elevation.didChangeNotification)) { _ in revision &+= 1 }
     }
