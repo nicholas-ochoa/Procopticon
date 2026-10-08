@@ -128,14 +128,21 @@ struct SavedFiltersSettings: View {
         // toolbar, so its divider ran up through the title bar and the editor scrolled under the tabs.
         HStack(alignment: .top, spacing: 0) {
             VStack(spacing: 0) {
-                // Not a List, and only a scroll view when the filters don't fit: on macOS 26 the
-                // toolbar takes its look from the scroll view beneath each part of it, and a list
-                // here, with its own scroll view, split the tab bar where the columns meet.
-                ViewThatFits(in: .vertical) {
-                    filterRows
-                    ScrollView { filterRows }
+                List(selection: $selection) {
+                    ForEach(settings.savedFilters) { f in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(f.name)
+                            Text(f.summary).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        }
+                        .tag(f.id)
+                    }
+                    .onMove { settings.savedFilters.move(fromOffsets: $0, toOffset: $1) }
                 }
-                .frame(maxHeight: .infinity, alignment: .top)
+                .scrollContentBackground(.hidden)
+                // Only the pane's full-width background form gives the toolbar its scroll edge
+                // effect; the list and the editor each adding their own split the tab bar into two
+                // regions, with a seam where the columns meet.
+                .scrollEdgeEffectHidden(true, for: .top)
                 Divider()
                 HStack(spacing: 2) {
                     Button { addFromCurrent() } label: { Image(systemName: "plus").frame(width: 22, height: 20) }
@@ -188,35 +195,6 @@ struct SavedFiltersSettings: View {
         .onAppear {
             if selection == nil { selection = settings.savedFilters.first?.id }
         }
-    }
-
-    /// The saved filters as selectable rows, like an inset list.
-    private var filterRows: some View {
-        VStack(spacing: 0) {
-            ForEach(Array(settings.savedFilters.enumerated()), id: \.element.id) { index, f in
-                if index > 0 {
-                    // Hidden next to the selection, as in a list.
-                    let besideSelection = selection == f.id || selection == settings.savedFilters[index - 1].id
-                    Divider().padding(.horizontal, 10).opacity(besideSelection ? 0 : 1)
-                }
-                Button {
-                    selection = f.id
-                } label: {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(f.name)
-                        Text(f.summary).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 5)
-                    .background(selection == f.id ? Color.secondary.opacity(0.22) : .clear, in: RoundedRectangle(cornerRadius: 6))
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityAddTraits(selection == f.id ? .isSelected : [])
-            }
-        }
-        .padding(8)
     }
 
     private func addFromCurrent() {
@@ -298,5 +276,7 @@ struct SavedFilterEditor: View {
         }
         .formStyle(.grouped)
         .scrollContentBackground(.hidden)
+        // See the filter list: the toolbar's scroll edge effect comes from the pane background.
+        .scrollEdgeEffectHidden(true, for: .top)
     }
 }
