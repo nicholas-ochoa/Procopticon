@@ -246,6 +246,9 @@ struct DiskPanel: View {
     let sys: SystemMonitor
     /// Changes every sample so SwiftUI re-evaluates the panel (the monitor is a reference type).
     let revision: Int
+    /// Read in the background every few seconds: querying volume capacities takes 20-50 ms (more
+    /// for network volumes) and ran on the main thread on every refresh.
+    @State private var volumes: [Volume] = []
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -264,7 +267,7 @@ struct DiskPanel: View {
             }
             SectionBox(title: "Volumes") {
                 VStack(alignment: .leading, spacing: 8) {
-                    ForEach(volumes(), id: \.path) { v in
+                    ForEach(volumes, id: \.path) { v in
                         VStack(alignment: .leading, spacing: 2) {
                             HStack {
                                 Text(v.name).fontWeight(.medium)
@@ -279,9 +282,15 @@ struct DiskPanel: View {
                 }
             }
         }
+        .task {
+            while !Task.isCancelled {
+                volumes = await Task.detached(priority: .utility) { Self.loadVolumes() }.value
+                try? await Task.sleep(for: .seconds(10))
+            }
+        }
     }
 
-    struct Volume {
+    struct Volume: Sendable {
         var name: String
         var path: String
         var total: UInt64
@@ -289,7 +298,7 @@ struct DiskPanel: View {
         var format: String
     }
 
-    private func volumes() -> [Volume] {
+    nonisolated private static func loadVolumes() -> [Volume] {
         let keys: [URLResourceKey] = [.volumeNameKey, .volumeTotalCapacityKey, .volumeAvailableCapacityForImportantUsageKey,
                                       .volumeAvailableCapacityKey, .volumeLocalizedFormatDescriptionKey]
         let urls = FileManager.default.mountedVolumeURLs(includingResourceValuesForKeys: keys, options: [.skipHiddenVolumes]) ?? []
