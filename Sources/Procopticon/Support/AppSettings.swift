@@ -28,6 +28,7 @@ final class AppSettings: ObservableObject {
     @Published var searchUsesRegex: Bool { didSet { save("searchUsesRegex", searchUsesRegex); apply() } }
     @Published var processListMonospaced: Bool { didSet { save("processListMonospaced", processListMonospaced) } }
     @Published var processListFontSize: Double { didSet { save("processListFontSize", processListFontSize) } }
+    @Published var appearance: AppearanceMode { didSet { save("appearance", appearance.rawValue); applyAppearance() } }
     @Published var savedFilters: [SavedFilter] {
         didSet {
             if let data = try? JSONEncoder().encode(savedFilters) {
@@ -36,6 +37,27 @@ final class AppSettings: ObservableObject {
         }
     }
     @Published var highlights: [HighlightRule: HighlightSetting] { didSet { saveHighlights() } }
+
+    /// Light or dark for every window, or System to follow macOS.
+    enum AppearanceMode: String, CaseIterable, Identifiable {
+        case system = "System"
+        case light = "Light"
+        case dark = "Dark"
+        var id: String { rawValue }
+
+        /// nil follows the system appearance.
+        var nsAppearance: NSAppearance? {
+            switch self {
+            case .system: return nil
+            case .light: return NSAppearance(named: .aqua)
+            case .dark: return NSAppearance(named: .darkAqua)
+            }
+        }
+    }
+
+    func applyAppearance() {
+        NSApp.appearance = appearance.nsAppearance
+    }
 
     enum MenuBarGraphKind: String, CaseIterable, Identifiable {
         case cpu = "CPU"
@@ -70,6 +92,7 @@ final class AppSettings: ObservableObject {
         searchUsesRegex = b("searchUsesRegex", false)
         processListMonospaced = b("processListMonospaced", false)
         processListFontSize = d("processListFontSize", Double(NSFont.systemFontSize(for: .small) + 1))
+        appearance = AppearanceMode(rawValue: defaults.string(forKey: "appearance") ?? "") ?? .system
         if let data = defaults.data(forKey: "savedFilters"), let list = try? JSONDecoder().decode([SavedFilter].self, from: data) {
             savedFilters = list
         } else {

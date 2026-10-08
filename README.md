@@ -41,6 +41,7 @@ cut-off value to see all of it.
   in the palette: Process Actions, Inspection Windows, Files & Programs. So is every individual button,
   plus Space, Flexible Space and the search field.
 * An optional **fixed-width font** (and font size) for the process list, set in *Settings ▸ General*.
+* **Appearance**: System (follows macOS), Light or Dark, in *Settings ▸ General* or *View ▸ Appearance*.
   You can also hide other users' processes, system processes, Apple-signed processes or zombies, or
   switch to a flat list.
 * Actions:

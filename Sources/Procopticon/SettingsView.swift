@@ -66,6 +66,11 @@ struct GeneralSettings: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("Window") {
+                Picker("Appearance", selection: $settings.appearance) {
+                    ForEach(AppSettings.AppearanceMode.allCases) { Text($0.rawValue).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .help("Light or dark windows, or System to follow the macOS setting")
                 Toggle("Show status bar", isOn: $settings.showStatusBar)
                 Toggle("Keep main window on top", isOn: $settings.alwaysOnTop)
                 Toggle("Show graph in menu bar", isOn: $settings.showMenuBarExtra)

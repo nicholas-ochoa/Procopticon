@@ -39,6 +39,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         IsolatedScanner.executablePath = Elevation.helperURL.path
         ProcessStore.shared.applicationPids = ApplicationPids.current
         AppSettings.shared.apply()
+        AppSettings.shared.applyAppearance()
         ProcessStore.shared.start()
         // Prefetch launchd jobs in the background so the Services tab opens instantly.
         ServiceStore.shared.refresh()
@@ -181,6 +182,9 @@ struct ViewMenuWindowItems: View {
     @ObservedObject private var settings = AppSettings.shared
 
     var body: some View {
+        Picker("Appearance", selection: $settings.appearance) {
+            ForEach(AppSettings.AppearanceMode.allCases) { Text($0.rawValue).tag($0) }
+        }
         Toggle("Fixed-Width Font in Process List", isOn: $settings.processListMonospaced)
         Toggle("Show Status Bar", isOn: $settings.showStatusBar)
         Toggle("Show in Menu Bar", isOn: $settings.showMenuBarExtra)
