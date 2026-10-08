@@ -139,6 +139,10 @@ struct SavedFiltersSettings: View {
                     .onMove { settings.savedFilters.move(fromOffsets: $0, toOffset: $1) }
                 }
                 .scrollContentBackground(.hidden)
+                // Only the pane's full-width background form gives the toolbar its scroll edge
+                // effect; the list and the editor each adding their own split the tab bar into two
+                // regions, with a seam where the columns meet.
+                .scrollEdgeEffectHidden(true, for: .top)
                 Divider()
                 HStack(spacing: 2) {
                     Button { addFromCurrent() } label: { Image(systemName: "plus").frame(width: 22, height: 20) }
@@ -272,5 +276,7 @@ struct SavedFilterEditor: View {
         }
         .formStyle(.grouped)
         .scrollContentBackground(.hidden)
+        // See the filter list: the toolbar's scroll edge effect comes from the pane background.
+        .scrollEdgeEffectHidden(true, for: .top)
     }
 }
