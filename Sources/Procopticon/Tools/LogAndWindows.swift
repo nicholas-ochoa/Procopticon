@@ -39,9 +39,11 @@ struct EventLogView: View {
                 children: nil,
                 revision: log.entries.count &+ (log.entries.last?.id ?? 0) &+ search.hashValue &+ (settings.searchUsesRegex ? 1 : 0),
                 columns: [
-                    .number("time", "Time", width: 150, value: { $0.date }, text: { Fmt.date($0.date.timeIntervalSince1970) }),
-                    .string("kind", "Event", width: 120) { $0.kind.rawValue },
-                    .string("message", "Details", width: 520) { $0.message },
+                    .number("time", "Time", width: 150,
+                            help: "When the event happened",
+                            value: { $0.date }, text: { Fmt.date($0.date.timeIntervalSince1970) }),
+                    .string("kind", "Event", width: 120, help: "The kind of event") { $0.kind.rawValue },
+                    .string("message", "Details", width: 520, help: "What happened") { $0.message },
                 ],
                 autosaveName: "EventLogTable",
                 key: { AnyHashable($0.id) },
@@ -144,15 +146,17 @@ struct WindowListView: View {
     }
 
     static let columns: [TableColumnSpec<Row>] = {
-        var owner = TableColumnSpec<Row>.string("owner", "Process", width: 180) { $0.owner }
+        var owner = TableColumnSpec<Row>.string("owner", "Process", width: 180, help: "The app or process that owns the window") { $0.owner }
         owner.image = { r in ProcessStore.shared.item(pid: r.pid).map { ProcessIcons.icon(for: $0.record) } ?? ProcessIcons.executable }
         return [
             owner,
-            .number("pid", "PID", width: 60, value: { $0.pid }, text: { "\($0.pid)" }),
-            .string("title", "Title", width: 280) { $0.title },
-            .number("layer", "Layer", width: 60, value: { $0.layer }, text: { "\($0.layer)" }),
-            .string("bounds", "Bounds", width: 160) { $0.bounds },
-            .number("id", "Window ID", width: 80, value: { $0.id }, text: { "\($0.id)" }),
+            .number("pid", "PID", width: 60, help: "Process ID of the owner", value: { $0.pid }, text: { "\($0.pid)" }),
+            .string("title", "Title", width: 280, help: "The window's title; other apps' titles need Screen Recording permission") { $0.title },
+            .number("layer", "Layer", width: 60,
+                    help: "Window layer: 0 for normal windows; higher layers (panels, menus, overlays) sit above them",
+                    value: { $0.layer }, text: { "\($0.layer)" }),
+            .string("bounds", "Bounds", width: 160, help: "Position and size on screen, in points: x,y  width×height") { $0.bounds },
+            .number("id", "Window ID", width: 80, help: "The window server's number for the window", value: { $0.id }, text: { "\($0.id)" }),
         ]
     }()
 }

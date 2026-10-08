@@ -101,14 +101,16 @@ struct FindView: View {
     }
 
     static let columns: [TableColumnSpec<OpenFileMatch>] = {
-        var name = TableColumnSpec<OpenFileMatch>.string("process", "Process", width: 180) { $0.processName }
+        var name = TableColumnSpec<OpenFileMatch>.string("process", "Process", width: 180, help: "The process that has it open") { $0.processName }
         name.image = { m in ProcessStore.shared.item(pid: m.pid).map { ProcessIcons.icon(for: $0.record) } ?? ProcessIcons.executable }
         return [
             name,
-            .number("pid", "PID", width: 60, value: { $0.pid }, text: { "\($0.pid)" }),
-            .string("type", "Type", width: 110) { $0.type },
-            .number("fd", "FD", width: 50, value: { $0.fd ?? -1 }, text: { $0.fd.map { "\($0)" } ?? "" }),
-            .string("name", "Name", width: 460) { $0.name },
+            .number("pid", "PID", width: 60, help: "Process ID", value: { $0.pid }, text: { "\($0.pid)" }),
+            .string("type", "Type", width: 110, help: "What's open: a file, directory, socket…, or an image or file mapped into memory") { $0.type },
+            .number("fd", "FD", width: 50,
+                    help: "File descriptor number; blank for images and mapped files",
+                    value: { $0.fd ?? -1 }, text: { $0.fd.map { "\($0)" } ?? "" }),
+            .string("name", "Name", width: 460, help: "Path, or a description of what's open") { $0.name },
         ]
     }()
 }
@@ -148,9 +150,9 @@ struct HiddenProcessesView: View {
             Divider()
             OutlineTable(roots: findings, children: nil, revision: revision,
                          columns: [
-                             .number("pid", "PID", width: 70, value: { $0.pid }, text: { "\($0.pid)" }),
-                             .string("name", "Name", width: 180) { $0.name },
-                             .string("detail", "Finding", width: 400) { $0.detail },
+                             .number("pid", "PID", width: 70, help: "Process ID found by the scan", value: { $0.pid }, text: { "\($0.pid)" }),
+                             .string("name", "Name", width: 180, help: "Executable name, if it could be read") { $0.name },
+                             .string("detail", "Finding", width: 400, help: "Why the process looks hidden") { $0.detail },
                          ],
                          autosaveName: "HiddenScan", key: { AnyHashable($0.pid) })
         }
@@ -235,13 +237,19 @@ struct UsersView: View {
     var body: some View {
         OutlineTable(roots: rows, children: nil, revision: store.revision,
                      columns: [
-                         .string("name", "User", width: 120) { $0.name },
-                         .number("uid", "UID", width: 60, value: { $0.uid }, text: { "\($0.uid)" }),
-                         .string("full", "Full name", width: 160) { $0.fullName },
-                         .number("procs", "Processes", width: 80, value: { $0.processes }, text: { "\($0.processes)" }),
-                         .number("cpu", "CPU", width: 60, value: { $0.cpu }, text: { Fmt.percent($0.cpu) }),
-                         .number("mem", "Memory", width: 90, value: { $0.memory }, text: { Fmt.bytes($0.memory) }),
-                         .string("sessions", "Sessions", width: 260) { $0.sessions },
+                         .string("name", "User", width: 120, help: "Account name") { $0.name },
+                         .number("uid", "UID", width: 60, help: "User ID", value: { $0.uid }, text: { "\($0.uid)" }),
+                         .string("full", "Full name", width: 160, help: "The account's full name") { $0.fullName },
+                         .number("procs", "Processes", width: 80,
+                                 help: "Number of processes running as the user",
+                                 value: { $0.processes }, text: { "\($0.processes)" }),
+                         .number("cpu", "CPU", width: 60,
+                                 help: "Combined CPU usage of the user's processes",
+                                 value: { $0.cpu }, text: { Fmt.percent($0.cpu) }),
+                         .number("mem", "Memory", width: 90,
+                                 help: "Combined memory footprint of the user's processes",
+                                 value: { $0.memory }, text: { Fmt.bytes($0.memory) }),
+                         .string("sessions", "Sessions", width: 260, help: "Login sessions: terminal, remote host and login time") { $0.sessions },
                      ],
                      autosaveName: "UsersTable", key: { AnyHashable($0.uid) },
                      menu: { rows in

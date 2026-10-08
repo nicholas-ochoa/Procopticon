@@ -132,18 +132,30 @@ struct ThreadsTab: View {
     }
 
     static let columns: [TableColumnSpec<ThreadInfo>] = [
-        .number("tid", "TID", width: 90, value: { $0.threadId }, text: { "\($0.threadId)" }),
-        .number("cpu", "CPU", width: 60, value: { $0.cpuUsage }, text: { Fmt.percent($0.cpuUsage, decimals: 1) }),
-        .string("name", "Name", width: 220) { $0.name },
-        .string("state", "State", width: 100) { $0.stateName },
-        .number("curpri", "Priority", width: 60, value: { $0.currentPriority }, text: { "\($0.currentPriority)" }),
-        .number("basepri", "Base priority", width: 70, value: { $0.basePriority }, text: { "\($0.basePriority)" }),
-        .number("maxpri", "Max priority", width: 70, visible: false, value: { $0.maxPriority }, text: { "\($0.maxPriority)" }),
-        .number("user", "User time", width: 100, value: { $0.userTimeNs }, text: { Fmt.duration(nanoseconds: $0.userTimeNs) }),
-        .number("system", "Kernel time", width: 100, value: { $0.systemTimeNs }, text: { Fmt.duration(nanoseconds: $0.systemTimeNs) }),
-        .string("policy", "Policy", width: 80, visible: false) { $0.policyName },
-        .number("sleep", "Sleep time", width: 70, visible: false, value: { $0.sleepTime }, text: { "\($0.sleepTime)s" }),
-        .string("flags", "Flags", width: 100, visible: false) { $0.flagsDescription },
+        .number("tid", "TID", width: 90, help: "Thread ID", value: { $0.threadId }, text: { "\($0.threadId)" }),
+        .number("cpu", "CPU", width: 60,
+                help: "CPU usage of the thread (percent of one core)",
+                value: { $0.cpuUsage }, text: { Fmt.percent($0.cpuUsage, decimals: 1) }),
+        .string("name", "Name", width: 220, help: "The name the thread gave itself, if any") { $0.name },
+        .string("state", "State", width: 100, help: "Running, waiting, stopped, uninterruptible or halted") { $0.stateName },
+        .number("curpri", "Priority", width: 60,
+                help: "Current scheduling priority, including any boost or decay",
+                value: { $0.currentPriority }, text: { "\($0.currentPriority)" }),
+        .number("basepri", "Base priority", width: 70, help: "Base scheduling priority", value: { $0.basePriority }, text: { "\($0.basePriority)" }),
+        .number("maxpri", "Max priority", width: 70, visible: false,
+                help: "Highest priority the thread can be given",
+                value: { $0.maxPriority }, text: { "\($0.maxPriority)" }),
+        .number("user", "User time", width: 100,
+                help: "CPU time spent running the process's own code (user mode)",
+                value: { $0.userTimeNs }, text: { Fmt.duration(nanoseconds: $0.userTimeNs) }),
+        .number("system", "Kernel time", width: 100,
+                help: "CPU time spent in the kernel on the thread's behalf",
+                value: { $0.systemTimeNs }, text: { Fmt.duration(nanoseconds: $0.systemTimeNs) }),
+        .string("policy", "Policy", width: 80, visible: false, help: "Scheduling policy: timeshare, round robin or FIFO") { $0.policyName },
+        .number("sleep", "Sleep time", width: 70, visible: false,
+                help: "Seconds the thread has been sleeping, as the kernel reports it",
+                value: { $0.sleepTime }, text: { "\($0.sleepTime)s" }),
+        .string("flags", "Flags", width: 100, visible: false, help: "Thread flags: swapped, idle, or forced idle") { $0.flagsDescription },
     ]
 
     private func showStack(_ t: ThreadInfo) {
@@ -221,17 +233,20 @@ struct ModulesTab: View {
     }
 
     static let columns: [TableColumnSpec<ModuleInfo>] = {
-        var name = TableColumnSpec<ModuleInfo>.string("name", "Name", width: 200) { $0.name }
+        var name = TableColumnSpec<ModuleInfo>.string("name", "Name", width: 200, help: "The image's file name") { $0.name }
         name.image = { ProcessIcons.icon(forPath: $0.path) }
         return [
             name,
-            .number("base", "Base address", width: 130, value: { $0.baseAddress }, text: { Fmt.hexAddress($0.baseAddress) }),
-            .number("size", "Size", width: 80, value: { $0.size }, text: { Fmt.bytes($0.size) }),
-            .string("location", "Location", width: 110) {
+            .number("base", "Base address", width: 130,
+                    help: "Where the image is loaded in the process's memory",
+                    value: { $0.baseAddress }, text: { Fmt.hexAddress($0.baseAddress) }),
+            .number("size", "Size", width: 80, help: "Size of the image in the process's memory", value: { $0.size }, text: { Fmt.bytes($0.size) }),
+            .string("location", "Location", width: 110, help: "File on disk, or the dyld shared cache for system libraries that exist only there") {
                 FileManager.default.fileExists(atPath: $0.path) ? "File" : "dyld shared cache"
             },
-            .string("version", "Version", width: 90) { BundleInfoCache.shared.info(for: $0.path).versionString },
-            .string("path", "Path", width: 380) { $0.path },
+            .string("version", "Version", width: 90,
+                    help: "Version from the image's enclosing bundle") { BundleInfoCache.shared.info(for: $0.path).versionString },
+            .string("path", "Path", width: 380, help: "Full path of the image") { $0.path },
         ]
     }()
 }
@@ -290,18 +305,34 @@ struct MemoryTab: View {
     }
 
     static let columns: [TableColumnSpec<MemoryRegion>] = [
-        .number("address", "Base address", width: 130, value: { $0.address }, text: { Fmt.hexAddress($0.address) }),
-        .string("type", "Type", width: 140) { $0.typeName },
-        .number("size", "Size", width: 80, value: { $0.size }, text: { Fmt.bytes($0.size) }),
-        .string("prot", "Protection", width: 75) { $0.protectionDescription },
-        .string("share", "Share mode", width: 80) { $0.shareModeName },
-        .number("resident", "Resident", width: 80, value: { $0.residentBytes }, text: { $0.residentBytes == 0 ? "" : Fmt.bytes($0.residentBytes) }),
-        .number("dirty", "Dirty", width: 80, value: { $0.dirtyBytes }, text: { $0.dirtyBytes == 0 ? "" : Fmt.bytes($0.dirtyBytes) }),
-        .number("swapped", "Swapped", width: 80, value: { $0.swappedBytes }, text: { $0.swappedBytes == 0 ? "" : Fmt.bytes($0.swappedBytes) }),
-        .number("private", "Private resident", width: 90, visible: false, value: { $0.privateResidentBytes }, text: { $0.privateResidentBytes == 0 ? "" : Fmt.bytes($0.privateResidentBytes) }),
-        .number("shared", "Shared resident", width: 90, visible: false, value: { $0.sharedResidentBytes }, text: { $0.sharedResidentBytes == 0 ? "" : Fmt.bytes($0.sharedResidentBytes) }),
-        .number("tag", "Tag", width: 50, visible: false, value: { $0.userTag }, text: { "\($0.userTag)" }),
-        .string("path", "Mapped file", width: 320) { $0.path },
+        .number("address", "Base address", width: 130,
+                help: "Start address of the region",
+                value: { $0.address }, text: { Fmt.hexAddress($0.address) }),
+        .string("type", "Type", width: 140,
+                help: "What the region holds: a VM tag such as MALLOC or Stack, executable code, or a mapped file") { $0.typeName },
+        .number("size", "Size", width: 80, help: "Size of the region", value: { $0.size }, text: { Fmt.bytes($0.size) }),
+        .string("prot", "Protection", width: 75, help: "Current / maximum protection: r = read, w = write, x = execute") { $0.protectionDescription },
+        .string("share", "Share mode", width: 80,
+                help: "How the region's pages are shared: Private, COW (copy-on-write), Shared…") { $0.shareModeName },
+        .number("resident", "Resident", width: 80,
+                help: "Bytes of the region in physical memory",
+                value: { $0.residentBytes }, text: { $0.residentBytes == 0 ? "" : Fmt.bytes($0.residentBytes) }),
+        .number("dirty", "Dirty", width: 80,
+                help: "Resident bytes the process has modified",
+                value: { $0.dirtyBytes }, text: { $0.dirtyBytes == 0 ? "" : Fmt.bytes($0.dirtyBytes) }),
+        .number("swapped", "Swapped", width: 80,
+                help: "Bytes of the region paged out (compressed or swapped)",
+                value: { $0.swappedBytes }, text: { $0.swappedBytes == 0 ? "" : Fmt.bytes($0.swappedBytes) }),
+        .number("private", "Private resident", width: 90, visible: false,
+                help: "Resident bytes that only this process maps",
+                value: { $0.privateResidentBytes }, text: { $0.privateResidentBytes == 0 ? "" : Fmt.bytes($0.privateResidentBytes) }),
+        .number("shared", "Shared resident", width: 90, visible: false,
+                help: "Resident bytes that other processes map too",
+                value: { $0.sharedResidentBytes }, text: { $0.sharedResidentBytes == 0 ? "" : Fmt.bytes($0.sharedResidentBytes) }),
+        .number("tag", "Tag", width: 50, visible: false,
+                help: "The region's VM tag number (VM_MEMORY_* in <mach/vm_statistics.h>)",
+                value: { $0.userTag }, text: { "\($0.userTag)" }),
+        .string("path", "Mapped file", width: 320, help: "The file mapped into the region, if any") { $0.path },
     ]
 }
 
@@ -387,9 +418,11 @@ struct ArgumentsTab: View {
     }
 
     static let columns: [TableColumnSpec<Argument>] = {
-        var value = TableColumnSpec<Argument>.string("value", "Argument", width: 620) { $0.value }
+        var value = TableColumnSpec<Argument>.string("value", "Argument", width: 620, help: "The argument's text") { $0.value }
         value.attributedText = { CommandLineStyle.attributed(CommandLineSyntax.segments(argument: $0.value, index: $0.index)) }
-        return [.number("index", "#", width: 40, value: { $0.index }, text: { "\($0.index)" }), value]
+        return [.number("index", "#", width: 40,
+                        help: "Position in the argument list; 0 is the program as it was invoked",
+                        value: { $0.index }, text: { "\($0.index)" }), value]
     }()
 }
 
@@ -468,8 +501,8 @@ struct EnvironmentTab: View {
     }
 
     static let columns: [TableColumnSpec<Variable>] = [
-        .string("name", "Name", width: 200) { $0.name },
-        .string("value", "Value", width: 480) { $0.value },
+        .string("name", "Name", width: 200, help: "Variable name") { $0.name },
+        .string("value", "Value", width: 480, help: "Variable value") { $0.value },
     ]
 }
 
@@ -502,12 +535,14 @@ struct FilesTab: View {
     }
 
     static let columns: [TableColumnSpec<FileDescriptorInfo>] = [
-        .number("fd", "FD", width: 50, value: { $0.fd }, text: { "\($0.fd)" }),
-        .string("type", "Type", width: 120) { $0.type },
-        .string("name", "Name", width: 420) { $0.name },
-        .string("access", "Access", width: 120) { $0.accessDescription },
-        .number("offset", "Offset", width: 80, visible: false, value: { $0.offset }, text: { $0.offset == 0 ? "" : Fmt.count(Int($0.offset)) }),
-        .number("size", "Size", width: 80, value: { $0.size }, text: { $0.size <= 0 ? "" : Fmt.bytes(Int64($0.size)) }),
+        .number("fd", "FD", width: 50, help: "File descriptor number", value: { $0.fd }, text: { "\($0.fd)" }),
+        .string("type", "Type", width: 120, help: "What the descriptor refers to: a file, directory, socket, pipe…") { $0.type },
+        .string("name", "Name", width: 420, help: "Path, or a description of what's open") { $0.name },
+        .string("access", "Access", width: 120, help: "How it was opened: read, write, append, non-blocking, close-on-exec") { $0.accessDescription },
+        .number("offset", "Offset", width: 80, visible: false,
+                help: "Current read/write position in the file",
+                value: { $0.offset }, text: { $0.offset == 0 ? "" : Fmt.count(Int($0.offset)) }),
+        .number("size", "Size", width: 80, help: "Size of the file", value: { $0.size }, text: { $0.size <= 0 ? "" : Fmt.bytes(Int64($0.size)) }),
     ]
 }
 
@@ -541,23 +576,28 @@ struct ProcessNetworkTab: View {
     }
 
     static let columns: [TableColumnSpec<FileDescriptorInfo>] = [
-        .number("fd", "FD", width: 50, value: { $0.fd }, text: { "\($0.fd)" }),
-        .string("proto", "Protocol", width: 70) { $0.socket?.protocolName ?? "" },
-        .string("local", "Local", width: 200) { f in
+        .number("fd", "FD", width: 50, help: "The socket's file descriptor number", value: { $0.fd }, text: { "\($0.fd)" }),
+        .string("proto", "Protocol", width: 70, help: "TCP or UDP (TCP6 and UDP6 are IPv6), or Unix") { $0.socket?.protocolName ?? "" },
+        .string("local", "Local", width: 200, help: "Local address and port, or the socket's path for a Unix socket") { f in
             guard let s = f.socket else { return "" }
             return s.isInternet ? "\(s.localAddress):\(s.localPort)" : s.unixPath
         },
-        .string("remote", "Remote", width: 200) { f in
+        .string("remote", "Remote", width: 200, help: "Remote address and port") { f in
             guard let s = f.socket, s.isInternet else { return "" }
             return s.remotePort == 0 ? "" : "\(s.remoteAddress):\(s.remotePort)"
         },
-        .string("rhost", "Remote host", width: 180) { f in
+        .string("rhost", "Remote host", width: 180, help: "Remote address resolved to a host name") { f in
             guard let s = f.socket, s.isInternet, s.remotePort != 0 else { return "" }
             ReverseDNS.shared.resolve(s.remoteAddress)
             return ReverseDNS.shared.name(for: s.remoteAddress) ?? ""
         },
-        .string("state", "State", width: 90) { $0.socket?.stateName ?? "" },
-        .number("sendq", "Send queue", width: 70, visible: false, value: { $0.socket?.sendQueue ?? 0 }, text: { "\($0.socket?.sendQueue ?? 0)" }),
-        .number("recvq", "Receive queue", width: 70, visible: false, value: { $0.socket?.recvQueue ?? 0 }, text: { "\($0.socket?.recvQueue ?? 0)" }),
+        .string("state", "State", width: 90,
+                help: "TCP connection state, such as Listen or Established (blank for UDP)") { $0.socket?.stateName ?? "" },
+        .number("sendq", "Send queue", width: 70, visible: false,
+                help: "Bytes waiting in the socket's send buffer",
+                value: { $0.socket?.sendQueue ?? 0 }, text: { "\($0.socket?.sendQueue ?? 0)" }),
+        .number("recvq", "Receive queue", width: 70, visible: false,
+                help: "Bytes received but not yet read by the process",
+                value: { $0.socket?.recvQueue ?? 0 }, text: { "\($0.socket?.recvQueue ?? 0)" }),
     ]
 }

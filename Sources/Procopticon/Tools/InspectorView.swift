@@ -181,10 +181,12 @@ struct InspectorView: View {
         case .loadCommands:
             OutlineTable(roots: f.loadCommands, children: nil, revision: f.loadCommands.count &+ (slice ?? 0),
                          columns: [
-                             .number("index", "#", width: 40, value: { $0.index }, text: { "\($0.index)" }),
-                             .string("name", "Command", width: 200) { $0.name },
-                             .number("size", "Size", width: 70, value: { $0.size }, text: { "\($0.size)" }),
-                             .string("summary", "Details", width: 460) { $0.summary },
+                             .number("index", "#", width: 40,
+                                     help: "Position in the load command list",
+                                     value: { $0.index }, text: { "\($0.index)" }),
+                             .string("name", "Command", width: 200, help: "The load command's type (LC_…)") { $0.name },
+                             .number("size", "Size", width: 70, help: "Size of the command in bytes", value: { $0.size }, text: { "\($0.size)" }),
+                             .string("summary", "Details", width: 460, help: "What the command contains") { $0.summary },
                          ],
                          autosaveName: "InspectorLoadCommands", key: { AnyHashable($0.index) })
         case .segments:
@@ -195,10 +197,13 @@ struct InspectorView: View {
         case .libraries:
             OutlineTable(roots: f.dylibs, children: nil, revision: f.dylibs.count &+ (slice ?? 0),
                          columns: [
-                             .string("name", "Library", width: 420) { $0.path },
-                             .string("kind", "Kind", width: 80) { $0.kind },
-                             .string("current", "Current version", width: 110) { $0.currentVersion },
-                             .string("compat", "Compatibility", width: 100) { $0.compatibilityVersion },
+                             .string("name", "Library", width: 420, help: "Path of a library the executable links against") { $0.path },
+                             .string("kind", "Kind", width: 80,
+                                     help: "How it's linked: load, weak, lazy, re-export, upward, or identity (the library's own install name)") { $0.kind },
+                             .string("current", "Current version", width: 110,
+                                     help: "The library's current version, as recorded when the executable was linked") { $0.currentVersion },
+                             .string("compat", "Compatibility", width: 100,
+                                     help: "The compatibility version the library must have for the executable to load it") { $0.compatibilityVersion },
                          ],
                          autosaveName: "InspectorLibraries", key: { AnyHashable($0.id) },
                          menu: { rows in
@@ -223,10 +228,14 @@ struct InspectorView: View {
                 Divider()
                 OutlineTable(roots: filteredSymbols(f), children: nil, revision: symbolFilter.hashValue &+ (slice ?? 0) &+ (settings.searchUsesRegex ? 1 : 0),
                              columns: [
-                                 .string("name", "Name", width: 420) { $0.name },
-                                 .number("addr", "Address", width: 130, value: { $0.address }, text: { $0.address == 0 ? "" : Fmt.hexAddress($0.address) }),
-                                 .string("kind", "Kind", width: 140) { $0.kind },
-                                 .string("ext", "Scope", width: 80) { $0.isExternal ? "External" : "Local" },
+                                 .string("name", "Name", width: 420, help: "Symbol name") { $0.name },
+                                 .number("addr", "Address", width: 130,
+                                         help: "Symbol address; blank for undefined (imported) symbols",
+                                         value: { $0.address }, text: { $0.address == 0 ? "" : Fmt.hexAddress($0.address) }),
+                                 .string("kind", "Kind", width: 140,
+                                         help: "Symbol type: section (defined here), undefined (imported), absolute, indirect…") { $0.kind },
+                                 .string("ext", "Scope", width: 80,
+                                         help: "External (visible to other images) or local") { $0.isExternal ? "External" : "Local" },
                              ],
                              autosaveName: "InspectorSymbols", key: { AnyHashable($0.index) })
             }
@@ -289,33 +298,33 @@ enum SegmentRow {
     }
 
     static let columns: [TableColumnSpec<SegmentRow>] = [
-        .string("name", "Name", width: 220) {
+        .string("name", "Name", width: 220, help: "Segment or section name") {
             switch $0 {
             case .segment(let s): return s.name
             case .section(let s): return s.name
             }
         },
-        .number("addr", "Address", width: 130, value: { r -> UInt64 in
+        .number("addr", "Address", width: 130, help: "Virtual memory address", value: { r -> UInt64 in
             switch r { case .segment(let s): return s.vmAddress; case .section(let s): return s.address }
         }, text: {
             switch $0 { case .segment(let s): return Fmt.hexAddress(s.vmAddress); case .section(let s): return Fmt.hexAddress(s.address) }
         }),
-        .number("size", "Size", width: 90, value: { r -> UInt64 in
+        .number("size", "Size", width: 90, help: "Size in memory", value: { r -> UInt64 in
             switch r { case .segment(let s): return s.vmSize; case .section(let s): return s.size }
         }, text: {
             switch $0 { case .segment(let s): return Fmt.bytes(s.vmSize); case .section(let s): return Fmt.bytes(s.size) }
         }),
-        .string("prot", "Protection", width: 90) {
+        .string("prot", "Protection", width: 90, help: "The segment's initial / maximum protection: r = read, w = write, x = execute") {
             if case .segment(let s) = $0 {
                 return MemoryRegion.protectionString(UInt32(bitPattern: s.initProtection)) + "/" + MemoryRegion.protectionString(UInt32(bitPattern: s.maxProtection))
             }
             return ""
         },
-        .string("type", "Type", width: 160) {
+        .string("type", "Type", width: 160, help: "Section type") {
             if case .section(let s) = $0 { return s.typeName }
             return ""
         },
-        .string("fileoff", "File offset", width: 100) {
+        .string("fileoff", "File offset", width: 100, help: "Offset of the segment or section in the file") {
             switch $0 {
             case .segment(let s): return Fmt.hex(s.fileOffset)
             case .section(let s): return Fmt.hex(UInt64(s.offset))
