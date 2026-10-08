@@ -115,33 +115,44 @@ struct NetworkView: View {
     }
 
     static let columns: [TableColumnSpec<ConnectionItem>] = {
-        var process = TableColumnSpec<ConnectionItem>.string("process", "Name", width: 180) { $0.connection.processName }
+        var process = TableColumnSpec<ConnectionItem>.string("process", "Name", width: 180,
+                                                             help: "The process the socket belongs to") { $0.connection.processName }
         process.image = { c in
             if let p = ProcessStore.shared.item(pid: c.connection.pid) { return ProcessIcons.icon(for: p.record) }
             return ProcessIcons.executable
         }
         return [
             process,
-            .number("pid", "PID", width: 60, value: { $0.connection.pid }, text: { "\($0.connection.pid)" }),
-            .string("proto", "Protocol", width: 60) { $0.connection.endpoint.protocolName },
-            .string("laddr", "Local address", width: 150) { $0.connection.endpoint.localAddress },
-            .number("lport", "Local port", width: 70, value: { $0.connection.endpoint.localPort }, text: { p in
+            .number("pid", "PID", width: 60, help: "Process ID", value: { $0.connection.pid }, text: { "\($0.connection.pid)" }),
+            .string("proto", "Protocol", width: 60, help: "TCP or UDP; TCP6 and UDP6 are IPv6") { $0.connection.endpoint.protocolName },
+            .string("laddr", "Local address", width: 150, help: "Local IP address (* means any)") { $0.connection.endpoint.localAddress },
+            .number("lport", "Local port", width: 70, help: "Local port", value: { $0.connection.endpoint.localPort }, text: { p in
                 let e = p.connection.endpoint
                 return e.localPort == 0 ? "" : "\(e.localPort)"
             }),
-            .string("lhost", "Local host", width: 120, visible: false) { $0.localHost },
-            .string("lservice", "Local service", width: 90, visible: false) { $0.localService },
-            .string("raddr", "Remote address", width: 150) { $0.connection.endpoint.remoteAddress == "*" ? "" : $0.connection.endpoint.remoteAddress },
-            .number("rport", "Remote port", width: 75, value: { $0.connection.endpoint.remotePort }, text: { p in
+            .string("lhost", "Local host", width: 120, visible: false, help: "Local address resolved to a host name") { $0.localHost },
+            .string("lservice", "Local service", width: 90, visible: false,
+                    help: "Service name for the local port (from /etc/services)") { $0.localService },
+            .string("raddr", "Remote address", width: 150,
+                    help: "Remote IP address") { $0.connection.endpoint.remoteAddress == "*" ? "" : $0.connection.endpoint.remoteAddress },
+            .number("rport", "Remote port", width: 75, help: "Remote port", value: { $0.connection.endpoint.remotePort }, text: { p in
                 let e = p.connection.endpoint
                 return e.remotePort == 0 ? "" : "\(e.remotePort)"
             }),
-            .string("rhost", "Remote host", width: 200) { $0.remoteHost },
-            .string("rservice", "Remote service", width: 90) { $0.remoteService },
-            .string("state", "State", width: 90) { $0.connection.endpoint.stateName },
-            .number("sendq", "Send queue", width: 70, visible: false, value: { $0.connection.endpoint.sendQueue }, text: { "\($0.connection.endpoint.sendQueue)" }),
-            .number("recvq", "Receive queue", width: 70, visible: false, value: { $0.connection.endpoint.recvQueue }, text: { "\($0.connection.endpoint.recvQueue)" }),
-            .number("fd", "FD", width: 50, visible: false, value: { $0.connection.fd }, text: { "\($0.connection.fd)" }),
+            .string("rhost", "Remote host", width: 200,
+                    help: "Remote address resolved to a host name, when that's turned on in Settings") { $0.remoteHost },
+            .string("rservice", "Remote service", width: 90, help: "Service name for the remote port (from /etc/services)") { $0.remoteService },
+            .string("state", "State", width: 90,
+                    help: "TCP connection state, such as Listen or Established (blank for UDP)") { $0.connection.endpoint.stateName },
+            .number("sendq", "Send queue", width: 70, visible: false,
+                    help: "Bytes waiting in the socket's send buffer",
+                    value: { $0.connection.endpoint.sendQueue }, text: { "\($0.connection.endpoint.sendQueue)" }),
+            .number("recvq", "Receive queue", width: 70, visible: false,
+                    help: "Bytes received but not yet read by the process",
+                    value: { $0.connection.endpoint.recvQueue }, text: { "\($0.connection.endpoint.recvQueue)" }),
+            .number("fd", "FD", width: 50, visible: false,
+                    help: "The socket's file descriptor number in the process",
+                    value: { $0.connection.fd }, text: { "\($0.connection.fd)" }),
         ]
     }()
 }
@@ -192,23 +203,37 @@ struct DiskView: View {
     }
 
     static let columns: [TableColumnSpec<ProcessItem>] = {
-        var name = TableColumnSpec<ProcessItem>.string("name", "Name", width: 200) { $0.name }
+        var name = TableColumnSpec<ProcessItem>.string("name", "Name", width: 200, help: "The process's executable name") { $0.name }
         name.image = { ProcessIcons.icon(for: $0.record) }
-        var graph = TableColumnSpec<ProcessItem>("graph", "History", width: 100, text: { _ in "" }, less: { $0.ioTotalRate < $1.ioTotalRate })
+        var graph = TableColumnSpec<ProcessItem>("graph", "History", width: 100,
+                                                 help: "Disk read + write rate over the last 120 updates; sorts by current rate",
+                                                 text: { _ in "" }, less: { $0.ioTotalRate < $1.ioTotalRate })
         graph.kind = .graph
         graph.graph = { GraphCellData(values: $0.ioHistory.ordered, maxValue: max(1, $0.ioHistory.maxValue), color: .systemBlue) }
         return [
             name,
-            .number("pid", "PID", width: 60, value: { $0.pid }, text: { "\($0.pid)" }),
-            .number("read", "Read rate", width: 90, value: { $0.diskReadRate }, text: { Fmt.rate($0.diskReadRate) }),
-            .number("write", "Write rate", width: 90, value: { $0.diskWriteRate }, text: { Fmt.rate($0.diskWriteRate) }),
-            .number("total", "Total rate", width: 90, value: { $0.ioTotalRate }, text: { Fmt.rate($0.ioTotalRate) }),
+            .number("pid", "PID", width: 60, help: "Process ID", value: { $0.pid }, text: { "\($0.pid)" }),
+            .number("read", "Read rate", width: 90,
+                    help: "Bytes read from disk per second",
+                    value: { $0.diskReadRate }, text: { Fmt.rate($0.diskReadRate) }),
+            .number("write", "Write rate", width: 90,
+                    help: "Bytes written to disk per second",
+                    value: { $0.diskWriteRate }, text: { Fmt.rate($0.diskWriteRate) }),
+            .number("total", "Total rate", width: 90,
+                    help: "Bytes read and written per second",
+                    value: { $0.ioTotalRate }, text: { Fmt.rate($0.ioTotalRate) }),
             graph,
-            .number("readTotal", "Total read", width: 90, value: { $0.stats?.diskBytesRead ?? 0 }, text: { Fmt.bytes($0.stats?.diskBytesRead ?? 0) }),
-            .number("writeTotal", "Total written", width: 90, value: { $0.stats?.diskBytesWritten ?? 0 }, text: { Fmt.bytes($0.stats?.diskBytesWritten ?? 0) }),
-            .number("logical", "Logical writes", width: 90, value: { $0.stats?.logicalWrites ?? 0 }, text: { Fmt.bytes($0.stats?.logicalWrites ?? 0) }),
-            .string("user", "User", width: 90) { $0.userName },
-            .string("path", "File name", width: 300, visible: false) { $0.record.path ?? "" },
+            .number("readTotal", "Total read", width: 90,
+                    help: "Bytes read from disk since the process started",
+                    value: { $0.stats?.diskBytesRead ?? 0 }, text: { Fmt.bytes($0.stats?.diskBytesRead ?? 0) }),
+            .number("writeTotal", "Total written", width: 90,
+                    help: "Bytes written to disk since the process started",
+                    value: { $0.stats?.diskBytesWritten ?? 0 }, text: { Fmt.bytes($0.stats?.diskBytesWritten ?? 0) }),
+            .number("logical", "Logical writes", width: 90,
+                    help: "Bytes written to files since the process started, counted as they're written rather than as they reach the disk",
+                    value: { $0.stats?.logicalWrites ?? 0 }, text: { Fmt.bytes($0.stats?.logicalWrites ?? 0) }),
+            .string("user", "User", width: 90, help: "The user the process runs as (its effective user)") { $0.userName },
+            .string("path", "File name", width: 300, visible: false, help: "Full path of the executable") { $0.record.path ?? "" },
         ]
     }()
 }

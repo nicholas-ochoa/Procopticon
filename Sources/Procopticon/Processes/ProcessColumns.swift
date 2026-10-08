@@ -11,13 +11,14 @@ enum ProcessColumns {
     static func all() -> [ProcessColumn] {
         var cols: [ProcessColumn] = []
 
-        var name = ProcessColumn.string("name", "Name", width: 240) { $0.displayName }
+        var name = ProcessColumn.string("name", "Name", width: 240,
+                                        help: "The executable's name, or the app's name for an app's main executable") { $0.displayName }
         name.image = { ProcessIcons.icon(for: $0.record) }
         name.richTooltip = { AnyView(ProcessToolTipView(item: $0)) }
         name.monospacedDigits = false
         cols.append(name)
 
-        cols.append(.number("pid", "PID", width: 60, value: { $0.pid }, text: { "\($0.pid)" }))
+        cols.append(.number("pid", "PID", width: 60, help: "Process ID", value: { $0.pid }, text: { "\($0.pid)" }))
         cols.append(.number("cpu", "CPU", width: 55, help: "CPU usage (percent of total system capacity, or of one core — see Settings)",
                             value: { shown($0.cpu) }, text: { Fmt.percent($0.cpu) }))
         cols.append(.number("memory", "Memory", width: 85, help: "Physical footprint: memory attributed to the process, including compressed pages",
@@ -50,9 +51,10 @@ enum ProcessColumns {
                             value: { $0.network?.packetsIn ?? 0 }, text: { c($0.network?.packetsIn) }))
         cols.append(.number("netOutPackets", "Sent packets", width: 90, visible: false, help: "Packets sent by the process's sockets",
                             value: { $0.network?.packetsOut ?? 0 }, text: { c($0.network?.packetsOut) }))
-        cols.append(.string("user", "User name", width: 100) { $0.userName })
+        cols.append(.string("user", "User name", width: 100, help: "The user the process runs as (its effective user)") { $0.userName })
         // Falls back to the process title, so retitled processes (often without a bundle) aren't blank.
-        cols.append(.string("description", "Description", width: 180) { p in
+        cols.append(.string("description", "Description", width: 180,
+                            help: "The app's or bundle's display name, or the process title when there isn't one") { p in
             let description = p.displayDescription
             return description.isEmpty ? p.record.title ?? "" : description
         })
@@ -65,150 +67,195 @@ enum ProcessColumns {
         cols.append(.string("company", "Company", width: 150, visible: false, help: "Organization from the code signing certificate") {
             $0.signing?.organization ?? ""
         })
-        cols.append(.string("version", "Version", width: 90, visible: false) { $0.bundleInfo?.versionString ?? "" })
-        cols.append(.string("bundleId", "Bundle identifier", width: 180, visible: false) { $0.bundleInfo?.bundleIdentifier ?? "" })
-        cols.append(.string("path", "File name", width: 260, visible: false) { $0.record.path ?? "" })
-        var commandLine = ProcessColumn.string("commandLine", "Command line", width: 300, visible: false) { $0.record.commandLine ?? "" }
+        cols.append(.string("version", "Version", width: 90, visible: false,
+                            help: "Version from the enclosing app or bundle's Info.plist") { $0.bundleInfo?.versionString ?? "" })
+        cols.append(.string("bundleId", "Bundle identifier", width: 180, visible: false,
+                            help: "Bundle identifier of the enclosing app or bundle") { $0.bundleInfo?.bundleIdentifier ?? "" })
+        cols.append(.string("path", "File name", width: 260, visible: false, help: "Full path of the executable") { $0.record.path ?? "" })
+        var commandLine = ProcessColumn.string("commandLine", "Command line", width: 300, visible: false,
+                                               help: "The executable and the arguments the process was started with") { $0.record.commandLine ?? "" }
         commandLine.attributedText = { CommandLineStyle.commandLine($0.record.commandLineArguments ?? []) }
         commandLine.richTooltip = { AnyView(ProcessToolTipView(item: $0)) }
         cols.append(commandLine)
-        cols.append(.string("arch", "Architecture", width: 90, visible: false) { $0.record.architecture })
-        cols.append(.number("ppid", "Parent PID", width: 70, visible: false, value: { $0.record.ppid }, text: { "\($0.record.ppid)" }))
+        cols.append(.string("arch", "Architecture", width: 90, visible: false,
+                            help: "The architecture the process runs as (arm64, or x86_64 under Rosetta)") { $0.record.architecture })
+        cols.append(.number("ppid", "Parent PID", width: 70, visible: false,
+                            help: "Process ID of the parent process",
+                            value: { $0.record.ppid }, text: { "\($0.record.ppid)" }))
         cols.append(.number("responsible", "Responsible PID", width: 80, visible: false,
                             help: "The process macOS holds responsible for this one (e.g. the app that launched an XPC service)",
                             value: { $0.record.responsiblePid ?? 0 }, text: { $0.record.responsiblePid.map { "\($0)" } ?? "" }))
-        cols.append(.number("pgid", "Process group", width: 70, visible: false, value: { $0.record.pgid }, text: { "\($0.record.pgid)" }))
-        cols.append(.string("tty", "TTY", width: 70, visible: false) { $0.record.ttyName ?? "" })
-        cols.append(.string("realUser", "Real user", width: 90, visible: false) { UserNames.name($0.record.ruid) })
-        cols.append(.string("group", "Group", width: 80, visible: false) { UserNames.group($0.record.rgid) })
-        cols.append(.string("state", "State", width: 80, visible: false) { $0.record.stateDescription })
-        cols.append(.string("sandbox", "Sandboxed", width: 70, visible: false) { $0.record.sandboxed == true ? "Yes" : ($0.record.sandboxed == false ? "No" : "") })
+        cols.append(.number("pgid", "Process group", width: 70, visible: false,
+                            help: "Process group ID; the processes of a shell job share one",
+                            value: { $0.record.pgid }, text: { "\($0.record.pgid)" }))
+        cols.append(.string("tty", "TTY", width: 70, visible: false, help: "The process's controlling terminal") { $0.record.ttyName ?? "" })
+        cols.append(.string("realUser", "Real user", width: 90, visible: false,
+                            help: "The user who started the process; differs from User name for setuid programs") { UserNames.name($0.record.ruid) })
+        cols.append(.string("group", "Group", width: 80, visible: false, help: "The process's real group") { UserNames.group($0.record.rgid) })
+        cols.append(.string("state", "State", width: 80, visible: false,
+                            help: "Scheduling state: running, sleeping, idle, stopped or zombie") { $0.record.stateDescription })
+        cols.append(.string("sandbox", "Sandboxed", width: 70, visible: false,
+                            help: "Whether the process runs in the App Sandbox") { p in
+            p.record.sandboxed == true ? "Yes" : (p.record.sandboxed == false ? "No" : "")
+        })
 
         // Code signing
-        cols.append(.string("verification", "Verification status", width: 140, visible: false) { $0.signing?.verificationSummary ?? "" })
-        cols.append(.string("signer", "Verified signer", width: 200, visible: false) { $0.signing?.signer ?? "" })
-        cols.append(.string("teamId", "Team ID", width: 90, visible: false) { $0.signing?.teamIdentifier ?? "" })
-        cols.append(.string("hardened", "Hardened runtime", width: 70, visible: false) { p in
+        cols.append(.string("verification", "Verification status", width: 140, visible: false,
+                            help: "Result of checking the executable's code signature") { $0.signing?.verificationSummary ?? "" })
+        cols.append(.string("signer", "Verified signer", width: 200, visible: false,
+                            help: "Who signed the executable, from its code signing certificate") { $0.signing?.signer ?? "" })
+        cols.append(.string("teamId", "Team ID", width: 90, visible: false,
+                            help: "Apple Developer Team ID from the executable's code signature") { $0.signing?.teamIdentifier ?? "" })
+        cols.append(.string("hardened", "Hardened runtime", width: 70, visible: false,
+                            help: "Whether the executable was signed with the hardened runtime") { p in
             guard let f = p.record.csFlags else { return "" }
             return f & CodeSigningFlags.runtime != 0 ? "Yes" : "No"
         })
-        cols.append(.string("platform", "Platform binary", width: 70, visible: false) { p in
+        cols.append(.string("platform", "Platform binary", width: 70, visible: false,
+                            help: "Whether the executable is an Apple platform binary (part of macOS)") { p in
             guard let f = p.record.csFlags else { return "" }
             return f & CodeSigningFlags.platformBinary != 0 ? "Yes" : "No"
         })
 
         // CPU
-        cols.append(.number("cpuUser", "CPU (user)", width: 60, visible: false, value: { $0.cpuUser }, text: { Fmt.percent($0.cpuUser) }))
-        cols.append(.number("cpuKernel", "CPU (kernel)", width: 60, visible: false, value: { $0.cpuKernel }, text: { Fmt.percent($0.cpuKernel) }))
+        cols.append(.number("cpuUser", "CPU (user)", width: 60, visible: false,
+                            help: "CPU usage running the process's own code (user mode)",
+                            value: { $0.cpuUser }, text: { Fmt.percent($0.cpuUser) }))
+        cols.append(.number("cpuKernel", "CPU (kernel)", width: 60, visible: false,
+                            help: "CPU usage in the kernel on the process's behalf (system calls, I/O)",
+                            value: { $0.cpuKernel }, text: { Fmt.percent($0.cpuKernel) }))
         cols.append(.number("cpuTime", "Total CPU time", width: 100, visible: false,
+                            help: "CPU time used since the process started, in user mode and in the kernel",
                             value: { $0.stats?.totalTimeNs ?? 0 }, text: { t($0.stats?.totalTimeNs) }))
         cols.append(.number("userTime", "User CPU time", width: 100, visible: false,
+                            help: "CPU time spent running the process's own code (user mode)",
                             value: { $0.stats?.userTimeNs ?? 0 }, text: { t($0.stats?.userTimeNs) }))
-        cols.append(.number("kernelTime", "Kernel CPU time", width: 100, visible: false,
+        cols.append(.number("kernelTime", "Kernel CPU time", width: 100, visible: false, help: "CPU time spent in the kernel on the process's behalf",
                             value: { $0.stats?.systemTimeNs ?? 0 }, text: { t($0.stats?.systemTimeNs) }))
         cols.append(.number("pTime", "P-core time", width: 100, visible: false, help: "CPU time spent on performance cores",
                             value: { $0.stats?.pTimeNs ?? 0 }, text: { t($0.stats?.pTimeNs) }))
-        cols.append(.number("priority", "Base priority", width: 60, visible: false,
+        cols.append(.number("priority", "Base priority", width: 60, visible: false, help: "Base scheduling priority; higher runs first",
                             value: { $0.stats?.priority ?? 0 }, text: { $0.stats.map { "\($0.priority)" } ?? "" }))
-        cols.append(.number("nice", "Nice", width: 50, visible: false, value: { $0.record.nice }, text: { "\($0.record.nice)" }))
-        cols.append(.number("threads", "Threads", width: 60, visible: false,
+        cols.append(.number("nice", "Nice", width: 50, visible: false,
+                            help: "Nice value, from −20 (most favored) to 20 (least favored)",
+                            value: { $0.record.nice }, text: { "\($0.record.nice)" }))
+        cols.append(.number("threads", "Threads", width: 60, visible: false, help: "Number of threads",
                             value: { $0.stats?.threadCount ?? 0 }, text: { $0.stats.map { "\($0.threadCount)" } ?? "" }))
-        cols.append(.number("runningThreads", "Running threads", width: 60, visible: false,
+        cols.append(.number("runningThreads", "Running threads", width: 60, visible: false, help: "Threads running or ready to run",
                             value: { $0.stats?.runningThreads ?? 0 }, text: { $0.stats.map { "\($0.runningThreads)" } ?? "" }))
         cols.append(.number("fds", "Open files", width: 60, visible: false, help: "Number of open file descriptors",
                             value: { $0.record.fdCount ?? 0 }, text: { $0.record.fdCount.map { "\($0)" } ?? "" }))
-        cols.append(.number("cycles", "Cycles", width: 110, visible: false,
+        cols.append(.number("cycles", "Cycles", width: 110, visible: false, help: "CPU cycles used since the process started",
                             value: { $0.stats?.cycles ?? 0 }, text: { $0.stats.map { Fmt.count($0.cycles) } ?? "" }))
-        cols.append(.number("cyclesDelta", "Cycles delta", width: 110, visible: false,
+        cols.append(.number("cyclesDelta", "Cycles delta", width: 110, visible: false, help: "CPU cycles used over the last update interval",
                             value: { $0.cyclesDelta }, text: { $0.cyclesDelta == 0 ? "" : Fmt.count($0.cyclesDelta) }))
-        cols.append(.number("instructions", "Instructions", width: 110, visible: false,
+        cols.append(.number("instructions", "Instructions", width: 110, visible: false, help: "Instructions executed since the process started",
                             value: { $0.stats?.instructions ?? 0 }, text: { $0.stats.map { Fmt.count($0.instructions) } ?? "" }))
         cols.append(.number("instructionsDelta", "Instructions delta", width: 110, visible: false,
+                            help: "Instructions executed over the last update interval",
                             value: { $0.instructionsDelta }, text: { $0.instructionsDelta == 0 ? "" : Fmt.count($0.instructionsDelta) }))
         cols.append(.number("ipc", "IPC", width: 50, visible: false, help: "Instructions per cycle over the last interval",
                             value: { ipc($0) }, text: { ipc($0) > 0 ? String(format: "%.2f", ipc($0)) : "" }))
-        cols.append(.number("csw", "Context switches", width: 100, visible: false,
+        cols.append(.number("csw", "Context switches", width: 100, visible: false, help: "Context switches since the process started",
                             value: { $0.stats?.contextSwitches ?? 0 }, text: { $0.stats.map { Fmt.count(Int($0.contextSwitches)) } ?? "" }))
-        cols.append(.number("cswDelta", "Context switches delta", width: 90, visible: false,
+        cols.append(.number("cswDelta", "Context switches delta", width: 90, visible: false, help: "Context switches over the last update interval",
                             value: { $0.contextSwitchesDelta }, text: { Fmt.delta($0.contextSwitchesDelta) }))
-        cols.append(.number("syscalls", "System calls", width: 100, visible: false,
+        cols.append(.number("syscalls", "System calls", width: 100, visible: false, help: "System calls (Unix and Mach) since the process started",
                             value: { $0.stats?.syscalls ?? 0 }, text: { $0.stats.map { Fmt.count(Int($0.syscalls)) } ?? "" }))
-        cols.append(.number("syscallsDelta", "System calls delta", width: 90, visible: false,
+        cols.append(.number("syscallsDelta", "System calls delta", width: 90, visible: false, help: "System calls over the last update interval",
                             value: { $0.syscallsDelta }, text: { Fmt.delta($0.syscallsDelta) }))
         cols.append(.number("wakeups", "Idle wake-ups", width: 90, visible: false,
+                            help: "Times the process woke a CPU (idle and interrupt wake-ups) since it started",
                             value: { $0.stats?.wakeups ?? 0 }, text: { $0.stats.map { Fmt.count($0.wakeups) } ?? "" }))
-        cols.append(.number("wakeupsDelta", "Wake-ups delta", width: 80, visible: false,
+        cols.append(.number("wakeupsDelta", "Wake-ups delta", width: 80, visible: false, help: "Wake-ups over the last update interval",
                             value: { $0.wakeupsDelta }, text: { Fmt.delta($0.wakeupsDelta) }))
         cols.append(.number("power", "Power", width: 70, visible: false, help: "Estimated power draw from the kernel energy counters",
                             value: { $0.power }, text: { Fmt.watts($0.power) }))
         cols.append(.number("energy", "Energy", width: 90, visible: false, help: "Total energy consumed since launch",
                             value: { $0.stats?.energyNj ?? 0 }, text: { e($0.stats?.energyNj) }))
         cols.append(.number("messages", "Mach messages", width: 100, visible: false,
+                            help: "Mach messages sent and received since the process started",
                             value: { Int64($0.stats?.messagesSent ?? 0) + Int64($0.stats?.messagesReceived ?? 0) },
                             text: { p in p.stats.map { Fmt.count(Int($0.messagesSent) + Int($0.messagesReceived)) } ?? "" }))
         cols.append(.number("messagesDelta", "Mach messages delta", width: 90, visible: false,
+                            help: "Mach messages sent and received over the last update interval",
                             value: { $0.messagesDelta }, text: { Fmt.delta($0.messagesDelta) }))
 
         // Memory
-        cols.append(.number("peakMemory", "Peak memory", width: 85, visible: false,
+        cols.append(.number("peakMemory", "Peak memory", width: 85, visible: false, help: "Highest memory footprint since the process started",
                             value: { $0.stats?.lifetimeMaxFootprint ?? 0 }, text: { s($0.stats?.lifetimeMaxFootprint) }))
         cols.append(.number("memoryDelta", "Memory delta", width: 85, visible: false,
+                            help: "Change in memory footprint over the last update interval",
                             value: { $0.memoryDelta }, text: { $0.memoryDelta == 0 ? "" : Fmt.bytes($0.memoryDelta) }))
         cols.append(.number("resident", "Resident size", width: 85, visible: false, help: "Physical pages currently resident (includes shared)",
                             value: { $0.stats?.residentSize ?? 0 }, text: { s($0.stats?.residentSize) }))
         cols.append(.number("virtual", "Virtual size", width: 90, visible: false,
+                            help: "Virtual address space the process has reserved; most of it uses no memory",
                             value: { $0.stats?.virtualSize ?? 0 }, text: { s($0.stats?.virtualSize) }))
         cols.append(.number("wired", "Wired memory", width: 85, visible: false,
+                            help: "Memory locked in RAM for the process, which can't be paged out or compressed",
                             value: { $0.stats?.wiredSize ?? 0 }, text: { s($0.stats?.wiredSize) }))
-        cols.append(.number("neural", "Neural Engine memory", width: 85, visible: false,
+        cols.append(.number("neural", "Neural Engine memory", width: 85, visible: false, help: "Memory used by the Neural Engine for the process",
                             value: { $0.stats?.neuralFootprint ?? 0 }, text: { s($0.stats?.neuralFootprint) }))
-        cols.append(.number("faults", "Page faults", width: 90, visible: false,
+        cols.append(.number("faults", "Page faults", width: 90, visible: false, help: "Page faults since the process started",
                             value: { $0.stats?.faults ?? 0 }, text: { $0.stats.map { Fmt.count(Int($0.faults)) } ?? "" }))
-        cols.append(.number("faultsDelta", "Page faults delta", width: 80, visible: false,
+        cols.append(.number("faultsDelta", "Page faults delta", width: 80, visible: false, help: "Page faults over the last update interval",
                             value: { $0.faultsDelta }, text: { Fmt.delta($0.faultsDelta) }))
-        cols.append(.number("pageins", "Page-ins", width: 80, visible: false,
+        cols.append(.number("pageins", "Page-ins", width: 80, visible: false, help: "Pages read in from disk since the process started",
                             value: { $0.stats?.pageins ?? 0 }, text: { $0.stats.map { Fmt.count(Int($0.pageins)) } ?? "" }))
         cols.append(.number("cowFaults", "Copy-on-write faults", width: 90, visible: false,
+                            help: "Copy-on-write faults (writes to shared pages, which then get copied) since the process started",
                             value: { $0.stats?.cowFaults ?? 0 }, text: { $0.stats.map { Fmt.count(Int($0.cowFaults)) } ?? "" }))
 
         // Disk
-        cols.append(.number("diskRead", "Disk read bytes", width: 90, visible: false,
+        cols.append(.number("diskRead", "Disk read bytes", width: 90, visible: false, help: "Bytes read from disk since the process started",
                             value: { $0.stats?.diskBytesRead ?? 0 }, text: { s($0.stats?.diskBytesRead) }))
-        cols.append(.number("diskWrite", "Disk write bytes", width: 90, visible: false,
+        cols.append(.number("diskWrite", "Disk write bytes", width: 90, visible: false, help: "Bytes written to disk since the process started",
                             value: { $0.stats?.diskBytesWritten ?? 0 }, text: { s($0.stats?.diskBytesWritten) }))
-        cols.append(.number("diskReadRate", "Disk read rate", width: 85, visible: false,
+        cols.append(.number("diskReadRate", "Disk read rate", width: 85, visible: false, help: "Bytes read from disk per second",
                             value: { $0.diskReadRate }, text: { Fmt.rate($0.diskReadRate) }))
-        cols.append(.number("diskWriteRate", "Disk write rate", width: 85, visible: false,
+        cols.append(.number("diskWriteRate", "Disk write rate", width: 85, visible: false, help: "Bytes written to disk per second",
                             value: { $0.diskWriteRate }, text: { Fmt.rate($0.diskWriteRate) }))
         cols.append(.number("logicalWrites", "Logical writes", width: 90, visible: false,
+                            help: "Bytes written to files since the process started, counted as they're written rather than as they reach the disk",
                             value: { $0.stats?.logicalWrites ?? 0 }, text: { s($0.stats?.logicalWrites) }))
 
         // Time
-        cols.append(.number("startTime", "Start time", width: 140, visible: false,
+        cols.append(.number("startTime", "Start time", width: 140, visible: false, help: "When the process started",
                             value: { $0.record.startMicros }, text: { Fmt.date($0.record.startTime) }))
-        cols.append(.number("runningTime", "Running time", width: 100, visible: false,
+        cols.append(.number("runningTime", "Running time", width: 100, visible: false, help: "How long the process has been running",
                             value: { -$0.record.startMicros }, text: { Fmt.relative(seconds: Date().timeIntervalSince1970 - $0.record.startTime) }))
 
         // Graphs
-        var cpuGraph = ProcessColumn("cpuHistory", "CPU history", width: 80, visible: false, text: { _ in "" }, less: { $0.cpu < $1.cpu })
+        var cpuGraph = ProcessColumn("cpuHistory", "CPU history", width: 80, visible: false,
+                                     help: "CPU usage over the last 120 updates; sorts by current usage",
+                                     text: { _ in "" }, less: { $0.cpu < $1.cpu })
         cpuGraph.kind = .graph
         cpuGraph.graph = { GraphCellData(values: $0.cpuHistory.ordered, maxValue: 100, color: .systemGreen) }
         cols.append(cpuGraph)
-        var memGraph = ProcessColumn("memoryHistory", "Memory history", width: 80, visible: false, text: { _ in "" },
+        var memGraph = ProcessColumn("memoryHistory", "Memory history", width: 80, visible: false,
+                                     help: "Memory footprint over the last 120 updates; sorts by current footprint",
+                                     text: { _ in "" },
                                      less: { ($0.stats?.physFootprint ?? 0) < ($1.stats?.physFootprint ?? 0) })
         memGraph.kind = .graph
         memGraph.graph = { GraphCellData(values: $0.memoryHistory.ordered, maxValue: max(1, $0.memoryHistory.maxValue), color: .systemOrange) }
         cols.append(memGraph)
-        var ioGraph = ProcessColumn("ioHistory", "Disk history", width: 80, visible: false, text: { _ in "" },
+        var ioGraph = ProcessColumn("ioHistory", "Disk history", width: 80, visible: false,
+                                    help: "Disk read + write rate over the last 120 updates; sorts by current rate",
+                                    text: { _ in "" },
                                     less: { $0.ioTotalRate < $1.ioTotalRate })
         ioGraph.kind = .graph
         ioGraph.graph = { GraphCellData(values: $0.ioHistory.ordered, maxValue: max(1, $0.ioHistory.maxValue), color: .systemBlue) }
         cols.append(ioGraph)
-        var gpuGraph = ProcessColumn("gpuHistory", "GPU history", width: 80, visible: false, text: { _ in "" }, less: { $0.gpu < $1.gpu })
+        var gpuGraph = ProcessColumn("gpuHistory", "GPU history", width: 80, visible: false,
+                                     help: "GPU usage over the last 120 updates; sorts by current usage",
+                                     text: { _ in "" }, less: { $0.gpu < $1.gpu })
         gpuGraph.kind = .graph
         gpuGraph.graph = { GraphCellData(values: $0.gpuHistory.ordered, maxValue: 100, color: .systemIndigo) }
         cols.append(gpuGraph)
-        var netGraph = ProcessColumn("netHistory", "Network history", width: 80, visible: false, text: { _ in "" },
+        var netGraph = ProcessColumn("netHistory", "Network history", width: 80, visible: false,
+                                     help: "Network receive + send rate over the last 120 updates; sorts by current rate",
+                                     text: { _ in "" },
                                      less: { $0.netTotalRate < $1.netTotalRate })
         netGraph.kind = .graph
         netGraph.graph = { GraphCellData(values: $0.netHistory.ordered, maxValue: max(1, $0.netHistory.maxValue), color: .systemTeal) }

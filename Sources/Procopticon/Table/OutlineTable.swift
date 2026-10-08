@@ -385,15 +385,19 @@ final class OutlineTableCoordinator<Item>: NSObject, NSOutlineViewDataSource, NS
     private func populateHeaderMenu(_ menu: NSMenu) {
         menu.removeAllItems()
         guard let outline else { return }
-        menu.addItem(ClosureMenuItem(title: "Reset Sort Order") { [weak self] in
+        let resetSort = ClosureMenuItem(title: "Reset Sort Order") { [weak self] in
             self?.sortColumn = nil
             self?.outline?.sortDescriptors = []
             self?.saveSort()
             self?.reload(force: true)
-        })
-        menu.addItem(ClosureMenuItem(title: "Size Columns to Fit") { [weak self] in
+        }
+        resetSort.toolTip = "Stop sorting by a column; rows go back to their default order"
+        menu.addItem(resetSort)
+        let sizeToFit = ClosureMenuItem(title: "Size Columns to Fit") { [weak self] in
             self?.sizeColumnsToFit()
-        })
+        }
+        sizeToFit.toolTip = "Resize the visible columns to fit their titles and contents"
+        menu.addItem(sizeToFit)
         menu.addItem(.separator())
         let sorted = parent.columns.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
         for spec in sorted {

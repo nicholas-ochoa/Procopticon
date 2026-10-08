@@ -138,24 +138,30 @@ struct ServicesView: View {
     }
 
     static let columns: [TableColumnSpec<ServiceItem>] = {
-        var label = TableColumnSpec<ServiceItem>.string("label", "Label", width: 300) { $0.label }
+        var label = TableColumnSpec<ServiceItem>.string("label", "Label", width: 300, help: "The launchd job's label") { $0.label }
         label.image = { s in
             NSImage(systemSymbolName: s.isRunning ? "gearshape.fill" : "gearshape", accessibilityDescription: nil)
         }
         label.tooltip = { s in [s.plistPath, s.executable].compactMap { $0 }.joined(separator: "\n") }
         return [
             label,
-            .number("pid", "PID", width: 60, value: { $0.pid ?? 0 }, text: { $0.pid.map { "\($0)" } ?? "" }),
-            .string("status", "Status", width: 90) { $0.statusDescription },
-            .string("domain", "Domain", width: 120) { $0.domain.displayName },
-            .string("kind", "Type", width: 110) { $0.kind.rawValue },
-            .string("start", "Start", width: 120) { $0.startTypeDescription },
-            .string("exit", "Last exit", width: 70) { $0.lastExitStatus == "-" ? "" : $0.lastExitStatus },
-            .string("enabled", "Enabled", width: 60) { $0.disabled == true ? "No" : "Yes" },
-            .string("program", "Program", width: 320) { $0.executable ?? "" },
-            .string("plist", "Property list", width: 300, visible: false) { $0.plistPath ?? "" },
-            .string("user", "Run as user", width: 90, visible: false) { $0.userName ?? "" },
-            .string("mach", "Mach services", width: 200, visible: false) { $0.machServices.joined(separator: ", ") },
+            .number("pid", "PID", width: 60,
+                    help: "Process ID of the job's running process",
+                    value: { $0.pid ?? 0 }, text: { $0.pid.map { "\($0)" } ?? "" }),
+            .string("status", "Status", width: 90, help: "Running, Stopped, Disabled, or Not loaded into launchd") { $0.statusDescription },
+            .string("domain", "Domain", width: 120, help: "System (launch daemons) or a user's session (launch agents)") { $0.domain.displayName },
+            .string("kind", "Type", width: 110, help: "Launch daemon, launch agent, login item, or on-demand XPC service") { $0.kind.rawValue },
+            .string("start", "Start", width: 120,
+                    help: "When launchd starts the job: at load, kept alive, on an interval, or on demand") { $0.startTypeDescription },
+            .string("exit", "Last exit", width: 70,
+                    help: "How the job's last run ended (exit code or signal)") { $0.lastExitStatus == "-" ? "" : $0.lastExitStatus },
+            .string("enabled", "Enabled", width: 60,
+                    help: "Whether the job is enabled; launchd doesn't load disabled jobs") { $0.disabled == true ? "No" : "Yes" },
+            .string("program", "Program", width: 320, help: "The executable launchd runs for the job") { $0.executable ?? "" },
+            .string("plist", "Property list", width: 300, visible: false, help: "The job's property list file") { $0.plistPath ?? "" },
+            .string("user", "Run as user", width: 90, visible: false, help: "The user the job runs as (its UserName key)") { $0.userName ?? "" },
+            .string("mach", "Mach services", width: 200, visible: false,
+                    help: "Mach services the job provides; launchd starts the job when one is looked up") { $0.machServices.joined(separator: ", ") },
         ]
     }()
 }
