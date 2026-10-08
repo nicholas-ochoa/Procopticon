@@ -3,11 +3,12 @@ import ProcopticonCore
 import SwiftUI
 
 enum SettingsTab: String, CaseIterable {
-    case general, filters, highlighting, privileges
+    case general, appearance, filters, highlighting, privileges
 
     var title: String {
         switch self {
         case .general: return "General"
+        case .appearance: return "Appearance"
         case .filters: return "Filters"
         case .highlighting: return "Highlighting"
         case .privileges: return "Privileges"
@@ -17,6 +18,7 @@ enum SettingsTab: String, CaseIterable {
     var symbol: String {
         switch self {
         case .general: return "gearshape"
+        case .appearance: return "circle.lefthalf.filled"
         case .filters: return "line.3.horizontal.decrease.circle"
         case .highlighting: return "paintpalette"
         case .privileges: return "lock.shield"
@@ -26,7 +28,8 @@ enum SettingsTab: String, CaseIterable {
     /// Each tab has its own size and the window resizes to fit, like other Mac settings windows.
     var size: NSSize {
         switch self {
-        case .general: return NSSize(width: 620, height: 500)
+        case .general: return NSSize(width: 620, height: 620)
+        case .appearance: return NSSize(width: 620, height: 440)
         case .filters: return NSSize(width: 620, height: 600)
         case .highlighting: return NSSize(width: 620, height: 640)
         case .privileges: return NSSize(width: 620, height: 500)
@@ -36,6 +39,7 @@ enum SettingsTab: String, CaseIterable {
     @MainActor @ViewBuilder var content: some View {
         switch self {
         case .general: GeneralSettings()
+        case .appearance: AppearanceSettings()
         case .filters: SavedFiltersSettings()
         case .highlighting: HighlightSettings()
         case .privileges: PrivilegeSettings()
@@ -206,10 +210,6 @@ struct GeneralSettings: View {
                     Text("Percent of one core (100% per core)").tag(false)
                 }
                 Toggle("Show processes as a tree", isOn: $settings.treeView)
-                Toggle("Fixed-width font in the process list", isOn: $settings.processListMonospaced)
-                Picker("Process list font size", selection: $settings.processListFontSize) {
-                    ForEach([10.0, 11, 12, 13, 14, 15, 16], id: \.self) { Text("\(Int($0)) pt").tag($0) }
-                }
                 Toggle("Confirm before terminating or changing processes", isOn: $settings.confirmActions)
                 TextField("Online search URL (%s = name)", text: $settings.searchEngineURL)
                 Toggle("Treat search text as a regular expression", isOn: $settings.searchUsesRegex)
@@ -217,21 +217,45 @@ struct GeneralSettings: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("Window") {
+                Toggle("Keep main window on top", isOn: $settings.alwaysOnTop)
+            }
+            Section("Network") {
+                Toggle("Resolve remote addresses to host names", isOn: $settings.resolveAddresses)
+            }
+        }
+        .formStyle(.grouped)
+        .scrollContentBackground(.hidden)
+        .settingsPane()
+    }
+}
+
+struct AppearanceSettings: View {
+    @ObservedObject private var settings = AppSettings.shared
+
+    var body: some View {
+        Form {
+            Section {
                 Picker("Appearance", selection: $settings.appearance) {
                     ForEach(AppSettings.AppearanceMode.allCases) { Text($0.rawValue).tag($0) }
                 }
                 .pickerStyle(.segmented)
                 .help("Light or dark windows, or System to follow the macOS setting")
+            }
+            Section("Process list") {
+                Toggle("Fixed-width font", isOn: $settings.processListMonospaced)
+                Picker("Font size", selection: $settings.processListFontSize) {
+                    ForEach([10.0, 11, 12, 13, 14, 15, 16], id: \.self) { Text("\(Int($0)) pt").tag($0) }
+                }
+            }
+            Section("Main window") {
                 Toggle("Show status bar", isOn: $settings.showStatusBar)
-                Toggle("Keep main window on top", isOn: $settings.alwaysOnTop)
+            }
+            Section("Menu bar") {
                 Toggle("Show graph in menu bar", isOn: $settings.showMenuBarExtra)
                 Picker("Menu bar graph", selection: $settings.menuBarGraph) {
                     ForEach(AppSettings.MenuBarGraphKind.allCases) { Text($0.rawValue).tag($0) }
                 }
                 .disabled(!settings.showMenuBarExtra)
-            }
-            Section("Network") {
-                Toggle("Resolve remote addresses to host names", isOn: $settings.resolveAddresses)
             }
         }
         .formStyle(.grouped)
