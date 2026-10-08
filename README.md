@@ -9,7 +9,9 @@ IOKit. Large lists use AppKit `NSOutlineView` so that thousands of rows can refr
 ## Features
 
 **Processes** — a live process tree with icons and about 70 optional columns (right-click the header).
-Applications appear under their app name (Parallels Desktop rather than `prl_client_app`).
+Applications appear under their app name (Parallels Desktop rather than `prl_client_app`). As in
+Activity Monitor, processes launchd started on an app's behalf (XPC services, daemonized helpers)
+are listed under the app responsible for them.
 Columns cover CPU (user/kernel), physical footprint, peak memory, resident and virtual size, disk
 read/write rates, GPU usage and GPU time, network send/receive rates (separately, or together with ↓/↑ arrows in
 **Network rate**) and bytes/packets sent and received (from `nettop`), threads, open files, cycles, instructions and IPC, context switches, system calls,

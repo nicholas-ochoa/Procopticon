@@ -10,7 +10,8 @@ public final class ProcessItem: Identifiable {
     public let key: ProcessKey
     public var id: ProcessKey { key }
     public let record: ProcessRecord
-    /// Tree links of this snapshot (set before publication).
+    /// Tree links of this snapshot (set before publication). The tree parent can be the
+    /// responsible process rather than `record.ppid` (see `ProcessStore.treeParent`).
     public internal(set) weak var parent: ProcessItem?
     /// Children currently displayed (filtered, sorted).
     public internal(set) var children: [ProcessItem] = []
@@ -512,17 +513,13 @@ public final class ProcessStore: ObservableObject {
         let me = Elevation.interactiveUid
         let appPids = f.onlyApplications ? applicationPids() : []
 
-        /// The live process that started `item`, if it is still running (a reused PID that started
-        /// later is not the parent).
         func parentOf(_ item: ProcessItem) -> ProcessItem? {
-            let r = item.record
-            guard r.pid != r.ppid, let parent = byPid[r.ppid], parent.key != item.key,
-                  parent.record.startMicros <= r.startMicros || r.ppid == 0 else { return nil }
-            return parent
+            Self.treeParent(of: item, in: byPid)
         }
 
-        // With "Apps", processes started by a GUI application (helpers, a terminal's shells and
-        // everything they run) count as part of it. Memoized so each chain is walked once.
+        // With "Apps", processes started by or for a GUI application (helpers, XPC services, a
+        // terminal's shells and everything they run) count as part of it. Memoized so each chain
+        // is walked once.
         var inApp: [ProcessKey: Bool] = [:]
         func belongsToApp(_ item: ProcessItem) -> Bool {
             var chain: [ProcessKey] = []
@@ -599,6 +596,24 @@ public final class ProcessStore: ObservableObject {
         roots.forEach(walk)
         return Snapshot(items: items, roots: roots, visible: ordered, matchCount: matched,
                         processCount: processCount, totalThreads: threads, filterError: matcher.error)
+    }
+
+    /// The live process `item` is listed under in the tree. Like Activity Monitor, that is the
+    /// process that started it, except that processes launchd started on another's behalf (XPC
+    /// services, helpers that daemonized) go under the process responsible for them. A reused PID
+    /// that started later is neither.
+    static func treeParent(of item: ProcessItem, in byPid: [Int32: ProcessItem]) -> ProcessItem? {
+        let r = item.record
+        var parent: ProcessItem?
+        if r.pid != r.ppid, let p = byPid[r.ppid], p.record.startMicros <= r.startMicros || r.ppid == 0 {
+            parent = p
+        }
+        // Strictly earlier, so these links can't form a cycle.
+        if parent == nil || r.ppid == 1, let rp = r.responsiblePid, rp != r.pid, let p = byPid[rp],
+           p.record.startMicros < r.startMicros {
+            return p
+        }
+        return parent
     }
 
     /// Highlight state for row coloring.

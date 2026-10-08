@@ -137,7 +137,8 @@ enum ProcessMenu {
                 if let c = first.record.commandLine { sub.add("Command Line") { ProcessActions.copy(c) } }
                 if let b = first.bundleInfo?.bundleIdentifier { sub.add("Bundle Identifier") { ProcessActions.copy(b) } }
             }
-            if let parent = first.parent {
+            // The real parent; the tree may show the process under its responsible process instead.
+            if first.record.ppid != first.pid, let parent = ProcessStore.shared.item(pid: first.record.ppid) {
                 menu.add("Go to Parent (\(parent.name))") { ProcessSelection.shared.reveal(pid: parent.pid) }
             }
             if let r = first.record.responsiblePid, r != first.pid, let rp = ProcessStore.shared.item(pid: r) {
