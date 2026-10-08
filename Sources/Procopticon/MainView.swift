@@ -88,14 +88,11 @@ final class MainWindowState: ObservableObject {
 }
 
 struct MainView: View {
-    @Environment(\.openSettings) private var openSettings
-
     var body: some View {
         MainContentView()
             .navigationTitle("Procopticon")
             .toolbar(id: "main") { toolbar }
             .toolbar(removing: .title)
-            .onAppear { SettingsOpener.action = { openSettings() } }
             .background(WindowAccessor { window in
                 window.identifier = NSUserInterfaceItemIdentifier("main")
                 window.level = AppSettings.shared.alwaysOnTop ? .floating : .normal
@@ -442,7 +439,6 @@ struct ToolbarActionButton: View {
     }
 
     let action: Action
-    @Environment(\.openSettings) private var openSettings
 
     init(_ action: Action) {
         self.action = action
@@ -460,7 +456,7 @@ struct ToolbarActionButton: View {
         case .sysinfo: SystemInfoWindow.open()
         case .history: ResourceHistoryWindow.open()
         case .find: FindWindow.open()
-        case .settings: openSettings()
+        case .settings: SettingsWindow.open()
         case .properties: if let p = ProcessSelection.shared.items.first { PropertiesWindow.open(p) }
         case .terminate: ProcessActions.terminate(ProcessSelection.shared.items)
         case .kill: ProcessActions.forceKill(ProcessSelection.shared.items)
@@ -584,7 +580,7 @@ struct FiltersMenu: View {
             menu.addItem(.separator())
         }
         menu.add("Save Current Filter…") { settings.saveCurrentFilterInteractively() }
-        menu.add("Manage Saved Filters…") { SettingsOpener.open(tab: .filters) }
+        menu.add("Manage Saved Filters…") { SettingsWindow.open(tab: .filters) }
         return menu
     }
 }
@@ -752,20 +748,6 @@ struct WindowAccessor: NSViewRepresentable {
 
     func updateNSView(_ nsView: NSView, context: Context) {}
 }
-
-/// Lets AppKit code (launch arguments, menus) open the SwiftUI Settings scene.
-@MainActor
-enum SettingsOpener {
-    static var action: (() -> Void)?
-
-    static func open(tab: SettingsTab? = nil) {
-        if let tab {
-            UserDefaults.standard.set(tab.rawValue, forKey: "settingsTab")
-        }
-        action?()
-    }
-}
-
 
 /// Lays a toolbar group's controls out side by side so the toolbar draws them as one cluster,
 /// while the group's label still names it in the Customize Toolbar palette.

@@ -16,11 +16,6 @@ struct ProcopticonApp: App {
         .defaultSize(width: 1180, height: 760)
         .commands { AppCommands() }
 
-        Settings {
-            SettingsView()
-                .environmentObject(settings)
-        }
-
         MenuBarExtra(isInserted: Binding(
             get: { settings.showMenuBarExtra },
             set: { if settings.showMenuBarExtra != $0 { settings.showMenuBarExtra = $0 } })) {
@@ -64,6 +59,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 struct AppCommands: Commands {
     var body: some Commands {
+        CommandGroup(replacing: .appSettings) {
+            Button("Settings…") { SettingsWindow.open() }
+                .keyboardShortcut(",")
+        }
         CommandGroup(replacing: .newItem) { FileMenuItems() }
         CommandGroup(after: .toolbar) {
             ViewMenuUpdateItems()
@@ -331,7 +330,7 @@ enum LaunchArguments {
             } catch {}
         }
         if CommandLine.arguments.contains("--show-settings") {
-            SettingsOpener.action?()
+            SettingsWindow.open()
         }
         if CommandLine.arguments.contains("--show-log") { EventLogWindow.open() }
         if CommandLine.arguments.contains("--show-windows") { WindowFinder.open() }

@@ -113,7 +113,7 @@ struct SavedFiltersMenuItems: View {
             Divider()
         }
         Button("Save Current Filter…") { settings.saveCurrentFilterInteractively() }
-        Button("Manage Saved Filters…") { SettingsOpener.open(tab: .filters) }
+        Button("Manage Saved Filters…") { SettingsWindow.open(tab: .filters) }
     }
 }
 

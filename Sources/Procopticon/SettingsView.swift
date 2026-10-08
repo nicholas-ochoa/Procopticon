@@ -2,32 +2,183 @@ import AppKit
 import ProcopticonCore
 import SwiftUI
 
-enum SettingsTab: String, Hashable {
+enum SettingsTab: String, CaseIterable {
     case general, filters, highlighting, privileges
+
+    var title: String {
+        switch self {
+        case .general: return "General"
+        case .filters: return "Filters"
+        case .highlighting: return "Highlighting"
+        case .privileges: return "Privileges"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .general: return "gearshape"
+        case .filters: return "line.3.horizontal.decrease.circle"
+        case .highlighting: return "paintpalette"
+        case .privileges: return "lock.shield"
+        }
+    }
+
+    /// Each tab has its own size and the window resizes to fit, like other Mac settings windows.
+    var size: NSSize {
+        switch self {
+        case .general: return NSSize(width: 620, height: 500)
+        case .filters: return NSSize(width: 620, height: 600)
+        case .highlighting: return NSSize(width: 620, height: 640)
+        case .privileges: return NSSize(width: 620, height: 500)
+        }
+    }
+
+    @MainActor @ViewBuilder var content: some View {
+        switch self {
+        case .general: GeneralSettings()
+        case .filters: SavedFiltersSettings()
+        case .highlighting: HighlightSettings()
+        case .privileges: PrivilegeSettings()
+        }
+    }
 }
 
-struct SettingsView: View {
-    @AppStorage("settingsTab") private var tab: SettingsTab = .general
+/// The Settings window. Switching tabs works like Finder's and Calendar's settings: the old tab
+/// goes away, the window animates to the new tab's size, and only then is the new tab drawn. A
+/// SwiftUI `Settings` scene swapped the new tab in first and resized the window around it.
+@MainActor
+final class SettingsWindow: NSObject, NSToolbarDelegate, NSWindowDelegate {
+    static let shared = SettingsWindow()
+
+    static func open(tab: SettingsTab? = nil) {
+        shared.show(tab ?? shared.storedTab)
+    }
+
+    private let model = SettingsWindowModel()
+    private var window: NSWindow?
+    /// Bumped on each switch, so a resize that finishes after another switch began shows nothing.
+    private var switches = 0
+
+    private var storedTab: SettingsTab {
+        SettingsTab(rawValue: UserDefaults.standard.string(forKey: "settingsTab") ?? "") ?? .general
+    }
+
+    private func show(_ tab: SettingsTab) {
+        let window = self.window ?? makeWindow(tab)
+        select(tab, animate: window.isVisible)
+        NSApp.activate()
+        window.makeKeyAndOrderFront(nil)
+    }
+
+    private func makeWindow(_ tab: SettingsTab) -> NSWindow {
+        let window = NSWindow(contentRect: NSRect(origin: .zero, size: tab.size),
+                              styleMask: [.titled, .closable, .fullSizeContentView], backing: .buffered, defer: true)
+        window.identifier = NSUserInterfaceItemIdentifier("settings")
+        window.isReleasedWhenClosed = false
+        window.isRestorable = false
+        window.delegate = self
+        let toolbar = NSToolbar(identifier: "Settings")
+        toolbar.delegate = self
+        toolbar.displayMode = .iconAndLabel
+        toolbar.allowsUserCustomization = false
+        window.toolbar = toolbar
+        window.toolbarStyle = .preference
+        let host = NSHostingView(rootView: SettingsContent(model: model).environmentObject(AppSettings.shared))
+        // The window's size is set here, per tab; the content never resizes it.
+        host.sizingOptions = []
+        window.contentView = host
+        window.setFrame(frame(for: tab, in: window), display: false)
+        if !window.setFrameUsingName("Settings") {
+            window.center()
+        }
+        window.setFrameAutosaveName("Settings")
+        self.window = window
+        return window
+    }
+
+    private func select(_ tab: SettingsTab, animate: Bool) {
+        guard let window else { return }
+        UserDefaults.standard.set(tab.rawValue, forKey: "settingsTab")
+        window.toolbar?.selectedItemIdentifier = NSToolbarItem.Identifier(tab.rawValue)
+        window.title = tab.title
+        guard model.shown != tab else { return }
+        switches += 1
+        let current = switches
+        let frame = frame(for: tab, in: window)
+        guard animate, frame != window.frame else {
+            window.setFrame(frame, display: true)
+            model.shown = tab
+            return
+        }
+        model.shown = nil
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = window.animationResizeTime(frame)
+            window.animator().setFrame(frame, display: true)
+        } completionHandler: { [weak self] in
+            guard let self, self.switches == current else { return }
+            self.model.shown = tab
+        }
+    }
+
+    /// The window frame that fits `tab` below the toolbar, keeping the top-left corner in place.
+    private func frame(for tab: SettingsTab, in window: NSWindow) -> NSRect {
+        let chrome = window.frame.height - window.contentLayoutRect.height
+        let height = tab.size.height + chrome
+        return NSRect(x: window.frame.minX, y: window.frame.maxY - height, width: tab.size.width, height: height)
+    }
+
+    @objc private func selectItem(_ item: NSToolbarItem) {
+        if let tab = SettingsTab(rawValue: item.itemIdentifier.rawValue) {
+            select(tab, animate: true)
+        }
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        // Nothing keeps updating while the window is closed; the tab is rebuilt when it reopens.
+        switches += 1
+        model.shown = nil
+    }
+
+    func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+        SettingsTab.allCases.map { NSToolbarItem.Identifier($0.rawValue) }
+    }
+
+    func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+        toolbarDefaultItemIdentifiers(toolbar)
+    }
+
+    func toolbarSelectableItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+        toolbarDefaultItemIdentifiers(toolbar)
+    }
+
+    func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier identifier: NSToolbarItem.Identifier,
+                 willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
+        guard let tab = SettingsTab(rawValue: identifier.rawValue) else { return nil }
+        let item = NSToolbarItem(itemIdentifier: identifier)
+        item.label = tab.title
+        item.image = NSImage(systemSymbolName: tab.symbol, accessibilityDescription: tab.title)
+        item.target = self
+        item.action = #selector(selectItem(_:))
+        return item
+    }
+}
+
+@MainActor
+private final class SettingsWindowModel: ObservableObject {
+    /// The tab on show; nil while the window resizes for another one.
+    @Published var shown: SettingsTab?
+}
+
+private struct SettingsContent: View {
+    @ObservedObject var model: SettingsWindowModel
 
     var body: some View {
-        // Each tab sets its own size and the window resizes to fit, like other Mac settings windows.
-        TabView(selection: $tab) {
-            GeneralSettings()
-                .frame(width: 620, height: 500)
-                .tabItem { Label("General", systemImage: "gearshape") }
-                .tag(SettingsTab.general)
-            SavedFiltersSettings()
-                .frame(width: 620, height: 600)
-                .tabItem { Label("Filters", systemImage: "line.3.horizontal.decrease.circle") }
-                .tag(SettingsTab.filters)
-            HighlightSettings()
-                .frame(width: 620, height: 640)
-                .tabItem { Label("Highlighting", systemImage: "paintpalette") }
-                .tag(SettingsTab.highlighting)
-            PrivilegeSettings()
-                .frame(width: 620, height: 500)
-                .tabItem { Label("Privileges", systemImage: "lock.shield") }
-                .tag(SettingsTab.privileges)
+        ZStack(alignment: .top) {
+            // The background stays while the window resizes, so only the controls come and go.
+            Color.clear.settingsPane()
+            if let tab = model.shown {
+                tab.content.frame(width: tab.size.width, height: tab.size.height)
+            }
         }
     }
 }
