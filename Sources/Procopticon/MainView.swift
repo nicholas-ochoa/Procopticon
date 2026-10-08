@@ -532,35 +532,60 @@ struct ToolbarActionButton: View {
     }
 }
 
-/// Toolbar menu with the less common filters and the saved filters.
+/// Toolbar menu with the less common filters and the saved filters. An AppKit menu (see
+/// `NativeMenuButton`): the window updates every refresh, which re-applied a SwiftUI menu's items
+/// while it was open.
 struct FiltersMenu: View {
     @ObservedObject private var settings = AppSettings.shared
 
     var body: some View {
-        Menu {
-            Toggle("Hide Root & System Processes", isOn: $settings.hideSystemProcesses)
-            Toggle("Hide Apple-Signed Processes", isOn: $settings.hideAppleProcesses)
-            Toggle("Hide Zombie Processes", isOn: $settings.hideZombies)
-            Divider()
-            Toggle("Only Applications", isOn: $settings.onlyApplications)
-            Toggle("Only My Processes", isOn: $settings.hideOtherUsers)
-            Button("Reset Filters") {
-                settings.resetProcessFilters()
-                ProcessStore.shared.filter.text = ""
+        NativeMenuButton(menu: Self.makeMenu) {
+            Label {
+                Text("Filters")
+            } icon: {
+                // The chevron marks it as a menu, as SwiftUI's toolbar menus show.
+                HStack(spacing: 1) {
+                    Image(systemName: active ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+                    Image(systemName: "chevron.down").font(.system(size: 7, weight: .bold))
+                }
             }
-            .disabled(!settings.hasProcessFilters && ProcessStore.shared.filter.text.isEmpty)
-            Divider()
-            Section("Saved Filters") {
-                SavedFiltersMenuItems()
-            }
-        } label: {
-            Label("Filters", systemImage: active ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
         }
         .help("More filters (hide system, Apple-signed or zombie processes) and your saved filters")
     }
 
     private var active: Bool {
         settings.hideSystemProcesses || settings.hideAppleProcesses || settings.hideZombies || settings.activeSavedFilter != nil
+    }
+
+    @MainActor
+    static func makeMenu() -> NSMenu {
+        let settings = AppSettings.shared
+        let menu = NSMenu()
+        func toggle(_ title: String, _ keyPath: ReferenceWritableKeyPath<AppSettings, Bool>) {
+            menu.add(title, state: settings[keyPath: keyPath] ? .on : .off) { settings[keyPath: keyPath].toggle() }
+        }
+        toggle("Hide Root & System Processes", \.hideSystemProcesses)
+        toggle("Hide Apple-Signed Processes", \.hideAppleProcesses)
+        toggle("Hide Zombie Processes", \.hideZombies)
+        menu.addItem(.separator())
+        toggle("Only Applications", \.onlyApplications)
+        toggle("Only My Processes", \.hideOtherUsers)
+        menu.add("Reset Filters", enabled: settings.hasProcessFilters || !ProcessStore.shared.filter.text.isEmpty) {
+            settings.resetProcessFilters()
+            ProcessStore.shared.filter.text = ""
+        }
+        menu.addItem(.separator())
+        menu.addItem(.sectionHeader(title: "Saved Filters"))
+        let active = settings.activeSavedFilter?.id
+        for filter in settings.savedFilters {
+            menu.add(filter.name, state: filter.id == active ? .on : .off) { settings.applySavedFilter(filter) }
+        }
+        if !settings.savedFilters.isEmpty {
+            menu.addItem(.separator())
+        }
+        menu.add("Save Current Filter…") { settings.saveCurrentFilterInteractively() }
+        menu.add("Manage Saved Filters…") { SettingsOpener.open(tab: .filters) }
+        return menu
     }
 }
 

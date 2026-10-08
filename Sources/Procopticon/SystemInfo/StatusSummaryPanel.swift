@@ -1,3 +1,4 @@
+import AppKit
 import ProcopticonCore
 import SwiftUI
 
@@ -164,22 +165,26 @@ struct StatusSummaryPanel: View {
 
     // MARK: Helpers
 
-    /// Graph title that switches what the graph plots, like Activity Monitor's "IO ⌃".
+    /// Graph title that switches what the graph plots, like Activity Monitor's "IO ⌃". An AppKit
+    /// menu, since this panel updates every refresh (see `NativeMenuButton`).
     private func modeMenu<Mode: RawRepresentable & CaseIterable & Hashable>(_ mode: Binding<Mode>) -> some View
     where Mode.RawValue == String, Mode.AllCases: RandomAccessCollection {
-        Menu {
-            Picker("Graph", selection: mode) {
-                ForEach(Mode.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+        NativeMenuButton(menu: {
+            let menu = NSMenu()
+            for option in Mode.allCases {
+                menu.add(option.rawValue, state: option == mode.wrappedValue ? .on : .off) { mode.wrappedValue = option }
             }
-            .pickerStyle(.inline)
-            .labelsHidden()
-        } label: {
-            Text(mode.wrappedValue.rawValue.uppercased())
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(.secondary)
+            return menu
+        }) {
+            HStack(spacing: 2) {
+                Text(mode.wrappedValue.rawValue.uppercased())
+                Image(systemName: "chevron.down").font(.system(size: 7, weight: .bold))
+            }
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundStyle(.secondary)
+            .contentShape(Rectangle())
         }
-        .menuStyle(.borderlessButton)
-        .controlSize(.small)
+        .buttonStyle(.plain)
         .fixedSize()
         .help("Choose what the graph shows")
     }
