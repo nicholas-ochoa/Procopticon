@@ -43,24 +43,43 @@ enum ProcessIcons {
     /// and 4x for the card's 32 pt at 2x). Workspace icons hold many representations, some rendered on demand, and
     /// drawing one picks, scales and color-converts a representation every time; table cells
     /// redraw constantly, so that was a large part of each frame.
+    ///
+    /// Each size is scaled down from one 128 px rendering rather than asking for the icon at
+    /// 16 or 32 px: macOS 26 draws legacy .icns-only app icons (Sublime Text, our own) at those
+    /// sizes on a light gray plate, which reads as a white border in the table. From 64 px up it
+    /// masks them to the standard shape instead, the way the Dock shows them.
     static func rendered(_ icon: NSImage) -> NSImage {
         let image = NSImage(size: size)
+        guard let source = bitmap(pixels: 128, drawing: icon) else { return image }
         for pixels in [16, 32, 64] {
-            guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: pixels, pixelsHigh: pixels, bitsPerSample: 8,
-                                             samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
-                                             bytesPerRow: 0, bitsPerPixel: 0),
-                  let context = NSGraphicsContext(bitmapImageRep: rep) else { continue }
+            guard let rep = bitmap(pixels: pixels, drawing: source) else { continue }
             // Same point size for all; the pixel count is the density (1x, 2x, 4x).
             rep.size = size
-            NSGraphicsContext.saveGraphicsState()
-            NSGraphicsContext.current = context
-            context.imageInterpolation = .high
-            icon.draw(in: NSRect(x: 0, y: 0, width: pixels, height: pixels), from: .zero, operation: .copy, fraction: 1)
-            context.flushGraphics()
-            NSGraphicsContext.restoreGraphicsState()
             image.addRepresentation(rep)
         }
         return image
+    }
+
+    private static func bitmap(pixels: Int, drawing draw: NSImage) -> NSBitmapImageRep? {
+        bitmap(pixels: pixels) { draw.draw(in: $0, from: .zero, operation: .copy, fraction: 1) }
+    }
+
+    private static func bitmap(pixels: Int, drawing draw: NSBitmapImageRep) -> NSBitmapImageRep? {
+        bitmap(pixels: pixels) { draw.draw(in: $0, from: .zero, operation: .copy, fraction: 1, respectFlipped: false, hints: nil) }
+    }
+
+    private static func bitmap(pixels: Int, _ draw: (NSRect) -> Void) -> NSBitmapImageRep? {
+        guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: pixels, pixelsHigh: pixels, bitsPerSample: 8,
+                                         samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
+                                         bytesPerRow: 0, bitsPerPixel: 0),
+              let context = NSGraphicsContext(bitmapImageRep: rep) else { return nil }
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = context
+        context.imageInterpolation = .high
+        draw(NSRect(x: 0, y: 0, width: pixels, height: pixels))
+        context.flushGraphics()
+        NSGraphicsContext.restoreGraphicsState()
+        return rep
     }
 
     /// Returns a cached icon, or nil after scheduling a background load.
