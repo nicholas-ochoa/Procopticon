@@ -200,6 +200,12 @@ never closed, a quantifier with nothing to repeat and an unfinished character cl
 Under the editor, the filter's error or how many running processes it matches updates as you type. The
 search field has the same three modes: plain text, `.*` and `{}`.
 
+In JavaScript, a list of completions follows the word you type: the process's values, `KB`…`TB`, a few
+keywords, `Math` and `Date`, and after a dot the methods of what's before it when its type is known
+(`name.` lists string methods, `args.` array ones, `/re/.` `test` and `exec`). ↑ and ↓ choose, Tab or
+Return accepts, Esc closes the list (or opens it with everything that fits). Tab on a partial word
+completes it at once when only one thing fits.
+
 Settings saved by earlier versions, where an expression was written `=expression`, are converted.
 
 ## Expressions
