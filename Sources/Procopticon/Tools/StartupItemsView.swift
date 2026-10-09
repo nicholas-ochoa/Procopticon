@@ -41,7 +41,6 @@ struct StartupItemsView: View {
     @AppStorage("startupItemsHideApple") private var hideApple = true
     @State private var search = ""
     @State private var revision = 0
-    @State private var selection: [StartupItem] = []
     @State private var working = false
 
     var body: some View {
@@ -103,22 +102,12 @@ struct StartupItemsView: View {
                         NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
                     }
                 },
-                onSelectionChange: { selection = $0.compactMap(\.item) },
                 onDeleteKey: { rows in remove(rows.compactMap(\.item)) },
                 defaultSort: nil)
             Divider()
             HStack(spacing: 8) {
-                Button("Disable") { setEnabled(selection, false) }
-                    .disabled(working || !selection.contains { $0.toggle != nil && $0.isEnabled != false })
-                    .help("Keep the selected items from starting: launchd jobs are disabled, app extensions turned off, cron jobs commented out, periodic scripts made non-executable. What's running keeps running until it quits or you log out")
-                Button("Enable") { setEnabled(selection, true) }
-                    .disabled(working || !selection.contains { $0.toggle != nil && $0.isEnabled == false })
-                    .help("Let the selected items start again. Items turned off in Login Items settings (“not allowed”) also need turning on there")
-                Button("Remove…") { remove(selection) }
-                    .disabled(working || !selection.contains { $0.removal != nil })
-                    .help("Remove the selected items: launchd property lists, plug-ins and scripts go to the Trash, cron jobs and login hooks are deleted, profiles removed (⌫)")
                 if working { ProgressView().controlSize(.small) }
-                Text("launchd agents and daemons, loaded or not, are also in the Services tab. Double-click an item to reveal it in Finder.")
+                Text("Right-click items to disable, enable or remove them. launchd agents and daemons are also in the Services tab.")
                     .font(.caption).foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -134,8 +123,9 @@ struct StartupItemsView: View {
     private func load() {
         loader.load(.startupItems) { response in
             guard case .startupItems(var report) = response else { return nil }
-            // App extension choices are per user, so they're read here, as the user.
+            // App extension choices and Open at Login are per user, so they're read here, as the user.
             StartupItems.applyAppExtensionElections(&report.items)
+            StartupItems.addOpenAtLoginItems(&report.items)
             return report
         }
     }
@@ -167,6 +157,7 @@ struct StartupItemsView: View {
             case .trash(let path)?: return "• \(item.name): moves \(path) to the Trash"
             case .hook(_, let key)?: return "• \(item.name): deletes the \(key) setting (the script itself stays)"
             case .profile?: return "• \(item.name): removes the configuration profile"
+            case .openAtLogin?: return "• \(item.name): takes it off Open at Login (the app stays)"
             case nil: return nil
             }
         }
@@ -195,7 +186,10 @@ struct StartupItemsView: View {
                     response = await Task.detached { Elevation.shared.performLocally(request) }.value
                     // An extension's setting belongs to the user; anything else may still need root.
                     var userOnly = false
-                    if case .setEnabled(.appExtension, _) = action { userOnly = true }
+                    switch action {
+                    case .setEnabled(.appExtension, _), .setEnabled(.openAtLogin, _), .remove(.openAtLogin): userOnly = true
+                    default: break
+                    }
                     if response.error?.isPermissionDenied == true, !userOnly {
                         response = await Elevation.shared.performElevated(request, requiresRoot: true)
                     }
@@ -247,13 +241,16 @@ struct StartupItemsView: View {
         let m = NSMenu()
         guard let first = items.first else { return m }
         if items.contains(where: { $0.toggle != nil && $0.isEnabled != false }) {
-            m.add("Disable") { setEnabled(items, false) }
+            m.add("Disable", enabled: !working, image: "pause.circle") { setEnabled(items, false) }.toolTip =
+                "Keep the items from starting: launchd jobs are disabled, app extensions turned off, Open at Login apps taken off the list (and remembered here), cron jobs commented out, periodic scripts made non-executable. What's running keeps running until it quits or you log out"
         }
         if items.contains(where: { $0.toggle != nil && $0.isEnabled == false }) {
-            m.add("Enable") { setEnabled(items, true) }
+            m.add("Enable", enabled: !working, image: "play.circle") { setEnabled(items, true) }.toolTip =
+                "Let the items start again. Items turned off in Login Items settings (“not allowed”) also need turning on there"
         }
         if items.contains(where: { $0.removal != nil }) {
-            m.add("Remove…") { remove(items) }
+            m.add("Remove…", enabled: !working, image: "trash") { remove(items) }.toolTip =
+                "Remove the items: launchd property lists, plug-ins and scripts go to the Trash, cron jobs and login hooks are deleted, Open at Login apps taken off the list, profiles removed (⌫)"
         }
         if m.numberOfItems > 0 {
             m.addItem(.separator())

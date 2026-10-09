@@ -1,3 +1,4 @@
+import CSysInfo
 import Darwin
 import Foundation
 
@@ -72,6 +73,9 @@ public struct StartupItem: Identifiable, Hashable, Codable, Sendable {
         case cron(user: String?, line: String)
         /// periodic only runs scripts that are executable.
         case executable(path: String)
+        /// An Open at Login app: turning it off takes it off the list (Open at Login has no switch)
+        /// and remembers it, so it stays listed and can be put back.
+        case openAtLogin(path: String, name: String, hidden: Bool)
     }
 
     public enum Removal: Codable, Hashable, Sendable {
@@ -84,6 +88,8 @@ public struct StartupItem: Identifiable, Hashable, Codable, Sendable {
         case hook(plist: String, key: String)
         /// `profiles remove`.
         case profile(identifier: String, user: String?)
+        /// Takes an app off Open at Login (and forgets it if it was turned off here).
+        case openAtLogin(path: String, name: String)
     }
 }
 
@@ -147,6 +153,77 @@ public enum StartupItems {
                 items[i].status = items[i].status.isEmpty ? "Disabled" : "Disabled (\(items[i].status.lowercased()))"
             }
         }
+    }
+
+    // MARK: Open at Login
+
+    /// Where the Open at Login apps turned off here are remembered (path, name, hidden).
+    static let disabledLoginAppsKey = "StartupItems.disabledOpenAtLogin"
+
+    private static var disabledLoginApps: [[String: Any]] {
+        get { UserDefaults.standard.array(forKey: disabledLoginAppsKey) as? [[String: Any]] ?? [] }
+        set { UserDefaults.standard.set(newValue, forKey: disabledLoginAppsKey) }
+    }
+
+    /// Adds the user's Open at Login apps (System Settings ▸ General ▸ Login Items), and those
+    /// turned off here. Run as the user: the list is per user.
+    public static func addOpenAtLoginItems(_ items: inout [StartupItem]) {
+        var list: UnsafeMutablePointer<si_login_item>?
+        let n = si_login_items(&list)
+        defer { free(list) }
+        let me = UserNames.name(getuid())
+        var listed = Set<String>()
+        func item(name: String, path: String, hidden: Bool, enabled: Bool) -> StartupItem {
+            let found = !path.isEmpty
+            return StartupItem(
+                id: "openAtLogin:\(found ? path : name)", category: .loginItems, name: name, kind: "Open at Login app",
+                path: found ? path : nil, status: enabled ? (found ? "Enabled" : "Enabled, app not found") : "Disabled",
+                developer: nil, teamIdentifier: nil,
+                identifier: found ? Bundle(path: path)?.bundleIdentifier : nil,
+                details: hidden ? "Opens hidden" : "", user: me,
+                // An app that can't be found can't be put back, so it can only be removed.
+                toggle: found ? .openAtLogin(path: path, name: name, hidden: hidden) : nil,
+                removal: .openAtLogin(path: path, name: name), isEnabled: enabled)
+        }
+        for i in 0..<max(0, Int(n)) {
+            let name = withUnsafeBytes(of: list![i].name) { String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) }
+            let path = withUnsafeBytes(of: list![i].path) { String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) }
+            listed.insert(path.isEmpty ? name : path)
+            items.append(item(name: name, path: path, hidden: list![i].hidden != 0, enabled: true))
+        }
+        for entry in disabledLoginApps {
+            guard let path = entry["path"] as? String, !listed.contains(path) else { continue }
+            let name = entry["name"] as? String ?? (path as NSString).lastPathComponent
+            items.append(item(name: name, path: path, hidden: entry["hidden"] as? Bool ?? false, enabled: false))
+        }
+    }
+
+    private static func setOpenAtLogin(path: String, name: String, hidden: Bool, on: Bool) -> PrivilegedResponse {
+        if on {
+            guard FileManager.default.fileExists(atPath: path) else {
+                return .failure(PrivilegedError(code: ENOENT, message: "\(path) no longer exists."))
+            }
+            let rc = si_login_item_add(path, hidden ? 1 : 0)
+            guard rc == 0 else { return .failure(PrivilegedError(code: EIO, message: "Couldn't add \(name) to Open at Login.")) }
+            disabledLoginApps.removeAll { $0["path"] as? String == path }
+        } else {
+            let rc = si_login_item_remove(path, name)
+            guard rc == 0 || rc == -ENOENT else { return .failure(PrivilegedError(code: EIO, message: "Couldn't take \(name) off Open at Login.")) }
+            var remembered = disabledLoginApps.filter { $0["path"] as? String != path }
+            remembered.append(["path": path, "name": name, "hidden": hidden])
+            disabledLoginApps = remembered
+        }
+        return .ok
+    }
+
+    private static func removeOpenAtLogin(path: String, name: String) -> PrivilegedResponse {
+        let rc = si_login_item_remove(path, name)
+        let wasRemembered = disabledLoginApps.contains { $0["path"] as? String == path && !path.isEmpty }
+        disabledLoginApps.removeAll { $0["path"] as? String == path }
+        guard rc == 0 || (rc == -ENOENT && wasRemembered) else {
+            return .failure(PrivilegedError(code: rc == -ENOENT ? ENOENT : EIO, message: "Couldn't take \(name) off Open at Login."))
+        }
+        return .ok
     }
 
     /// The labels `launchctl print-disabled` lists as disabled.
@@ -606,7 +683,7 @@ public enum StartupItems {
         }
         switch action {
         case .setEnabled(.launchd(let domain, _), _): return domain == "gui/\(getuid())"
-        case .setEnabled(.appExtension, _): return true
+        case .setEnabled(.appExtension, _), .setEnabled(.openAtLogin, _), .remove(.openAtLogin): return true
         case .setEnabled(.cron(let user, _), _), .remove(.cron(let user, _)): return user == me
         case .setEnabled(.executable(let path), _), .remove(.trash(let path)): return writable(path)
         case .remove(.launchdPlist(let domain, _, let plist)): return domain == "gui/\(getuid())" && writable(plist)
@@ -630,6 +707,10 @@ public enum StartupItems {
             return run("/bin/launchctl", [on ? "enable" : "disable", "\(domain)/\(label)"])
         case .setEnabled(.appExtension(let id), let on):
             return run("/usr/bin/pluginkit", ["-e", on ? "use" : "ignore", "-i", id])
+        case .setEnabled(.openAtLogin(let path, let name, let hidden), let on):
+            return setOpenAtLogin(path: path, name: name, hidden: hidden, on: on)
+        case .remove(.openAtLogin(let path, let name)):
+            return removeOpenAtLogin(path: path, name: name)
         case .setEnabled(.cron(let user, let line), let on):
             return editCrontab(user: user) { editCron($0, line: line, operation: on ? .enable : .disable) }
         case .setEnabled(.executable(let path), let on):

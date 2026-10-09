@@ -141,7 +141,7 @@ unless you turn off *Always on Top* in the same menu, and reopens at launch if i
   every thread's backtrace with the crashed one first, and the binary images. Open in Console or reveal
   any report from its menu.
 * **Startup Items.** An Autoruns- or KnockKnock-style tree of what starts code outside launchd's job
-  list (which the Services tab covers): login items and background items from Background Task
+  list (which the Services tab covers): Open at Login apps, login items and background items from Background Task
   Management (`sfltool dumpbtm`, with their app, developer, and whether they're allowed in Login Items
   settings), Quick Look, Spotlight and Dock tile extensions, system and kernel extensions, cron jobs,
   periodic scripts, login and logout hooks, authorization plug-ins, plug-ins that load into other
@@ -149,10 +149,11 @@ unless you turn off *Always on Top* in the same menu, and reopens at launch if i
   legacy startup items. Apple's own are hidden unless you ask. Every user's cron jobs and the login
   hooks need the elevated helper.
 
-  Select items and **Disable**, **Enable** or **Remove…** them (also in the context menu; ⌫ removes):
+  Right-click items to **Disable**, **Enable** or **Remove…** them (⌫ removes too):
 
   | Item | Disable / Enable | Remove |
   | --- | --- | --- |
+  | Open at Login apps | Taken off the list and remembered here, so they stay listed / put back | Taken off the list |
   | Login and background items (agents, daemons) | `launchctl disable` / `enable` on the job | Ones with their own property list: unloaded, and the list moved to the Trash. Items an app registered itself are removed by the app |
   | Quick Look and Spotlight extensions | `pluginkit -e ignore` / `use`, for you | — |
   | Cron jobs | Commented out with a marker / restored | The line is deleted |

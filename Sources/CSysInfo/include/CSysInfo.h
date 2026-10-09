@@ -111,6 +111,22 @@ typedef struct {
 /// of entries in a malloc'd array (caller frees), or -errno.
 int si_jetsam_list(si_jetsam_entry **out);
 
+// ---------------------------------------------------------------------------
+// Open at Login (the session login items list), as the current user
+
+typedef struct {
+    char name[256];
+    char path[1024];            // empty when the app can't be found
+    int32_t hidden;             // open hidden
+} si_login_item;
+
+/// The user's Open at Login items. Returns the count of a malloc'd array (caller frees), or -1.
+int si_login_items(si_login_item **out);
+/// Removes the item for `path` (or, when it has none, named `name`). 0, -ENOENT, or -EIO.
+int si_login_item_remove(const char *path, const char *name);
+/// Adds `path` to the end of the list. 0 or -EIO.
+int si_login_item_add(const char *path, int hidden);
+
 /// Current working directory. Returns 0 on success, -errno on failure.
 int si_pid_cwd(pid_t pid, char *buf, int size);
 

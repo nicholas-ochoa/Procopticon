@@ -12,7 +12,7 @@ let package = Package(
         .target(
             name: "CSysInfo",
             path: "Sources/CSysInfo",
-            linkerSettings: [.linkedFramework("IOKit"), .linkedFramework("CoreFoundation")]
+            linkerSettings: [.linkedFramework("IOKit"), .linkedFramework("CoreFoundation"), .linkedFramework("CoreServices")]
         ),
         .target(
             name: "ProcopticonCore",

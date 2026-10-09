@@ -20,6 +20,7 @@
 #include <IOKit/IOKitLib.h>
 #include <IOKit/storage/IOBlockStorageDriver.h>
 #include <CoreFoundation/CoreFoundation.h>
+#include <CoreServices/CoreServices.h>
 
 // Private libproc flavors (stable since 10.x).
 #ifndef PROC_PIDLISTTHREADIDS
@@ -710,3 +711,99 @@ int64_t si_boot_time(void) {
     }
     return tv.tv_sec;
 }
+
+// ---------------------------------------------------------------------------
+// Open at Login. LSSharedFileList is deprecated, but it's still how the session login items are
+// read and changed outside System Settings; macOS keeps it in step with Background Task Management.
+
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+
+static void si_login_item_path(LSSharedFileListItemRef item, char *buf, size_t size) {
+    buf[0] = 0;
+    CFURLRef url = LSSharedFileListItemCopyResolvedURL(item, kLSSharedFileListNoUserInteraction | kLSSharedFileListDoNotMountVolumes, NULL);
+    if (url) {
+        CFURLGetFileSystemRepresentation(url, true, (UInt8 *)buf, (CFIndex)size);
+        CFRelease(url);
+    }
+}
+
+static void si_login_item_name(LSSharedFileListItemRef item, char *buf, size_t size) {
+    buf[0] = 0;
+    CFStringRef name = LSSharedFileListItemCopyDisplayName(item);
+    if (name) {
+        CFStringGetCString(name, buf, (CFIndex)size, kCFStringEncodingUTF8);
+        CFRelease(name);
+    }
+}
+
+int si_login_items(si_login_item **out) {
+    *out = NULL;
+    LSSharedFileListRef list = LSSharedFileListCreate(NULL, kLSSharedFileListSessionLoginItems, NULL);
+    if (!list) return -1;
+    UInt32 seed = 0;
+    CFArrayRef snapshot = LSSharedFileListCopySnapshot(list, &seed);
+    CFIndex n = snapshot ? CFArrayGetCount(snapshot) : 0;
+    si_login_item *items = calloc((size_t)(n > 0 ? n : 1), sizeof(si_login_item));
+    for (CFIndex i = 0; items && i < n; i++) {
+        LSSharedFileListItemRef item = (LSSharedFileListItemRef)CFArrayGetValueAtIndex(snapshot, i);
+        si_login_item_name(item, items[i].name, sizeof(items[i].name));
+        si_login_item_path(item, items[i].path, sizeof(items[i].path));
+        CFTypeRef hidden = LSSharedFileListItemCopyProperty(item, kLSSharedFileListLoginItemHidden);
+        if (hidden) {
+            if (CFGetTypeID(hidden) == CFBooleanGetTypeID()) {
+                items[i].hidden = CFBooleanGetValue((CFBooleanRef)hidden);
+            } else if (CFGetTypeID(hidden) == CFNumberGetTypeID()) {
+                CFNumberGetValue((CFNumberRef)hidden, kCFNumberSInt32Type, &items[i].hidden);
+            }
+            CFRelease(hidden);
+        }
+    }
+    if (snapshot) CFRelease(snapshot);
+    CFRelease(list);
+    if (!items) return -1;
+    *out = items;
+    return (int)n;
+}
+
+int si_login_item_remove(const char *path, const char *name) {
+    LSSharedFileListRef list = LSSharedFileListCreate(NULL, kLSSharedFileListSessionLoginItems, NULL);
+    if (!list) return -EIO;
+    UInt32 seed = 0;
+    CFArrayRef snapshot = LSSharedFileListCopySnapshot(list, &seed);
+    int result = -ENOENT;
+    for (CFIndex i = 0; snapshot && i < CFArrayGetCount(snapshot); i++) {
+        LSSharedFileListItemRef item = (LSSharedFileListItemRef)CFArrayGetValueAtIndex(snapshot, i);
+        char itemPath[1024], itemName[256];
+        si_login_item_path(item, itemPath, sizeof(itemPath));
+        si_login_item_name(item, itemName, sizeof(itemName));
+        int match = path && path[0] ? strcmp(itemPath, path) == 0 : (itemPath[0] == 0 && name && strcmp(itemName, name) == 0);
+        if (match) {
+            result = LSSharedFileListItemRemove(list, item) == noErr ? 0 : -EIO;
+            break;
+        }
+    }
+    if (snapshot) CFRelease(snapshot);
+    CFRelease(list);
+    return result;
+}
+
+int si_login_item_add(const char *path, int hidden) {
+    LSSharedFileListRef list = LSSharedFileListCreate(NULL, kLSSharedFileListSessionLoginItems, NULL);
+    if (!list) return -EIO;
+    CFURLRef url = CFURLCreateFromFileSystemRepresentation(NULL, (const UInt8 *)path, (CFIndex)strlen(path), true);
+    CFDictionaryRef properties = NULL;
+    if (hidden) {
+        const void *keys[] = { kLSSharedFileListLoginItemHidden };
+        const void *values[] = { kCFBooleanTrue };
+        properties = CFDictionaryCreate(NULL, keys, values, 1, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    }
+    LSSharedFileListItemRef item = url ? LSSharedFileListInsertItemURL(list, kLSSharedFileListItemLast, NULL, NULL, url, properties, NULL) : NULL;
+    if (item) CFRelease(item);
+    if (properties) CFRelease(properties);
+    if (url) CFRelease(url);
+    CFRelease(list);
+    return item ? 0 : -EIO;
+}
+
+#pragma clang diagnostic pop
