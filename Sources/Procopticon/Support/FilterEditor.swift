@@ -63,7 +63,7 @@ extension SearchMode {
 /// A monospaced editor for filter text, colored for its mode. Text and regular expressions stay on
 /// one line (Return ends editing); a JavaScript expression may span several, and gets completions
 /// as you type (see `ExpressionCompletion`): ↑ and ↓ choose, Tab or Return accepts, Esc dismisses
-/// the list or, with none showing, asks for one.
+/// the list or, with none showing, asks for one, as ⌃Space does.
 struct CodeEditor: View {
     @Binding var text: String
     var mode: SearchMode
@@ -112,6 +112,9 @@ private struct CodeTextView: NSViewRepresentable {
     func makeNSView(context: Context) -> NSScrollView {
         let textView = CodeNSTextView(usingTextLayoutManager: false)
         textView.delegate = context.coordinator
+        textView.onRequestCompletions = { [weak coordinator = context.coordinator] in
+            coordinator?.requestCompletions() ?? false
+        }
         textView.onFocusChange = { [weak coordinator = context.coordinator] focused in
             if !focused {
                 coordinator?.hideCompletions()
@@ -202,7 +205,7 @@ private struct CodeTextView: NSViewRepresentable {
         /// The last edit typed a letter, digit or dot, which a completion can follow. Deleting only
         /// updates a list that's showing.
         private var typedWord = false
-        /// The list was asked for (Esc), so it shows for an empty word too.
+        /// The list was asked for (Esc, ⌃Space), so it shows for an empty word too.
         private var completionsRequested = false
         /// Set while accepting a completion, so the edit doesn't open the list again.
         private var accepting = false
@@ -260,6 +263,14 @@ private struct CodeTextView: NSViewRepresentable {
             completionsRequested = false
         }
 
+        /// Shows everything that fits at the caret, even for an empty word. False outside JavaScript.
+        func requestCompletions() -> Bool {
+            guard parent.mode == .javascript else { return false }
+            completionsRequested = true
+            updateCompletions()
+            return true
+        }
+
         /// Shows (or updates, or hides) the completions for the word at the caret.
         private func updateCompletions() {
             guard parent.mode == .javascript, let textView, let window = textView.window,
@@ -301,9 +312,7 @@ private struct CodeTextView: NSViewRepresentable {
             }
             switch selector {
             case #selector(NSResponder.cancelOperation(_:)), #selector(NSResponder.complete(_:)):
-                completionsRequested = true
-                updateCompletions()
-                return true
+                return requestCompletions()
             case #selector(NSResponder.insertTab(_:)):
                 // Tab completes the word being typed: at once when only one thing fits. With no
                 // word, it moves on to the next field as usual.
@@ -366,9 +375,21 @@ private struct CodeTextView: NSViewRepresentable {
     }
 }
 
-/// Reports when it gains or loses the keyboard focus.
+/// Reports when it gains or loses the keyboard focus, and passes ⌃Space on as a request for completions.
 private final class CodeNSTextView: NSTextView {
     var onFocusChange: ((Bool) -> Void)?
+    /// Returns whether it handled the request.
+    var onRequestCompletions: (() -> Bool)?
+
+    override func keyDown(with event: NSEvent) {
+        // ⌃Space, as in most code editors. (When it switches input sources in System Settings ▸
+        // Keyboard ▸ Keyboard Shortcuts, macOS takes it first; Esc does the same.)
+        if event.keyCode == 49, event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .control,
+           onRequestCompletions?() == true {
+            return
+        }
+        super.keyDown(with: event)
+    }
 
     override func becomeFirstResponder() -> Bool {
         let became = super.becomeFirstResponder()
