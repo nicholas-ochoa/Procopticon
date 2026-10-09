@@ -318,7 +318,66 @@ enum ProcessColumns {
         netGraph.graph = { GraphCellData(values: $0.netHistory.ordered, maxValue: max(1, $0.netHistory.maxValue), color: .systemTeal) }
         cols.append(netGraph)
 
+        applyExportValues(&cols)
         return cols
+    }
+
+    // MARK: Export
+
+    /// What an export writes for each column (see `TableExport`): raw values in base units, null
+    /// when the process's statistics couldn't be read, and the units to label them with.
+    private static func applyExportValues(_ cols: inout [ProcessColumn]) {
+        let units: [String: String] = [
+            "cpu": "%", "cpuUser": "%", "cpuKernel": "%", "gpu": "%",
+            "memory": "bytes", "peakMemory": "bytes", "memoryDelta": "bytes", "resident": "bytes", "virtual": "bytes",
+            "wired": "bytes", "neural": "bytes", "compressed": "bytes", "purgeable": "bytes", "memoryLimit": "MB",
+            "diskRead": "bytes", "diskWrite": "bytes", "logicalWrites": "bytes", "netIn": "bytes", "netOut": "bytes",
+            "ioTotalRate": "bytes/s", "diskReadRate": "bytes/s", "diskWriteRate": "bytes/s", "netInRate": "bytes/s",
+            "netOutRate": "bytes/s", "netRate": "bytes/s",
+            "cpuTime": "s", "userTime": "s", "kernelTime": "s", "pTime": "s", "gpuTime": "s", "runningTime": "s",
+            "power": "W", "energy": "J",
+        ]
+        // Read from the process's task statistics; unknown (not zero) when it couldn't be inspected.
+        let fromStats: Set<String> = [
+            "cpu", "cpuUser", "cpuKernel", "memory", "peakMemory", "memoryDelta", "resident", "virtual", "wired", "neural",
+            "compressed", "purgeable", "diskRead", "diskWrite", "logicalWrites", "ioTotalRate", "diskReadRate", "diskWriteRate",
+            "cpuTime", "userTime", "kernelTime", "pTime", "priority", "threads", "runningThreads", "cycles", "cyclesDelta",
+            "instructions", "instructionsDelta", "ipc", "csw", "cswDelta", "syscalls", "syscallsDelta", "wakeups", "wakeupsDelta",
+            "power", "energy", "messages", "messagesDelta", "faults", "faultsDelta", "pageins", "cowFaults",
+        ]
+        func seconds(_ ns: UInt64?) -> ExportValue { ns.map { .number(Double($0) / 1e9) } ?? .null }
+        func percent(_ v: Double) -> ExportValue { .number((v * 100).rounded() / 100) }
+        let overrides: [String: (ProcessItem) -> ExportValue] = [
+            "cpu": { percent($0.cpu) },
+            "cpuUser": { percent($0.cpuUser) },
+            "cpuKernel": { percent($0.cpuKernel) },
+            "gpu": { percent($0.gpu) },
+            "cpuTime": { seconds($0.stats?.totalTimeNs) },
+            "userTime": { seconds($0.stats?.userTimeNs) },
+            "kernelTime": { seconds($0.stats?.systemTimeNs) },
+            "pTime": { seconds($0.stats?.pTimeNs) },
+            "gpuTime": { seconds($0.gpuTimeNs) },
+            "energy": { p in p.stats.map { .number(Double($0.energyNj) / 1e9) } ?? .null },
+            "startTime": { .string(Date(timeIntervalSince1970: $0.record.startTime).formatted(.iso8601)) },
+            "runningTime": { .number(((Date().timeIntervalSince1970 - $0.record.startTime) * 1000).rounded() / 1000) },
+            "responsible": { p in p.record.responsiblePid.map { .integer(Int64($0)) } ?? .null },
+            "fds": { p in p.record.fdCount.map { .integer(Int64($0)) } ?? .null },
+            "compressed": { p in p.stats?.compressed.map { .integer(Int64($0)) } ?? .null },
+            "purgeable": { p in p.stats?.purgeable.map { .integer(Int64($0)) } ?? .null },
+            "memoryLimit": { p in p.record.memoryLimitMB.flatMap { $0 < 0 ? nil : .integer(Int64($0)) } ?? .null },
+            "jetsamPriority": { p in p.record.jetsamPriority.map { .integer(Int64($0)) } ?? .null },
+            "ports": { p in p.machPorts.map { .integer(Int64($0)) } ?? .null },
+        ]
+        for i in cols.indices {
+            let id = cols[i].id
+            cols[i].exportUnit = units[id]
+            if let override = overrides[id] {
+                cols[i].exportValue = override
+            }
+            if fromStats.contains(id), let export = cols[i].exportValue {
+                cols[i].exportValue = { $0.stats == nil ? .null : export($0) }
+            }
+        }
     }
 
     /// "In use", in the color of the menu bar's privacy indicators, for one sensor.

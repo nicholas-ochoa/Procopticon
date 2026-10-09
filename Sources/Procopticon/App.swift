@@ -119,9 +119,7 @@ struct FileMenuItems: View {
         Button("Relaunch as Root…") { relaunchAsRootFromMenu() }
             .disabled(Elevation.shared.mode == .root)
         Divider()
-        Button("Export Process List…") {
-            Alerts.save(text: ProcessSelection.shared.table.exportText(), suggestedName: "Processes.txt")
-        }
+        Button("Export Process List…") { TableExport.saveProcessList() }
         .keyboardShortcut("s")
         Button("Inspect Executable…") { InspectorWindow.choose() }
             .keyboardShortcut("o")

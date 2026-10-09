@@ -153,7 +153,11 @@ unless you turn off *Always on Top* in the same menu, and reopens at launch if i
   processes that start or stop keeping the Mac awake, alerts, and actions you take.
 * **Run Program** and **Run Program as Root.**
 * **Purge Disk Cache** and **Flush DNS Cache.**
-* **Export.** Saves the process list as text.
+* **Export** (*File ▸ Export Process List…*, ⌘S). Saves the process list as shown (its visible columns
+  and rows, filtered and sorted) as JSON, the default, or CSV, chosen in the save panel. Values are
+  raw rather than formatted: bytes, bytes per second, percentages, seconds and ISO 8601 dates, with
+  the units in the JSON's `units` object and in the CSV's column headers. Values that couldn't be read
+  are null (empty in CSV).
 
 A **menu bar graph** (CPU, memory, network or disk) opens a popover showing the top processes.
 

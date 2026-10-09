@@ -28,6 +28,10 @@ struct TableColumnSpec<Item> {
     var richTooltip: ((Item) -> AnyView)?
     var graph: ((Item) -> GraphCellData?)?
     var help: String?
+    /// The value written by an export (see `TableExport`); nil exports `text`, or null when empty.
+    var exportValue: ((Item) -> ExportValue)?
+    /// The unit of exported numbers, e.g. "bytes" or "%".
+    var exportUnit: String?
 
     init(_ id: String, _ title: String, width: CGFloat = 100, align: NSTextAlignment = .left, visible: Bool = true,
          help: String? = nil, text: @escaping (Item) -> String, less: ((Item, Item) -> Bool)? = nil) {
@@ -41,10 +45,13 @@ struct TableColumnSpec<Item> {
         self.less = less
     }
 
-    /// Convenience: numeric column sorted by a numeric key.
+    /// Convenience: numeric column sorted by a numeric key, which is also what it exports.
     static func number<V: Comparable>(_ id: String, _ title: String, width: CGFloat = 80, visible: Bool = true, help: String? = nil,
                                      value: @escaping (Item) -> V, text: @escaping (Item) -> String) -> TableColumnSpec {
-        TableColumnSpec(id, title, width: width, align: .right, visible: visible, help: help, text: text, less: { value($0) < value($1) })
+        var spec = TableColumnSpec(id, title, width: width, align: .right, visible: visible, help: help, text: text,
+                                   less: { value($0) < value($1) })
+        spec.exportValue = { ExportValue(value($0), text: text($0)) }
+        return spec
     }
 
     /// Convenience: string column sorted case-insensitively.
@@ -221,11 +228,12 @@ struct OutlineTable<Item>: NSViewRepresentable {
 
 /// Handle for imperatively driving a table from outside SwiftUI (export, reveal).
 final class OutlineTableController {
-    fileprivate var exportHandler: (() -> String)?
+    fileprivate var exportHandler: (() -> ExportTable)?
     fileprivate var revealHandler: ((AnyHashable) -> Bool)?
     fileprivate var focusHandler: (() -> Void)?
 
-    func exportText() -> String { exportHandler?() ?? "" }
+    /// The visible columns and rows in display order, or nil before the table exists.
+    func exportTable() -> ExportTable? { exportHandler?() }
 
     @discardableResult
     func reveal(_ key: AnyHashable) -> Bool { revealHandler?(key) ?? false }
@@ -301,7 +309,7 @@ final class OutlineTableCoordinator<Item>: NSObject, NSOutlineViewDataSource, NS
 
     func bindController() {
         guard let controller = parent.controller else { return }
-        controller.exportHandler = { [weak self] in self?.exportText() ?? "" }
+        controller.exportHandler = { [weak self] in self?.exportTable() ?? ExportTable(columns: [], rows: []) }
         controller.revealHandler = { [weak self] key in self?.reveal(key) ?? false }
         controller.focusHandler = { [weak self] in
             guard let outline = self?.outline else { return }
@@ -1054,18 +1062,21 @@ final class OutlineTableCoordinator<Item>: NSObject, NSOutlineViewDataSource, NS
     }
 
     /// All rows (in display order) as tab separated text, for export.
-    func exportText() -> String {
-        guard let outline else { return "" }
+    func exportTable() -> ExportTable {
+        guard let outline else { return ExportTable(columns: [], rows: []) }
         let visible = outline.tableColumns.filter { !$0.isHidden }.compactMap { columnMap[$0.identifier.rawValue] }
             .filter { $0.kind == .text }
-        var lines = [visible.map(\.title).joined(separator: "\t")]
+        var rows: [[ExportValue]] = []
+        rows.reserveCapacity(outline.numberOfRows)
         for row in 0..<outline.numberOfRows {
             guard let node = outline.item(atRow: row) as? OutlineNode<Item> else { continue }
-            let indent = String(repeating: "  ", count: outline.level(forRow: row))
-            lines.append(visible.enumerated().map { $0.offset == 0 ? indent + $0.element.text(node.value) : $0.element.text(node.value) }
-                .joined(separator: "\t"))
+            rows.append(visible.map { spec in
+                if let export = spec.exportValue { return export(node.value) }
+                let text = spec.text(node.value)
+                return text.isEmpty ? .null : .string(text)
+            })
         }
-        return lines.joined(separator: "\n")
+        return ExportTable(columns: visible.map { ExportTable.Column(title: $0.title, unit: $0.exportUnit) }, rows: rows)
     }
 
     func handleKey(_ event: NSEvent) -> Bool {

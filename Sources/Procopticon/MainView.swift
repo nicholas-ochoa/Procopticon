@@ -472,7 +472,7 @@ struct ToolbarActionButton: View {
         case .windows: WindowFinder.open()
         case .users: UsersWindow.open()
         case .hidden: HiddenProcessesWindow.open()
-        case .export: Alerts.save(text: ProcessSelection.shared.table.exportText(), suggestedName: "Processes.txt")
+        case .export: TableExport.saveProcessList()
         }
     }
 
@@ -535,7 +535,7 @@ struct ToolbarActionButton: View {
         case .windows: return "List on-screen windows to find the process that owns one"
         case .users: return "Show logged-in users and their processes, CPU and memory"
         case .hidden: return "Scan every PID to detect processes hidden from the process list"
-        case .export: return "Save the visible process list as a text file (⌘S)"
+        case .export: return "Save the visible process list as JSON or CSV (⌘S)"
         }
     }
 }
