@@ -135,12 +135,12 @@ struct AlertSettings: View {
 
 struct AlertRuleEditor: View {
     @Binding var rule: AlertRule
-    /// Running processes the rule matches; counted when the process text changes rather than on
-    /// every sample, so the form isn't rebuilt each second while you type.
-    @State private var matchCount = 0
+    /// What the process text matches among the running processes; checked when the text changes
+    /// rather than at every sample, so the form isn't rebuilt each second while you type.
+    @State private var processes = ExpressionCheck.Outcome()
 
     var body: some View {
-        let matcher = SearchMatcher(rule.process, regex: rule.regex)
+        let anyProcess = ProcessMatcher(rule.process, regex: rule.regex, engine: ExpressionCheck.engine).isEmpty
         VStack(spacing: 0) {
             Form {
                 Section {
@@ -167,19 +167,39 @@ struct AlertRuleEditor: View {
                 } footer: {
                     Text(explanation).font(.caption).foregroundStyle(.secondary)
                 }
-                Section("Processes") {
+                if rule.trigger == .expression {
+                    Section {
+                        ProcessExpressionField(text: Binding(get: { rule.condition ?? "" }, set: { rule.condition = $0 }),
+                                               prompt: "cpu > 50 && memory > 2 * GB")
+                    } header: {
+                        HStack {
+                            Text("Condition")
+                            Spacer()
+                            ExpressionReferenceButton()
+                        }
+                    }
+                }
+                Section {
                     TextField("Process", text: $rule.process, prompt: Text("Any process"))
                     Toggle("Regular expression", isOn: $rule.regex)
-                    if let error = matcher.error {
-                        Label(error, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red).font(.caption)
-                    } else {
-                        Text(matchSummary(matcher)).font(.caption).foregroundStyle(.secondary)
+                    ExpressionStatus(outcome: processes, placeholder: anyProcess
+                        ? "Matches every process. Search by name, PID, path, command line, user or bundle ID, or write =expression."
+                        : nil)
+                } header: {
+                    HStack {
+                        Text("Processes")
+                        Spacer()
+                        if rule.trigger != .expression {
+                            ExpressionReferenceButton()
+                        }
                     }
                 }
             }
             .formStyle(.grouped)
             .scrollContentBackground(.hidden)
-            .task(id: "\(rule.id)\(rule.process)\(rule.regex)") { countMatches(matcher) }
+            .task(id: "\(rule.id)\(rule.process)\(rule.regex)") {
+                processes = ExpressionCheck.search(rule.process, regex: rule.regex)
+            }
             HStack {
                 Spacer()
                 Button("Send Test Alert") {
@@ -217,16 +237,7 @@ struct AlertRuleEditor: View {
         case .notResponding: return "When the window server finds the app hung (the spinning wait cursor)."
         case .preventingSleep: return "When the process holds a power assertion that keeps the Mac or its display awake."
         case .sensors: return "The microphone from Core Audio; the camera and screen recording from Control Center's privacy indicators."
+        case .expression: return "When a JavaScript expression over the process's values is true, checked at each update. Processes limits which processes it watches."
         }
-    }
-
-    private func countMatches(_ matcher: SearchMatcher) {
-        matchCount = matcher.isEmpty || !matcher.isValid ? 0
-            : ProcessStore.shared.items.values.filter { !$0.isRemoved && $0.matches(matcher) }.count
-    }
-
-    private func matchSummary(_ matcher: SearchMatcher) -> String {
-        guard !matcher.isEmpty else { return "Matches every process. Search by name, PID, path, command line, user or bundle ID." }
-        return matchCount == 1 ? "Matches 1 running process." : "Matches \(matchCount) running processes."
     }
 }

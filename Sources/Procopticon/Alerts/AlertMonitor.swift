@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import ProcopticonCore
+import ProcopticonExpressions
 import UserNotifications
 
 /// Watches each sample for processes that meet an enabled rule, and reports them as notifications
@@ -9,7 +10,7 @@ import UserNotifications
 final class AlertMonitor {
     static let shared = AlertMonitor()
 
-    private var evaluator = AlertEvaluator()
+    private var evaluator = AlertEvaluator(expressions: ProcessExpressionEngine())
     private var subscription: AnyCancellable?
     private var settingsSubscription: AnyCancellable?
     /// Recent notification times per rule, to rate-limit a rule that matches many processes.
@@ -84,6 +85,8 @@ final class AlertMonitor {
             return ("\(name) is keeping \(what)", "\(pid)\(lasting.isEmpty ? "" : " ·\(lasting)")\(assertion)")
         case .sensors:
             return ("\(name) is using the \(item.sensors.names.joined(separator: " and "))", "\(pid)\(lasting.isEmpty ? "" : " ·\(lasting)")")
+        case .expression:
+            return ("\(name) meets “\(rule.conditionSource)”", "\(pid)\(lasting.isEmpty ? "" : " ·\(lasting)")")
         case .started:
             return ("\(name) started", [pid, item.record.commandLine].compactMap { $0 }.joined(separator: " · "))
         case .exited:

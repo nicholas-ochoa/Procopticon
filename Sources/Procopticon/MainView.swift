@@ -334,7 +334,9 @@ struct MainSearchField: View {
             text: state.searchBinding,
             regex: $settings.searchUsesRegex,
             prompt: state.tab == .processes ? "Search processes" : "Search \(state.tab.rawValue.lowercased())",
-            toolTip: "Filter the list by name, PID, path, command line or user. Use /pattern/ for a regular expression (⌘F)",
+            toolTip: state.tab == .processes
+                ? "Filter the list by name, PID, path, command line or user. Use /pattern/ for a regular expression, or =expression to filter with JavaScript, e.g. =cpu > 10 && user == \"root\" (⌘F)"
+                : "Filter the list. Use /pattern/ for a regular expression (⌘F)",
             focusOnFind: true)
             .frame(minWidth: 180, idealWidth: 260, maxWidth: 360)
     }
@@ -680,6 +682,7 @@ struct StatusBarView: View {
             }
             if let searchError {
                 Label(searchError, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red)
+                    .help(searchError)
             }
             if store.paused {
                 Label("Paused", systemImage: "pause.circle.fill").foregroundStyle(.orange)

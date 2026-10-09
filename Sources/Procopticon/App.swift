@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import ProcopticonCore
+import ProcopticonExpressions
 import SwiftUI
 
 @main
@@ -32,6 +33,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate()
         IsolatedScanner.executablePath = Elevation.helperURL.path
+        ProcessStore.shared.expressionEngine = ProcessExpressionEngine()
         ProcessStore.shared.applicationPids = ApplicationPids.current
         ProcessStore.shared.applicationResponsiveness = ApplicationResponsiveness.current
         // Mach ports are only counted while their column is showing; see OutlineTable's visibility keys.
@@ -182,6 +184,7 @@ struct ViewMenuFilterItems: View {
         Divider()
         Toggle("Use Regular Expressions in Search", isOn: $settings.searchUsesRegex)
             .keyboardShortcut("r", modifiers: [.command, .option])
+        Button("Expression Reference") { ExpressionReferenceWindow.open() }
     }
 }
 

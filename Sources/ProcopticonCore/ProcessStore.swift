@@ -15,6 +15,9 @@ public final class ProcessItem: Identifiable {
     public internal(set) weak var parent: ProcessItem?
     /// Children currently displayed (filtered, sorted).
     public internal(set) var children: [ProcessItem] = []
+    /// The first custom highlight rule the process meets (see `ProcessStore.highlightExpressions`);
+    /// set for displayed processes before publication.
+    public internal(set) var customHighlight: UUID?
 
     public let cpu: Double
     public let cpuUser: Double
@@ -312,6 +315,7 @@ final class ProcessState {
 }
 
 public struct ProcessFilterOptions: Equatable {
+    /// Search text; see `ProcessMatcher`.
     public var text: String = ""
     public var hideOtherUsers = false
     public var hideSystemProcesses = false
@@ -352,7 +356,8 @@ public final class ProcessStore: ObservableObject {
     public private(set) var visibleItems: [ProcessItem] = []
     public let system = SystemMonitor()
     public private(set) var lastError: String?
-    /// Set when the search text is an invalid regular expression.
+    /// Set when the search text is an invalid regular expression or expression, or the expression
+    /// fails for some processes.
     @Published public private(set) var filterError: String?
     /// Number of processes that pass the current filters (excluding ancestors kept for the tree).
     public private(set) var matchCount = 0
@@ -364,6 +369,9 @@ public final class ProcessStore: ObservableObject {
     /// Supplies the applications whose responsiveness is checked, and those of them that aren't
     /// responding (set by the app). Called on the background queue at each sample.
     public var applicationResponsiveness: () -> (checked: Set<Int32>, unresponsive: Set<Int32>) = { ([], []) }
+    /// Compiles the expressions of the search text and the custom highlight rules (set by the app,
+    /// before `start()`; see `ProcessExpressionCompiler`). Used on the background queue.
+    public var expressionEngine: (any ProcessExpressionCompiler)?
     /// Whether anything shows Mach port counts (set by the app). Counting them is costly, so it
     /// only happens while this is true, when elevated, every `portCountInterval` seconds.
     public var wantsPortCounts: () -> Bool = { false }
@@ -379,6 +387,10 @@ public final class ProcessStore: ObservableObject {
     }
     public var filter = ProcessFilterOptions() {
         didSet { if oldValue != filter { rebuild() } }
+    }
+    /// Custom highlight rules, highest priority first.
+    public var highlightExpressions: [HighlightExpression] = [] {
+        didSet { if oldValue != highlightExpressions { rebuild() } }
     }
 
     private var timer: Timer?
@@ -427,6 +439,7 @@ public final class ProcessStore: ObservableObject {
 
     private struct BuildOptions {
         var filter: ProcessFilterOptions
+        var highlightExpressions: [HighlightExpression]
         var treeMode: Bool
         var highlightDuration: TimeInterval
         var interval: TimeInterval
@@ -435,8 +448,9 @@ public final class ProcessStore: ObservableObject {
     }
 
     private var currentOptions: BuildOptions {
-        BuildOptions(filter: filter, treeMode: treeMode, highlightDuration: highlightDuration, interval: interval,
-                     scaleCPUToSystem: scaleCPUToSystem, cpuCount: max(1, system.logicalCPUCount))
+        BuildOptions(filter: filter, highlightExpressions: highlightExpressions, treeMode: treeMode,
+                     highlightDuration: highlightDuration, interval: interval, scaleCPUToSystem: scaleCPUToSystem,
+                     cpuCount: max(1, system.logicalCPUCount))
     }
 
     private struct Snapshot {
@@ -641,7 +655,8 @@ public final class ProcessStore: ObservableObject {
         }
         let byPid = Self.treeIndex(items.values)
         let f = options.filter
-        let matcher = SearchMatcher(f.text, regex: f.regex)
+        let matcher = ProcessMatcher(f.text, regex: f.regex, engine: expressionEngine)
+        var expressionErrors = ExpressionErrors()
         let me = Elevation.interactiveUid
         let appPids = f.onlyApplications ? applicationPids() : []
         if f.onlyApplications {
@@ -706,8 +721,17 @@ public final class ProcessStore: ObservableObject {
         // Visibility: option filters + search (ancestors of matches stay visible in tree mode).
         var visible = Set<ProcessKey>()
         var matched = 0
+        func matchesSearch(_ item: ProcessItem) -> Bool {
+            switch matcher.evaluate(item) {
+            case .success(let matches):
+                return matches
+            case .failure(let error):
+                expressionErrors.record(error)
+                return false
+            }
+        }
         if matcher.isValid {
-            for item in items.values where passesOptions(item) && (matcher.isEmpty || item.matches(matcher)) {
+            for item in items.values where passesOptions(item) && matchesSearch(item) {
                 if !item.isRemoved { matched += 1 }
                 var node: ProcessItem? = item
                 while let n = node, !visible.contains(n.key) {
@@ -733,8 +757,23 @@ public final class ProcessStore: ObservableObject {
         }
         let roots = arrange(rootList)
         roots.forEach(walk)
+        highlight(ordered, options.highlightExpressions)
         return Snapshot(items: items, roots: roots, visible: ordered, matchCount: matched,
-                        processCount: processCount, totalThreads: threads, filterError: matcher.error)
+                        processCount: processCount, totalThreads: threads,
+                        filterError: matcher.error ?? expressionErrors.summary(rows: "processes"))
+    }
+
+    /// Gives each process the first custom highlight rule it meets.
+    private func highlight(_ items: [ProcessItem], _ rules: [HighlightExpression]) {
+        guard let engine = expressionEngine else { return }
+        let compiled = rules.compactMap { rule -> (id: UUID, expression: any CompiledProcessExpression)? in
+            let expression = engine.compileProcessExpression(rule.expression)
+            return expression.error == nil ? (rule.id, expression) : nil
+        }
+        guard !compiled.isEmpty else { return }
+        for item in items {
+            item.customHighlight = compiled.first { $0.expression.matches(item) }?.id
+        }
     }
 
     /// Processes by PID, for `treeParent`. Exited processes are in it too, so one that exits with

@@ -1,0 +1,4 @@
+QuickJS-ng v0.17.0 (https://github.com/quickjs-ng/quickjs, tag v0.17.0, commit 6d46d07)
+
+The engine sources, unmodified. quickjs-libc and the command-line tools are left out: expressions
+get no access to files, the network or timers. To update, copy the same files from a newer release.

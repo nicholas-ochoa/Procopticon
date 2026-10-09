@@ -184,6 +184,9 @@ struct ProcessToolTipView: View {
         if record.isTranslated { add("Rosetta", "cpu", .translated) }
         if record.isElevated { add("Elevated (root)", "bolt.shield", .elevated) }
         if record.sandboxed == true { add("Sandboxed", "shield.lefthalf.filled", .sandboxed) }
+        if let id = item.customHighlight, let rule = AppSettings.shared.customHighlights.first(where: { $0.id == id }), rule.enabled {
+            badges.append(Badge(text: rule.title, symbol: "paintpalette", color: Color(nsColor: rule.color)))
+        }
         return badges
     }
 }

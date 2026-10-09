@@ -5,6 +5,7 @@ public struct AlertRule: Codable, Identifiable, Hashable, Sendable {
     public enum Trigger: String, Codable, CaseIterable, Identifiable, Sendable {
         case cpu, memory, disk, network, gpu
         case started, exited, notResponding, preventingSleep, sensors
+        case expression
         public var id: String { rawValue }
 
         public var title: String {
@@ -19,6 +20,7 @@ public struct AlertRule: Codable, Identifiable, Hashable, Sendable {
             case .notResponding: return "An application stops responding"
             case .preventingSleep: return "A process keeps the Mac awake"
             case .sensors: return "A process uses the microphone, camera or screen recording"
+            case .expression: return "A process meets a condition"
             }
         }
 
@@ -35,6 +37,7 @@ public struct AlertRule: Codable, Identifiable, Hashable, Sendable {
             case .notResponding: return "Not responding"
             case .preventingSleep: return "Preventing sleep"
             case .sensors: return "Microphone, camera or screen"
+            case .expression: return "Condition"
             }
         }
 
@@ -79,28 +82,41 @@ public struct AlertRule: Codable, Identifiable, Hashable, Sendable {
     public var enabled = true
     public var trigger: Trigger
     /// Search text selecting the processes (name, PID, path, command line, user, bundle ID); empty
-    /// for any process. `/pattern/` is a regular expression, as in every search field.
+    /// for any process. As in the process search field, `/pattern/` is a regular expression and
+    /// `=expression` an expression (see `ProcessMatcher`).
     public var process = ""
     public var regex = false
+    /// For `.expression`: a JavaScript expression over the process's fields, such as
+    /// `cpu > 50 && memory > 2 * GB` (see `ProcessExpressions`). Optional so rules saved before it
+    /// existed still decode.
+    public var condition: String?
     /// In the trigger's unit (see `Trigger.unit`).
     public var threshold: Double = 0
     /// Seconds the condition must hold before the alert.
     public var duration: Double = 0
 
     public init(id: UUID = UUID(), enabled: Bool = true, trigger: Trigger, process: String = "", regex: Bool = false,
-                threshold: Double = 0, duration: Double = 0) {
+                condition: String? = nil, threshold: Double = 0, duration: Double = 0) {
         self.id = id
         self.enabled = enabled
         self.trigger = trigger
         self.process = process
         self.regex = regex
+        self.condition = condition
         self.threshold = threshold
         self.duration = duration
     }
 
+    /// The condition's expression, without any leading "=".
+    public var conditionSource: String {
+        ProcessExpressions.source(condition ?? "")
+    }
+
     public var summary: String {
         var parts: [String] = []
-        if trigger.hasThreshold {
+        if trigger == .expression {
+            parts.append(conditionSource.isEmpty ? "No condition" : conditionSource)
+        } else if trigger.hasThreshold {
             parts.append("\(trigger.shortTitle) > \(Self.number(threshold)) \(trigger.unit)")
         } else {
             parts.append(trigger.shortTitle)
@@ -160,9 +176,13 @@ public struct AlertEvaluator {
     private var known = Set<ProcessKey>()
     private var exited = Set<ProcessKey>()
     private var hasBaseline = false
-    private var matchers: [UUID: (text: String, regex: Bool, matcher: SearchMatcher)] = [:]
+    private var matchers: [UUID: (text: String, regex: Bool, matcher: ProcessMatcher)] = [:]
+    /// Compiles expressions in process searches and conditions; nil leaves them unavailable.
+    private let expressions: (any ProcessExpressionCompiler)?
 
-    public init() {}
+    public init(expressions: (any ProcessExpressionCompiler)? = nil) {
+        self.expressions = expressions
+    }
 
     /// `cpuScale` turns the CPU column's value into percent of one core.
     public mutating func evaluate(_ rules: [AlertRule], items: [ProcessItem], cpuScale: Double, now: Date = Date()) -> [Alert] {
@@ -183,7 +203,15 @@ public struct AlertEvaluator {
         for rule in rules {
             let matcher = matcher(for: rule)
             guard matcher.isValid else { continue }
-            for item in items where matcher.isEmpty || item.matches(matcher) {
+            var condition: (any CompiledProcessExpression)?
+            if rule.trigger == .expression {
+                let source = rule.conditionSource
+                guard !source.isEmpty, let compiled = expressions?.compileProcessExpression(source), compiled.error == nil else {
+                    continue
+                }
+                condition = compiled
+            }
+            for item in items where matcher.matches(item) {
                 switch rule.trigger {
                 case .started:
                     if hasBaseline, !item.isInitial, !known.contains(item.key) {
@@ -198,7 +226,7 @@ public struct AlertEvaluator {
                 default:
                     break
                 }
-                guard !item.isRemoved, Self.holds(rule, item, cpuScale: cpuScale) else { continue }
+                guard !item.isRemoved, condition?.matches(item) ?? Self.holds(rule, item, cpuScale: cpuScale) else { continue }
                 let episode = Episode(rule: rule.id, process: item.key)
                 active.insert(episode)
                 let start = since[episode] ?? now
@@ -217,11 +245,11 @@ public struct AlertEvaluator {
         return alerts
     }
 
-    private mutating func matcher(for rule: AlertRule) -> SearchMatcher {
+    private mutating func matcher(for rule: AlertRule) -> ProcessMatcher {
         if let cached = matchers[rule.id], cached.text == rule.process, cached.regex == rule.regex {
             return cached.matcher
         }
-        let m = SearchMatcher(rule.process, regex: rule.regex)
+        let m = ProcessMatcher(rule.process, regex: rule.regex, engine: expressions)
         matchers[rule.id] = (rule.process, rule.regex, m)
         return m
     }
@@ -237,7 +265,7 @@ public struct AlertEvaluator {
         case .notResponding: return item.isNotResponding
         case .preventingSleep: return item.sleepPrevention != nil
         case .sensors: return !item.sensors.isEmpty
-        case .started, .exited: return false
+        case .started, .exited, .expression: return false
         }
     }
 }

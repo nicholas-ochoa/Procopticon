@@ -41,6 +41,15 @@ final class AppSettings: ObservableObject {
         }
     }
     @Published var highlights: [HighlightRule: HighlightSetting] { didSet { saveHighlights() } }
+    @Published var customHighlights: [CustomHighlight] {
+        didSet {
+            if let data = try? JSONEncoder().encode(customHighlights) {
+                defaults.set(data, forKey: "customHighlights")
+            }
+            applyCustomHighlights()
+            NotificationCenter.default.post(name: .highlightsChanged, object: nil)
+        }
+    }
     @Published var alertRules: [AlertRule] {
         didSet {
             if let data = try? JSONEncoder().encode(alertRules) {
@@ -164,6 +173,11 @@ final class AppSettings: ObservableObject {
             h[rule] = setting
         }
         highlights = h
+        if let data = defaults.data(forKey: "customHighlights"), let list = try? JSONDecoder().decode([CustomHighlight].self, from: data) {
+            customHighlights = list
+        } else {
+            customHighlights = CustomHighlight.examples
+        }
     }
 
     private func save(_ key: String, _ value: Any) {
@@ -188,13 +202,18 @@ final class AppSettings: ObservableObject {
         highlights = h
     }
 
-    /// Turns every highlight rule on or off, keeping their colors.
+    /// Turns every highlight rule, built-in and custom, on or off, keeping their colors.
     func setAllHighlights(enabled: Bool) {
         var h = highlights
         for rule in HighlightRule.allCases {
             h[rule, default: HighlightSetting(enabled: enabled, color: rule.defaultColor)].enabled = enabled
         }
         highlights = h
+        var custom = customHighlights
+        for i in custom.indices {
+            custom[i].enabled = enabled
+        }
+        customHighlights = custom
     }
 
     /// Push settings into the live stores.
@@ -213,8 +232,16 @@ final class AppSettings: ObservableObject {
         f.onlyApplications = onlyApplications
         f.onlyNotResponding = onlyNotResponding
         store.filter = f
+        applyCustomHighlights()
         NetworkStore.shared.highlightDuration = highlightDuration
         NetworkStore.shared.resolveAddresses = resolveAddresses
+    }
+
+    /// Hands the enabled custom highlight rules to the store, which evaluates them for each process.
+    private func applyCustomHighlights() {
+        ProcessStore.shared.highlightExpressions = customHighlights
+            .filter { $0.enabled && !$0.source.isEmpty }
+            .map { HighlightExpression(id: $0.id, expression: $0.source) }
     }
 
     func applyWindowLevel() {
@@ -231,6 +258,34 @@ extension Notification.Name {
 struct HighlightSetting {
     var enabled: Bool
     var color: NSColor
+}
+
+/// A highlight rule of your own: processes for which `expression` is true get `color`.
+struct CustomHighlight: Codable, Identifiable, Hashable {
+    var id = UUID()
+    var enabled = true
+    var name = ""
+    /// A JavaScript expression over the process's values; see `ProcessExpressions`.
+    var expression = ""
+    var colorHex = "#FF9F0A"
+
+    var color: NSColor {
+        get { NSColor(hex: colorHex) ?? .systemOrange }
+        set { colorHex = newValue.hexString }
+    }
+
+    /// The expression, without any leading "=".
+    var source: String { ProcessExpressions.source(expression) }
+
+    var title: String {
+        let n = name.trimmingCharacters(in: .whitespaces)
+        return n.isEmpty ? source : n
+    }
+
+    static let examples: [CustomHighlight] = [
+        CustomHighlight(enabled: false, name: "Using over 2 GB of memory", expression: "memory > 2 * GB", colorHex: "#FF6482"),
+        CustomHighlight(enabled: false, name: "Busy for an hour or more", expression: "cpu > 50 && age > 3600", colorHex: "#FF9F0A"),
+    ]
 }
 
 /// Row highlighting categories, highest priority first.
@@ -328,6 +383,10 @@ enum Highlighter {
         let r = item.record
         if item.isRemoved, let s = use(.removed) { return s }
         if store.isNew(item), let s = use(.new) { return s }
+        // Custom rules, evaluated with each snapshot, come next.
+        if let id = item.customHighlight, let rule = AppSettings.shared.customHighlights.first(where: { $0.id == id }), rule.enabled {
+            return RowStyle(background: rule.color.withAlphaComponent(0.28))
+        }
         if item.isNotResponding, let s = use(.notResponding) { return s }
         if !item.sensors.isEmpty, let s = use(.sensors) { return s }
         if r.isStopped, let s = use(.suspended) { return s }

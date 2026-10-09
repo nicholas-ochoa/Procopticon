@@ -32,7 +32,8 @@ cut-off value to see all of it.
   account). The Event Log records each start and stop.
 * Row highlighting: new/terminated, not responding, recording (microphone, camera, screen), stopped, zombie, traced,
   Rosetta, elevated (setuid/sudo), unsigned, sandboxed, applications, own, root and service-account
-  processes. Colors and priorities are configurable.
+  processes. Colors and priorities are configurable. Add your own rules in *Settings ▸ Highlighting*: each
+  is an [expression](#expressions) and a color, such as `memory > 2 * GB` in red.
 * **Hung applications**: an application that has stopped responding to events (the spinning wait
   cursor) reads "(Not Responding)" after its name, as in Activity Monitor, and is highlighted. The
   **Responding** column says how long it has been hung, *Filters ▸ Only Applications Not Responding*
@@ -41,6 +42,8 @@ cut-off value to see all of it.
   **regular expressions**. Click `.*` at the right end of the search field or use *View ▸ Use Regular
   Expressions in Search* (⌥⌘R), or write `/pattern/` at any time. Patterns are case-insensitive;
   `/pattern/c` makes one case-sensitive. An invalid pattern is reported in the status bar.
+* Search the process list with an **[expression](#expressions)** by starting with `=`:
+  `=cpu > 10 && user == "root"` or `=memory > 1 * GB && !appleSigned`.
 * **Quick filters** in the toolbar: **Apps** (GUI applications and the processes they started), **Mine** (your processes only),
   **Tree/List**, and a **Filters** menu (hide root/system, Apple-signed or zombie processes, or show only
   applications that aren't responding). While a
@@ -50,8 +53,9 @@ cut-off value to see all of it.
   pressure, disk IO or data, network packets or data, GPU). Click again to close it.
 * **Alerts** (*Settings ▸ Alerts*): rules that post a notification when a process goes over a CPU,
   memory, disk, network or GPU threshold for a given time, starts, exits, stops responding, keeps
-  the Mac awake, or uses the microphone, camera or screen recording. A rule can watch every process or those matching a search (name, PID, path, command
-  line, user or bundle ID; regular expressions work too). Clicking a notification selects the process,
+  the Mac awake, uses the microphone, camera or screen recording, or meets a condition of your own (an
+  [expression](#expressions) such as `cpu > 50 && memory > 2 * GB`). A rule can watch every process or those matching a search (name, PID, path, command
+  line, user or bundle ID; regular expressions and `=expression` work too). Clicking a notification selects the process,
   and every alert is recorded in the Event Log.
 * **Saved filters** store a search plus filter settings under a name. Apply one from the Filters menu or
   from *View ▸ Saved Filters* (⌃⌘1–9). Manage them in *Settings ▸ Filters*: create one from the current
@@ -179,6 +183,31 @@ unless you turn off *Always on Top* in the same menu, and reopens at launch if i
 
 A **menu bar graph** (CPU, memory, network or disk) opens a popover showing the top processes.
 
+## Expressions
+
+Searches, custom highlight rules and alert conditions can be JavaScript expressions, evaluated for each
+process. The process's values are variables, so `cpu > 50 && /helper/i.test(name)` matches busy helpers.
+*View ▸ Expression Reference* lists them all, and the ? buttons in Settings show the same list.
+
+| | Values |
+| --- | --- |
+| Identity | `pid` `ppid` `pgid` `responsiblePid` `name` `executable` `path` `commandLine` `args` (array) `title` `description` `user` `uid` `realUser` `group` `bundleId` `version` `company` `teamId` `arch` `tty` `state` |
+| Resource use | `cpu` `cpuUser` `cpuKernel` (percent, as shown) `cpuTime` (seconds) `memory` `peakMemory` `resident` `virtualSize` `wired` `compressed` `purgeable` `memoryLimit` (bytes) `jetsamPriority` `gpu` `diskRate` `diskReadRate` `diskWriteRate` `netRate` `netInRate` `netOutRate` (bytes/s) `diskRead` `diskWrite` `netIn` `netOut` (bytes) `threads` `runningThreads` `fds` `ports` `priority` `nice` `power` (W) `age` (seconds) `startTime` (Date) |
+| State (true/false) | `app` `mine` `exited` `notResponding` `preventingSleep` `microphone` `camera` `screenRecording` `stopped` `zombie` `traced` `translated` `elevated` `sandboxed` `signed` `appleSigned` `platformBinary` `hardenedRuntime` `quarantined` |
+
+`KB`, `MB`, `GB` and `TB` are byte units (1 KB = 1024 bytes). Text that isn't known is empty; numbers and
+true/false values that aren't known are `null`. Errors are reported in the status bar, or under the rule in
+Settings. Error positions refer to your expression, so `cpu > 5)` reports the extra `)` at column 8.
+
+Expressions run in [QuickJS-ng](https://github.com/quickjs-ng/quickjs) (MIT; `Sources/CQuickJS/quickjs`,
+unmodified), not in the system's JavaScriptCore. QuickJS can stop a script that runs too long and cap its
+memory. JavaScriptCore has no public API for either, and a saved highlight rule with an endless loop
+would hang the app every time it launched. Each engine (the process store, the alerts and Settings have
+one each) is a separate context with no access to files, the network or timers, limited to 32 MB. An
+expression that runs for more than 250 ms is stopped and not run again until it changes. Fields are read
+only when an expression uses them. Over 800 processes, `cpu > 5` takes about 0.1 ms and an expression
+testing names, users and paths under 1 ms, on the background queue that builds each update.
+
 ## Responsiveness
 
 Sampling, delta computation, filtering and tree building run on a background queue. Each update
@@ -235,6 +264,10 @@ Launch arguments are useful for scripting and testing:
 
 ```text
 Sources/CSysInfo            C: libproc/sysctl/Mach/IOKit wrappers (processes, FDs, sockets, threads, VM regions, host stats)
+Sources/CQuickJS            C: QuickJS-ng (quickjs/, vendored unmodified; see quickjs/VERSION) and a small bridge for
+                            evaluating expressions over rows of fields
+Sources/ProcopticonExpressions  Swift: the expression engine and the process fields expressions use. Kept out of
+                            ProcopticonCore so the root helper carries no JavaScript engine
 Sources/ProcopticonCore     Swift: samplers, process/network stores, launchd services, code signing, Mach-O parser,
                             privileged request protocol, executor, helper transport, elevation broker
 Sources/procopticon-helper  Root helper executable

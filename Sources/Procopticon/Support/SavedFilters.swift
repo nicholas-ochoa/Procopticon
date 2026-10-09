@@ -29,7 +29,11 @@ struct SavedFilter: Codable, Identifiable, Hashable {
     var summary: String {
         var parts: [String] = []
         let t = text.trimmingCharacters(in: .whitespaces)
-        if !t.isEmpty { parts.append(regex ? "regex \(t)" : "“\(t)”") }
+        if let expression = ProcessExpressions.expression(in: t) {
+            parts.append(expression)
+        } else if !t.isEmpty {
+            parts.append(regex ? "regex \(t)" : "“\(t)”")
+        }
         if onlyApplications { parts.append("apps") }
         if onlyMine { parts.append("mine") }
         if hideSystem { parts.append("no system") }
@@ -45,6 +49,7 @@ struct SavedFilter: Codable, Identifiable, Hashable {
         SavedFilter(name: "Third-Party Processes", hideApple: true),
         SavedFilter(name: "Root Processes", text: "/^root$/", treeView: false),
         SavedFilter(name: "Helpers & XPC Services", text: "\\.xpc/|helper", regex: true),
+        SavedFilter(name: "Busy or Large", text: "=cpu > 25 || memory > 1 * GB"),
     ]
 }
 
@@ -236,7 +241,7 @@ struct SavedFilterEditor: View {
     @Binding var filter: SavedFilter
 
     var body: some View {
-        let matcher = SearchMatcher(filter.text, regex: filter.regex)
+        let matcher = ProcessMatcher(filter.text, regex: filter.regex, engine: ExpressionCheck.engine)
         VStack(spacing: 0) {
             form(matcher)
             // Outside the scrolling form so it stays visible however long the form gets.
@@ -250,17 +255,26 @@ struct SavedFilterEditor: View {
         }
     }
 
-    private func form(_ matcher: SearchMatcher) -> some View {
+    private func form(_ matcher: ProcessMatcher) -> some View {
         Form {
             TextField("Name", text: $filter.name)
-            Section("Search") {
+            Section {
                 TextField("Search text", text: $filter.text, prompt: Text("name, PID, path, command line, user…"))
                 Toggle("Regular expression", isOn: $filter.regex)
                 if let error = matcher.error {
                     Label(error, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red).font(.caption)
                 } else {
-                    Text("Text written as /pattern/ is always a regular expression; /pattern/c is case-sensitive.")
+                    Text("""
+                        Text written as /pattern/ is always a regular expression; /pattern/c is case-sensitive. \
+                        Start with = for a JavaScript expression, such as =cpu > 10 && user == "root".
+                        """)
                         .font(.caption).foregroundStyle(.secondary)
+                }
+            } header: {
+                HStack {
+                    Text("Search")
+                    Spacer()
+                    ExpressionReferenceButton()
                 }
             }
             Section("Show") {

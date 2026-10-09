@@ -326,6 +326,30 @@ struct HighlightSettings: View {
         VStack(spacing: 0) {
             Form {
                 Section {
+                    ForEach($settings.customHighlights) { $rule in
+                        CustomHighlightRow(rule: $rule, menu: { menu(for: rule.id) })
+                    }
+                    Button {
+                        settings.customHighlights.append(CustomHighlight())
+                    } label: {
+                        Label("Add Rule", systemImage: "plus")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Add a rule that colors the processes an expression matches")
+                } header: {
+                    HStack {
+                        Text("Custom rules")
+                        Spacer()
+                        ExpressionReferenceButton()
+                    }
+                } footer: {
+                    Text("""
+                        Each rule is a JavaScript expression over a process's values, such as memory > 2 * GB or \
+                        user == "root" && !appleSigned. Custom rules come after new and terminated processes and \
+                        before the built-in rules below; the first rule a process matches colors it.
+                        """)
+                }
+                Section {
                     ForEach(HighlightRule.allCases) { rule in
                         HStack {
                             Toggle(rule.title, isOn: Binding(
@@ -340,6 +364,8 @@ struct HighlightSettings: View {
                                 .controlSize(.small)
                         }
                     }
+                } header: {
+                    Text("Built-in rules")
                 } footer: {
                     Text("Rules are listed from highest to lowest priority.")
                 }
@@ -349,17 +375,73 @@ struct HighlightSettings: View {
             HStack {
                 Spacer()
                 Button("Enable All") { settings.setAllHighlights(enabled: true) }
-                    .disabled(settings.highlights.values.allSatisfy(\.enabled))
+                    .disabled(settings.highlights.values.allSatisfy(\.enabled) && settings.customHighlights.allSatisfy(\.enabled))
                     .help("Turn on every highlight rule")
                 Button("Disable All") { settings.setAllHighlights(enabled: false) }
-                    .disabled(!settings.highlights.values.contains(where: \.enabled))
+                    .disabled(!settings.highlights.values.contains(where: \.enabled) && !settings.customHighlights.contains(where: \.enabled))
                     .help("Turn off every highlight rule; their colors are kept")
                 Button("Restore Defaults") { settings.resetHighlights() }
-                    .help("Restore the default rules and colors")
+                    .help("Restore the built-in rules and their colors; custom rules are kept")
             }
             .padding([.horizontal, .bottom], 20)
         }
         .settingsPane()
+    }
+
+    @ViewBuilder
+    private func menu(for id: CustomHighlight.ID) -> some View {
+        let rules = settings.customHighlights
+        if let i = rules.firstIndex(where: { $0.id == id }) {
+            Button("Move Up") { settings.customHighlights.swapAt(i, i - 1) }
+                .disabled(i == 0)
+            Button("Move Down") { settings.customHighlights.swapAt(i, i + 1) }
+                .disabled(i == rules.count - 1)
+            Divider()
+            Button("Duplicate") {
+                var copy = rules[i]
+                copy.id = UUID()
+                settings.customHighlights.insert(copy, at: i + 1)
+            }
+            Button("Delete") { settings.customHighlights.remove(at: i) }
+        }
+    }
+}
+
+/// One custom highlight rule: whether it's on, its name, color and expression.
+private struct CustomHighlightRow<Actions: View>: View {
+    @Binding var rule: CustomHighlight
+    @ViewBuilder var menu: () -> Actions
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Toggle("Enabled", isOn: $rule.enabled)
+                    .toggleStyle(.checkbox)
+                    .labelsHidden()
+                    .help(rule.enabled ? "Turn this rule off" : "Turn this rule on")
+                TextField("Name", text: $rule.name, prompt: Text("Name (optional)"))
+                    .labelsHidden()
+                ColorPicker("Color", selection: Binding(
+                    get: { Color(nsColor: rule.color) },
+                    set: { rule.color = NSColor($0) }), supportsOpacity: false)
+                    .labelsHidden()
+                    .controlSize(.small)
+                Menu {
+                    menu()
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .help("Move, duplicate or delete this rule")
+            }
+            ProcessExpressionField(text: $rule.expression, prompt: "memory > 2 * GB")
+                .padding(.leading, 22)
+                .opacity(rule.enabled ? 1 : 0.6)
+        }
+        .padding(.vertical, 2)
+        .contextMenu { menu() }
     }
 }
 

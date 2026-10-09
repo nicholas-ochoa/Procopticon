@@ -1,5 +1,6 @@
 import XCTest
 @testable import ProcopticonCore
+import ProcopticonExpressions
 
 final class AlertEvaluatorTests: XCTestCase {
     private func state(_ pid: Int32, _ comm: String, initial: Bool = true) -> ProcessState {
@@ -66,10 +67,39 @@ final class AlertEvaluatorTests: XCTestCase {
         XCTAssertTrue(evaluator.evaluate(rules, items: [ProcessItem(busy)], cpuScale: 1).isEmpty)
     }
 
+    func testConditionsAndExpressionProcessFilters() {
+        var evaluator = AlertEvaluator(expressions: ProcessExpressionEngine())
+        let busy = state(50, "busy")
+        busy.cpu = 70
+        let quiet = state(51, "quiet")
+        quiet.cpu = 70
+        let condition = AlertRule(trigger: .expression, process: "busy", condition: "= cpu > 60 && pid == 50", duration: 5)
+        let filtered = AlertRule(trigger: .cpu, process: "=name.startsWith('qu')", threshold: 60)
+        let t0 = Date(timeIntervalSince1970: 2000)
+        func run(_ t: Double) -> [String] {
+            evaluator.evaluate([condition, filtered], items: [ProcessItem(busy), ProcessItem(quiet)], cpuScale: 1, now: t0 + t)
+                .map { "\($0.rule.trigger.rawValue):\($0.item.pid)" }
+        }
+        XCTAssertEqual(run(0), ["cpu:51"])
+        XCTAssertEqual(run(5), ["expression:50"], "the condition held for its duration")
+        busy.cpu = 10
+        XCTAssertEqual(run(6), [])
+        // Conditions that don't compile, or are empty, never fire.
+        let broken = [AlertRule(trigger: .expression, condition: "cpu >"), AlertRule(trigger: .expression, condition: "  ")]
+        XCTAssertTrue(evaluator.evaluate(broken, items: [ProcessItem(busy)], cpuScale: 1).isEmpty)
+    }
+
     func testRulesDecodeAndSummarize() throws {
         let rule = AlertRule(trigger: .memory, process: "Xcode", threshold: 8192, duration: 60)
         let decoded = try JSONDecoder().decode(AlertRule.self, from: JSONEncoder().encode(rule))
         XCTAssertEqual(decoded, rule)
         XCTAssertEqual(rule.summary, "Memory > 8192 MB · for 1 minute · “Xcode”")
+        // Rules saved before conditions existed still decode.
+        let old = try JSONDecoder().decode(AlertRule.self, from: Data("""
+            {"id":"\(UUID().uuidString)","enabled":true,"trigger":"cpu","process":"","regex":false,"threshold":90,"duration":60}
+            """.utf8))
+        XCTAssertNil(old.condition)
+        let condition = AlertRule(trigger: .expression, condition: "=cpu > 50", duration: 30)
+        XCTAssertEqual(condition.summary, "cpu > 50 · for 30 seconds · any process")
     }
 }
