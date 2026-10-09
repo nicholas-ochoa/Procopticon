@@ -41,6 +41,11 @@ cut-off value to see all of it.
 * **Summary panel**: click the CPU, Memory, Disk, Network or GPU stats in the status bar to open an
   Activity Monitor–style panel above it: totals and rates beside a history graph (CPU load, memory
   pressure, disk IO or data, network packets or data, GPU). Click again to close it.
+* **Alerts** (*Settings ▸ Alerts*): rules that post a notification when a process goes over a CPU,
+  memory, disk, network or GPU threshold for a given time, starts, exits, stops responding or keeps
+  the Mac awake. A rule can watch every process or those matching a search (name, PID, path, command
+  line, user or bundle ID; regular expressions work too). Clicking a notification selects the process,
+  and every alert is recorded in the Event Log.
 * **Saved filters** store a search plus filter settings under a name. Apply one from the Filters menu or
   from *View ▸ Saved Filters* (⌃⌘1–9). Manage them in *Settings ▸ Filters*: create one from the current
   state, edit, duplicate, reorder or delete.
@@ -118,7 +123,7 @@ unless you turn off *Always on Top* in the same menu, and reopens at launch if i
 * **Hidden Process Scan.** Compares the kernel process list against a brute-force probe of every PID.
 * **Logged-in Users.**
 * **Event Log.** Records process start/exit, service start/stop, apps that stop or start responding,
-  processes that start or stop keeping the Mac awake, and actions you take.
+  processes that start or stop keeping the Mac awake, alerts, and actions you take.
 * **Run Program** and **Run Program as Root.**
 * **Purge Disk Cache** and **Flush DNS Cache.**
 * **Export.** Saves the process list as text.

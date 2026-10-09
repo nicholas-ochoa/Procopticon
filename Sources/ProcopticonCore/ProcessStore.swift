@@ -334,6 +334,8 @@ public final class ProcessStore: ObservableObject {
 
     @Published public private(set) var revision = 0
     @Published public var paused = false
+    /// Sent on the main thread after each sample's snapshot is published (not after re-filtering).
+    public let didSample = PassthroughSubject<Void, Never>()
     /// Published snapshot (main thread).
     public private(set) var items: [ProcessKey: ProcessItem] = [:]
     public private(set) var roots: [ProcessItem] = []
@@ -463,6 +465,7 @@ public final class ProcessStore: ObservableObject {
                 self.lastError = error
                 self.system.update(sys, processes: snapshot.items.values, interfaceBaseline: interfaceBaseline)
                 self.publish(snapshot, generation: gen)
+                self.didSample.send()
             }
         }
     }

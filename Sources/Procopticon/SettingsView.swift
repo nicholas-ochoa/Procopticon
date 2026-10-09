@@ -3,7 +3,7 @@ import ProcopticonCore
 import SwiftUI
 
 enum SettingsTab: String, CaseIterable {
-    case general, appearance, filters, highlighting, privileges
+    case general, appearance, filters, highlighting, alerts, privileges
 
     var title: String {
         switch self {
@@ -11,6 +11,7 @@ enum SettingsTab: String, CaseIterable {
         case .appearance: return "Appearance"
         case .filters: return "Filters"
         case .highlighting: return "Highlighting"
+        case .alerts: return "Alerts"
         case .privileges: return "Privileges"
         }
     }
@@ -21,6 +22,7 @@ enum SettingsTab: String, CaseIterable {
         case .appearance: return "circle.lefthalf.filled"
         case .filters: return "line.3.horizontal.decrease.circle"
         case .highlighting: return "paintpalette"
+        case .alerts: return "bell.badge"
         case .privileges: return "lock.shield"
         }
     }
@@ -32,6 +34,7 @@ enum SettingsTab: String, CaseIterable {
         case .appearance: return NSSize(width: 620, height: 500)
         case .filters: return NSSize(width: 620, height: 600)
         case .highlighting: return NSSize(width: 620, height: 640)
+        case .alerts: return NSSize(width: 720, height: 560)
         case .privileges: return NSSize(width: 620, height: 380)
         }
     }
@@ -42,6 +45,7 @@ enum SettingsTab: String, CaseIterable {
         case .appearance: AppearanceSettings()
         case .filters: SavedFiltersSettings()
         case .highlighting: HighlightSettings()
+        case .alerts: AlertSettings()
         case .privileges: PrivilegeSettings()
         }
     }

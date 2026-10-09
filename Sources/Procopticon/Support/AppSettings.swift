@@ -41,6 +41,15 @@ final class AppSettings: ObservableObject {
         }
     }
     @Published var highlights: [HighlightRule: HighlightSetting] { didSet { saveHighlights() } }
+    @Published var alertRules: [AlertRule] {
+        didSet {
+            if let data = try? JSONEncoder().encode(alertRules) {
+                defaults.set(data, forKey: "alertRules")
+            }
+        }
+    }
+    @Published var alertNotifications: Bool { didSet { save("alertNotifications", alertNotifications) } }
+    @Published var alertSound: Bool { didSet { save("alertSound", alertSound) } }
 
     /// Light or dark for every window, or System to follow macOS.
     enum AppearanceMode: String, CaseIterable, Identifiable {
@@ -135,6 +144,13 @@ final class AppSettings: ObservableObject {
         } else {
             savedFilters = SavedFilter.defaults
         }
+        if let data = defaults.data(forKey: "alertRules"), let list = try? JSONDecoder().decode([AlertRule].self, from: data) {
+            alertRules = list
+        } else {
+            alertRules = AlertRule.examples
+        }
+        alertNotifications = b("alertNotifications", true)
+        alertSound = b("alertSound", false)
         var h: [HighlightRule: HighlightSetting] = [:]
         let saved = defaults.dictionary(forKey: "highlights") as? [String: [String: Any]] ?? [:]
         for rule in HighlightRule.allCases {
