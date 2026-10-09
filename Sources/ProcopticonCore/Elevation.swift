@@ -104,6 +104,12 @@ public final class Elevation: @unchecked Sendable {
         return await Task.detached { self.perform(request) }.value
     }
 
+    /// Executes in this process with its own privileges, even when the helper is running: for what
+    /// must happen as the user (their app extension settings, say), not as root.
+    public func performLocally(_ request: PrivilegedRequest) -> PrivilegedResponse {
+        local.handle(request)
+    }
+
     /// Stops the streaming tools running in this process (the helper stops its own on shutdown).
     public func stopLocalStreams() {
         local.stopAllStreams()

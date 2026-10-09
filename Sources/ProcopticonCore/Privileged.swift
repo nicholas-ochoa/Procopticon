@@ -28,6 +28,8 @@ public enum PrivilegedRequest: Codable, Sendable {
     /// Mach port counts of every process, or of one (root only); see `MachPorts`.
     case machPortCounts
     case machPortCount(pid: Int32)
+    /// Turns a startup item off or on, or removes it; see `StartupItems.perform`.
+    case startupAction(StartupAction)
     case shutdown
 }
 
@@ -239,6 +241,8 @@ public final class PrivilegedExecutor: @unchecked Sendable {
                 return .failure(PrivilegedError(code: EPERM, message: "Counting Mach ports needs root."))
             }
             return .portCounts(counts)
+        case let .startupAction(action):
+            return StartupItems.perform(action)
         case let .machPortCount(pid):
             guard let count = MachPorts.count(pid: pid) else {
                 return .failure(PrivilegedError(code: EPERM, message: "Counting Mach ports needs root."))

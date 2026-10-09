@@ -148,6 +148,23 @@ unless you turn off *Always on Top* in the same menu, and reopens at launch if i
   processes (input methods, screen savers, audio and camera drivers…), configuration profiles and
   legacy startup items. Apple's own are hidden unless you ask. Every user's cron jobs and the login
   hooks need the elevated helper.
+
+  Select items and **Disable**, **Enable** or **Remove…** them (also in the context menu; ⌫ removes):
+
+  | Item | Disable / Enable | Remove |
+  | --- | --- | --- |
+  | Login and background items (agents, daemons) | `launchctl disable` / `enable` on the job | Ones with their own property list: unloaded, and the list moved to the Trash. Items an app registered itself are removed by the app |
+  | Quick Look and Spotlight extensions | `pluginkit -e ignore` / `use`, for you | — |
+  | Cron jobs | Commented out with a marker / restored | The line is deleted |
+  | Periodic scripts | Execute permission off / on | Moved to the Trash |
+  | Login and logout hooks | — | The setting is deleted (the script stays) |
+  | Plug-ins, legacy startup items | — | Moved to the Trash |
+  | Configuration profiles | — | `profiles remove` |
+
+  Disabling doesn't stop what's already running; it keeps the item from starting again. Changes to your
+  own items run as you; the rest go through the helper, which only changes files in the startup and
+  plug-in folders. Authorization plug-ins, system and kernel extensions are listed but left alone:
+  removing an authorization plug-in the system still uses can stop anyone from logging in.
 * **Logged-in Users.**
 * **Event Log.** Records process start/exit, service start/stop, apps that stop or start responding,
   processes that start or stop keeping the Mac awake, alerts, and actions you take.

@@ -41,6 +41,8 @@ struct StartupItemsView: View {
     @AppStorage("startupItemsHideApple") private var hideApple = true
     @State private var search = ""
     @State private var revision = 0
+    @State private var selection: [StartupItem] = []
+    @State private var working = false
 
     var body: some View {
         let rows = self.rows
@@ -92,7 +94,7 @@ struct StartupItemsView: View {
                 autosaveName: "StartupItemsTable",
                 key: { AnyHashable($0.key) },
                 rowStyle: { row in
-                    row.item?.status.contains("not allowed") == true || row.item?.status == "Disabled"
+                    row.item?.isEnabled == false || row.item?.status.contains("not allowed") == true
                         ? RowStyle(background: NSColor.systemGray.withAlphaComponent(0.15)) : nil
                 },
                 menu: { menu(for: $0.compactMap(\.item)) },
@@ -101,14 +103,28 @@ struct StartupItemsView: View {
                         NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
                     }
                 },
+                onSelectionChange: { selection = $0.compactMap(\.item) },
+                onDeleteKey: { rows in remove(rows.compactMap(\.item)) },
                 defaultSort: nil)
             Divider()
-            Text("launchd agents and daemons, loaded or not, are listed in the Services tab. Double-click an item to reveal it in Finder.")
-                .font(.caption).foregroundStyle(.secondary)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .padding(8)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            HStack(spacing: 8) {
+                Button("Disable") { setEnabled(selection, false) }
+                    .disabled(working || !selection.contains { $0.toggle != nil && $0.isEnabled != false })
+                    .help("Keep the selected items from starting: launchd jobs are disabled, app extensions turned off, cron jobs commented out, periodic scripts made non-executable. What's running keeps running until it quits or you log out")
+                Button("Enable") { setEnabled(selection, true) }
+                    .disabled(working || !selection.contains { $0.toggle != nil && $0.isEnabled == false })
+                    .help("Let the selected items start again. Items turned off in Login Items settings (“not allowed”) also need turning on there")
+                Button("Remove…") { remove(selection) }
+                    .disabled(working || !selection.contains { $0.removal != nil })
+                    .help("Remove the selected items: launchd property lists, plug-ins and scripts go to the Trash, cron jobs and login hooks are deleted, profiles removed (⌫)")
+                if working { ProgressView().controlSize(.small) }
+                Text("launchd agents and daemons, loaded or not, are also in the Services tab. Double-click an item to reveal it in Finder.")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer(minLength: 0)
+            }
+            .padding(8)
         }
         .onAppear { load() }
         .onReceive(loader.$value) { _ in revision &+= 1 }
@@ -116,7 +132,89 @@ struct StartupItemsView: View {
     }
 
     private func load() {
-        loader.load(.startupItems) { if case .startupItems(let r) = $0 { return r } else { return nil } }
+        loader.load(.startupItems) { response in
+            guard case .startupItems(var report) = response else { return nil }
+            // App extension choices are per user, so they're read here, as the user.
+            StartupItems.applyAppExtensionElections(&report.items)
+            return report
+        }
+    }
+
+    // MARK: Changing items
+
+    private func setEnabled(_ items: [StartupItem], _ on: Bool) {
+        let targets = items.filter { $0.toggle != nil && ($0.isEnabled ?? true) != on }
+        guard !targets.isEmpty else { return }
+        if !on {
+            let system = targets.filter { if case .launchd(let domain, _)? = $0.toggle { return domain == "system" } else { return false } }
+            if !system.isEmpty, !Alerts.confirm("Disable \(Self.names(system))?",
+                                               message: "System daemons can be part of other software's normal operation (a VPN, a backup, a driver). Disabling one keeps it from starting at the next restart; Enable undoes it.",
+                                               button: "Disable", destructive: false) {
+                return
+            }
+        }
+        run(targets.compactMap { item in item.toggle.map { (item, StartupAction.setEnabled($0, on)) } },
+            verb: on ? "Enabled" : "Disabled")
+    }
+
+    private func remove(_ items: [StartupItem]) {
+        let targets = items.filter { $0.removal != nil }
+        guard !targets.isEmpty else { return }
+        let effects = targets.compactMap { item -> String? in
+            switch item.removal {
+            case .launchdPlist(_, _, let plist)?: return "• \(item.name): unloads it and moves \(plist) to the Trash"
+            case .cron?: return "• \(item.name): deletes the line from the crontab"
+            case .trash(let path)?: return "• \(item.name): moves \(path) to the Trash"
+            case .hook(_, let key)?: return "• \(item.name): deletes the \(key) setting (the script itself stays)"
+            case .profile?: return "• \(item.name): removes the configuration profile"
+            case nil: return nil
+            }
+        }
+        let skipped = items.count - targets.count
+        guard Alerts.confirm("Remove \(Self.names(targets))?",
+                             message: effects.joined(separator: "\n")
+                                + (skipped > 0 ? "\n\n\(skipped) of the selected items can't be removed here; their own app or System Settings removes them." : ""),
+                             button: "Remove", suppressible: false) else { return }
+        run(targets.compactMap { item in item.removal.map { (item, StartupAction.remove($0)) } }, verb: "Removed")
+    }
+
+    private static func names(_ items: [StartupItem]) -> String {
+        items.count == 1 ? "“\(items[0].name)”" : "\(items.count) startup items"
+    }
+
+    /// Runs the actions one by one: as the user when they're the user's own, otherwise through the
+    /// helper (asking to elevate once if needed). Reloads the list afterwards.
+    private func run(_ actions: [(StartupItem, StartupAction)], verb: String) {
+        working = true
+        Task { @MainActor in
+            var failures: [String] = []
+            for (item, action) in actions {
+                let request = PrivilegedRequest.startupAction(action)
+                var response: PrivilegedResponse
+                if StartupItems.runsAsUser(action) {
+                    response = await Task.detached { Elevation.shared.performLocally(request) }.value
+                    // An extension's setting belongs to the user; anything else may still need root.
+                    var userOnly = false
+                    if case .setEnabled(.appExtension, _) = action { userOnly = true }
+                    if response.error?.isPermissionDenied == true, !userOnly {
+                        response = await Elevation.shared.performElevated(request, requiresRoot: true)
+                    }
+                } else {
+                    response = await Elevation.shared.performElevated(request, requiresRoot: true)
+                }
+                if let e = response.error {
+                    if e == .cancelled { break }
+                    failures.append("\(item.name): \(e.message)")
+                } else {
+                    EventLog.shared.add(.action, "\(verb) startup item \(item.name) (\(item.kind))")
+                }
+            }
+            working = false
+            load()
+            if !failures.isEmpty {
+                Alerts.error("Some startup items couldn't be changed", failures.joined(separator: "\n"))
+            }
+        }
     }
 
     private var rows: [StartupRow] {
@@ -148,6 +246,18 @@ struct StartupItemsView: View {
     private func menu(for items: [StartupItem]) -> NSMenu {
         let m = NSMenu()
         guard let first = items.first else { return m }
+        if items.contains(where: { $0.toggle != nil && $0.isEnabled != false }) {
+            m.add("Disable") { setEnabled(items, false) }
+        }
+        if items.contains(where: { $0.toggle != nil && $0.isEnabled == false }) {
+            m.add("Enable") { setEnabled(items, true) }
+        }
+        if items.contains(where: { $0.removal != nil }) {
+            m.add("Remove…") { remove(items) }
+        }
+        if m.numberOfItems > 0 {
+            m.addItem(.separator())
+        }
         if let path = first.path {
             m.add("Reveal in Finder", enabled: FileManager.default.fileExists(atPath: path)) {
                 NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])

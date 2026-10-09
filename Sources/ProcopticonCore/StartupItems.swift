@@ -55,6 +55,42 @@ public struct StartupItem: Identifiable, Hashable, Codable, Sendable {
     /// The user it runs for, if not everyone.
     public var user: String?
     public var lastUsed: Date?
+    /// How the item is turned off and on again, if it can be.
+    public var toggle: Toggle?
+    /// How the item is removed, if it can be.
+    public var removal: Removal?
+    /// Whether it's turned on, for items that can be toggled.
+    public var isEnabled: Bool?
+
+    /// What turning an item off does; see `StartupItems.perform`.
+    public enum Toggle: Codable, Hashable, Sendable {
+        /// `launchctl disable` keeps a launchd job (an agent, daemon or login item) from loading.
+        case launchd(domain: String, label: String)
+        /// `pluginkit -e ignore` turns an app extension off for the user.
+        case appExtension(identifier: String)
+        /// A cron job is commented out with a marker; `user` is nil for /etc/crontab.
+        case cron(user: String?, line: String)
+        /// periodic only runs scripts that are executable.
+        case executable(path: String)
+    }
+
+    public enum Removal: Codable, Hashable, Sendable {
+        /// Unloads the job and moves its property list to the Trash.
+        case launchdPlist(domain: String, label: String, plist: String)
+        case cron(user: String?, line: String)
+        /// Moves a bundle or script to the Trash.
+        case trash(path: String)
+        /// Deletes loginwindow's LoginHook or LogoutHook setting.
+        case hook(plist: String, key: String)
+        /// `profiles remove`.
+        case profile(identifier: String, user: String?)
+    }
+}
+
+/// A change to a startup item, run with the privileges it needs (see `StartupItems.runsAsUser`).
+public enum StartupAction: Codable, Sendable {
+    case setEnabled(StartupItem.Toggle, Bool)
+    case remove(StartupItem.Removal)
 }
 
 public struct StartupItemsReport: Codable, Sendable {
@@ -88,7 +124,61 @@ public enum StartupItems {
         items += pluginBundles()
         items += profiles(ToolRunner.run("/usr/bin/profiles", ["show", "-output", "stdout-xml"], timeout: 30).stdout)
         items += bundles(in: ["/Library/StartupItems"], category: .legacy, kind: "Startup item")
+        applyLaunchdOverrides(&items)
         return StartupItemsReport(items: items, warnings: warnings)
+    }
+
+    /// Marks the launchd items `launchctl disable` turned off. The users' domains need root, except
+    /// one's own.
+    static func applyLaunchdOverrides(_ items: inout [StartupItem]) {
+        var domains = Set<String>()
+        for item in items {
+            if case .launchd(let domain, _)? = item.toggle { domains.insert(domain) }
+        }
+        var disabled: [String: Set<String>] = [:]
+        for domain in domains {
+            disabled[domain] = parseDisabled(ToolRunner.run("/bin/launchctl", ["print-disabled", domain], timeout: 10).stdout)
+        }
+        for i in items.indices {
+            guard case .launchd(let domain, let label)? = items[i].toggle else { continue }
+            let off = disabled[domain]?.contains(label) == true
+            items[i].isEnabled = !off
+            if off {
+                items[i].status = items[i].status.isEmpty ? "Disabled" : "Disabled (\(items[i].status.lowercased()))"
+            }
+        }
+    }
+
+    /// The labels `launchctl print-disabled` lists as disabled.
+    static func parseDisabled(_ text: String) -> Set<String> {
+        var labels = Set<String>()
+        for line in text.split(separator: "\n") {
+            let parts = line.components(separatedBy: "=>")
+            guard parts.count == 2 else { continue }
+            let state = parts[1].trimmingCharacters(in: .whitespaces)
+            guard state == "disabled" || state == "true" else { continue }
+            labels.insert(parts[0].trimmingCharacters(in: CharacterSet(charactersIn: " \t\"")))
+        }
+        return labels
+    }
+
+    /// Fills in which app extensions the user turned off, from `pluginkit -mA` ("-" before the
+    /// identifier). Run as the user: the choice is per user.
+    public static func applyAppExtensionElections(_ items: inout [StartupItem]) {
+        guard items.contains(where: { if case .appExtension? = $0.toggle { return true } else { return false } }) else { return }
+        var ignored = Set<String>()
+        for line in ToolRunner.run("/usr/bin/pluginkit", ["-m", "-A"], timeout: 20).stdout.split(separator: "\n") {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard trimmed.hasPrefix("-") else { continue }
+            let id = trimmed.dropFirst().trimmingCharacters(in: .whitespaces).components(separatedBy: "(").first ?? ""
+            ignored.insert(id)
+        }
+        for i in items.indices {
+            guard case .appExtension(let id)? = items[i].toggle else { continue }
+            let off = ignored.contains(id)
+            items[i].isEnabled = !off
+            if off { items[i].status = "Disabled" }
+        }
     }
 
     // MARK: Background Task Management
@@ -138,7 +228,7 @@ public enum StartupItems {
 
         func null(_ s: String?) -> String? {
             guard let s, !s.isEmpty, s != "(null)" else { return nil }
-            return s
+            return realPath(s)
         }
         let byIdentifier = Dictionary(records.compactMap { r in r.fields["Identifier"].map { ($0, r) } }, uniquingKeysWith: { a, _ in a })
         let dateFormatter = DateFormatter()
@@ -189,7 +279,7 @@ public enum StartupItems {
                 guard let dot = id.firstIndex(of: "."), Int(id[..<dot]) != nil else { return id }
                 return String(id[id.index(after: dot)...])
             }
-            items.append(StartupItem(
+            var item = StartupItem(
                 id: "btm:\(r.uid):\(f["UUID"] ?? UUID().uuidString)",
                 category: category,
                 name: null(f["Name"]) ?? identifier ?? "Unnamed",
@@ -202,9 +292,36 @@ public enum StartupItems {
                 details: details.joined(separator: " · "),
                 parent: null(parentRecord?.fields["Name"]),
                 user: r.uid >= 0 ? UserNames.name(uid_t(r.uid)) : nil,
-                lastUsed: f["Last Use"].flatMap { dateFormatter.date(from: $0) }))
+                lastUsed: f["Last Use"].flatMap { dateFormatter.date(from: $0) })
+            let plist = null(f["URL"]).flatMap { $0.hasSuffix(".plist") && $0.hasPrefix("/") ? $0 : nil }
+            if typeValue & (0x4 | 0x8 | 0x10) != 0 {
+                // Login items, agents and daemons are launchd jobs: daemons in the system domain, the
+                // rest in the user's GUI domain. A property list's own Label beats the identifier.
+                let label = plist.flatMap { NSDictionary(contentsOfFile: $0)?["Label"] as? String } ?? identifier
+                let domain = typeValue & 0x10 != 0 ? "system" : "gui/\(r.uid >= 500 ? uid_t(r.uid) : Elevation.interactiveUid)"
+                if let label {
+                    item.toggle = .launchd(domain: domain, label: label)
+                    if let plist, isManagedPath(plist) {
+                        item.removal = .launchdPlist(domain: domain, label: label, plist: plist)
+                    }
+                }
+            } else if category == .appExtensions, let id = identifier, path?.hasSuffix(".appex") == true {
+                item.toggle = .appExtension(identifier: id)
+            }
+            items.append(item)
         }
         return items
+    }
+
+    /// Background Task Management writes home folders by user ID ("/Users/501/Library/…"); this
+    /// puts the real home folder back.
+    static func realPath(_ path: String) -> String {
+        guard path.hasPrefix("/Users/") else { return path }
+        let rest = path.dropFirst(7)
+        let id = rest.prefix { $0 != "/" }
+        guard let uid = uid_t(id), !FileManager.default.fileExists(atPath: "/Users/\(id)"),
+              let home = UserNames.home(uid) else { return path }
+        return home + rest.dropFirst(id.count)
     }
 
     static func btmKind(_ type: String) -> String {
@@ -301,7 +418,12 @@ public enum StartupItems {
     static func parseCrontab(_ text: String, user: String?, source: String, hasUserField: Bool = false) -> [StartupItem] {
         var items: [StartupItem] = []
         for (index, raw) in text.split(separator: "\n").enumerated() {
-            let line = raw.trimmingCharacters(in: .whitespaces)
+            var line = raw.trimmingCharacters(in: .whitespaces)
+            // Jobs turned off here are comments with a marker.
+            let disabled = line.hasPrefix(cronDisabledMarker)
+            if disabled {
+                line = String(line.dropFirst(cronDisabledMarker.count)).trimmingCharacters(in: .whitespaces)
+            }
             guard !line.isEmpty, !line.hasPrefix("#") else { continue }
             let fields = line.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
             guard let first = fields.first else { continue }
@@ -316,10 +438,13 @@ public enum StartupItems {
             }
             let command = rest.joined(separator: " ")
             let executable = command.split(separator: " ").first.map(String.init)
+            // Jobs in /etc/crontab are edited there; the rest in their user's crontab.
+            let owner = hasUserField ? nil : user
             items.append(StartupItem(
                 id: "cron:\(source):\(index)", category: .cron, name: command, kind: "Cron job",
-                path: executable.flatMap { $0.hasPrefix("/") ? $0 : nil }, status: "Scheduled", developer: nil,
-                teamIdentifier: nil, identifier: nil, details: "\(schedule) — from \(source)", user: runAs))
+                path: executable.flatMap { $0.hasPrefix("/") ? $0 : nil }, status: disabled ? "Disabled" : "Scheduled", developer: nil,
+                teamIdentifier: nil, identifier: nil, details: "\(schedule) — from \(source)", user: runAs,
+                toggle: .cron(user: owner, line: line), removal: .cron(user: owner, line: line), isEnabled: !disabled))
         }
         return items
     }
@@ -329,10 +454,12 @@ public enum StartupItems {
         for base in ["/etc/periodic", "/usr/local/etc/periodic"] {
             for dir in contents(of: base) {
                 for script in contents(of: dir) {
+                    let runs = FileManager.default.isExecutableFile(atPath: script)
                     items.append(StartupItem(
                         id: "periodic:\(script)", category: .periodic, name: (script as NSString).lastPathComponent,
-                        kind: "\((dir as NSString).lastPathComponent.capitalized) script", path: script, status: "Scheduled",
-                        developer: nil, teamIdentifier: nil, identifier: nil))
+                        kind: "\((dir as NSString).lastPathComponent.capitalized) script", path: script, status: runs ? "Scheduled" : "Disabled",
+                        developer: nil, teamIdentifier: nil, identifier: nil,
+                        toggle: .executable(path: script), removal: .trash(path: script), isEnabled: runs))
                 }
             }
         }
@@ -340,7 +467,8 @@ public enum StartupItems {
             let path = "/etc/\(name).local"
             if FileManager.default.fileExists(atPath: path) {
                 items.append(StartupItem(id: "periodic:\(path)", category: .periodic, name: "\(name).local", kind: "\(name.capitalized) script",
-                                         path: path, status: "Scheduled", developer: nil, teamIdentifier: nil, identifier: nil))
+                                         path: path, status: "Scheduled", developer: nil, teamIdentifier: nil, identifier: nil,
+                                         removal: .trash(path: path)))
             }
         }
         return items
@@ -361,7 +489,8 @@ public enum StartupItems {
                     items.append(StartupItem(
                         id: "hook:\(path):\(key)", category: .hooks, name: (script as NSString).lastPathComponent,
                         kind: key == "LoginHook" ? "Login hook" : "Logout hook", path: script, status: "Enabled",
-                        developer: nil, teamIdentifier: nil, identifier: nil, details: "Set in \(path)", user: "root"))
+                        developer: nil, teamIdentifier: nil, identifier: nil, details: "Set in \(path)", user: "root",
+                        removal: .hook(plist: path, key: key)))
                 }
             }
         }
@@ -401,7 +530,10 @@ public enum StartupItems {
                     id: "bundle:\(path)", category: category, name: (path as NSString).lastPathComponent, kind: kind,
                     path: bundle?.executablePath ?? path, status: "Installed", developer: nil, teamIdentifier: nil,
                     identifier: bundle?.bundleIdentifier, details: version.map { "Version \($0)" } ?? "",
-                    user: folder.hasPrefix("/Library") ? nil : UserNames.name(Elevation.interactiveUid)))
+                    user: folder.hasPrefix("/Library") ? nil : UserNames.name(Elevation.interactiveUid),
+                    // Removing an authorization plug-in the authorization database still names can
+                    // stop anyone from logging in; that's for its uninstaller.
+                    removal: category == .authorization || !isManagedPath(path) ? nil : .trash(path: path)))
             }
         }
         return items
@@ -427,10 +559,200 @@ public enum StartupItems {
                     id: "profile:\(scope):\(id)", category: .profiles, name: p["ProfileDisplayName"] as? String ?? id,
                     kind: scope == "_computerlevel" ? "Device profile" : "User profile", path: nil, status: "Installed",
                     developer: p["ProfileOrganization"] as? String, teamIdentifier: nil, identifier: id, details: details,
-                    user: scope == "_computerlevel" ? nil : scope))
+                    user: scope == "_computerlevel" ? nil : scope,
+                    removal: p["ProfileIdentifier"] is String ? .profile(identifier: id, user: scope == "_computerlevel" ? nil : scope) : nil))
             }
         }
         return items
+    }
+
+    // MARK: Changing items
+
+    /// Prefix of a cron job turned off here, so it can be turned back on.
+    static let cronDisabledMarker = "#procopticon-disabled: "
+
+    /// Folders startup items may be removed from (or have their scripts changed in): launchd's,
+    /// the plug-in folders, periodic's and the legacy startup items. Anything else is refused,
+    /// even as root.
+    static func isManagedPath(_ path: String) -> Bool {
+        let standardized = (path as NSString).standardizingPath
+        guard standardized.hasPrefix("/"), !path.contains("/../"), !path.hasSuffix("/..") else { return false }
+        let parent = (standardized as NSString).deletingLastPathComponent
+        let library = ["LaunchAgents", "LaunchDaemons", "Input Methods", "Screen Savers", "Spotlight", "QuickLook", "PreferencePanes",
+                       "ScriptingAdditions", "Internet Plug-Ins", "Audio/Plug-Ins/HAL", "CoreMediaIO/Plug-Ins/DAL",
+                       "DirectoryServices/PlugIns", "Contextual Menu Items", "StartupItems"]
+        for folder in library {
+            if parent == "/Library/" + folder { return true }
+            // ~/Library/<folder> of any user (daemons and startup items only exist system-wide).
+            let parts = parent.split(separator: "/", omittingEmptySubsequences: true)
+            if parts.count >= 3, parts[0] == "Users", parts[2] == "Library",
+               parts.dropFirst(3).joined(separator: "/") == folder, folder != "LaunchDaemons", folder != "StartupItems" {
+                return true
+            }
+        }
+        for base in ["/etc/periodic", "/private/etc/periodic", "/usr/local/etc/periodic"] where parent.hasPrefix(base + "/") {
+            return (parent as NSString).deletingLastPathComponent == base
+        }
+        return ["/etc/daily.local", "/etc/weekly.local", "/etc/monthly.local",
+                "/private/etc/daily.local", "/private/etc/weekly.local", "/private/etc/monthly.local"].contains(standardized)
+    }
+
+    /// Whether an action belongs to the user rather than root: their own launchd domain, crontab,
+    /// app extensions, and files they can change. Those run in the app; the rest in the helper.
+    public static func runsAsUser(_ action: StartupAction) -> Bool {
+        let me = UserNames.name(getuid())
+        func writable(_ path: String) -> Bool {
+            FileManager.default.isWritableFile(atPath: (path as NSString).deletingLastPathComponent)
+        }
+        switch action {
+        case .setEnabled(.launchd(let domain, _), _): return domain == "gui/\(getuid())"
+        case .setEnabled(.appExtension, _): return true
+        case .setEnabled(.cron(let user, _), _), .remove(.cron(let user, _)): return user == me
+        case .setEnabled(.executable(let path), _), .remove(.trash(let path)): return writable(path)
+        case .remove(.launchdPlist(let domain, _, let plist)): return domain == "gui/\(getuid())" && writable(plist)
+        case .remove(.hook), .remove(.profile): return false
+        }
+    }
+
+    /// Carries out an action with this process's privileges.
+    public static func perform(_ action: StartupAction) -> PrivilegedResponse {
+        func fail(_ message: String, _ code: Int32 = EIO) -> PrivilegedResponse {
+            .failure(PrivilegedError(code: code, message: message.trimmingCharacters(in: .whitespacesAndNewlines)))
+        }
+        func run(_ tool: String, _ args: [String]) -> PrivilegedResponse {
+            let out = ToolRunner.run(tool, args, timeout: 30)
+            if out.status == 0 { return .ok }
+            let message = out.combined.isEmpty ? "\((tool as NSString).lastPathComponent) exited with status \(out.status)." : out.combined
+            return fail(message, out.combined.localizedCaseInsensitiveContains("not permitted") ? EPERM : EIO)
+        }
+        switch action {
+        case .setEnabled(.launchd(let domain, let label), let on):
+            return run("/bin/launchctl", [on ? "enable" : "disable", "\(domain)/\(label)"])
+        case .setEnabled(.appExtension(let id), let on):
+            return run("/usr/bin/pluginkit", ["-e", on ? "use" : "ignore", "-i", id])
+        case .setEnabled(.cron(let user, let line), let on):
+            return editCrontab(user: user) { editCron($0, line: line, operation: on ? .enable : .disable) }
+        case .setEnabled(.executable(let path), let on):
+            guard isManagedPath(path) else { return fail("\(path) isn't a periodic script.", EPERM) }
+            do {
+                let mode = (try FileManager.default.attributesOfItem(atPath: path)[.posixPermissions] as? NSNumber)?.uint16Value ?? 0o644
+                let newMode = on ? mode | 0o111 : mode & ~0o111
+                try FileManager.default.setAttributes([.posixPermissions: NSNumber(value: newMode)], ofItemAtPath: path)
+                return .ok
+            } catch {
+                return fail(error.localizedDescription, (error as NSError).code == NSFileWriteNoPermissionError ? EPERM : EIO)
+            }
+        case .remove(.launchdPlist(let domain, let label, let plist)):
+            guard isManagedPath(plist), plist.hasSuffix(".plist") else { return fail("\(plist) isn't a launchd property list.", EPERM) }
+            // Not loaded is fine; it's going anyway.
+            _ = ToolRunner.run("/bin/launchctl", ["bootout", "\(domain)/\(label)"], timeout: 30)
+            return moveToTrash(plist)
+        case .remove(.cron(let user, let line)):
+            return editCrontab(user: user) { editCron($0, line: line, operation: .remove) }
+        case .remove(.trash(let path)):
+            guard isManagedPath(path) else { return fail("\(path) isn't in a startup or plug-in folder.", EPERM) }
+            return moveToTrash(path)
+        case .remove(.hook(let plist, let key)):
+            guard ["/var/root/Library/Preferences/com.apple.loginwindow.plist", "/Library/Preferences/com.apple.loginwindow.plist"].contains(plist),
+                  key == "LoginHook" || key == "LogoutHook" else { return fail("Not a login hook.", EINVAL) }
+            return run("/usr/bin/defaults", ["delete", (plist as NSString).deletingPathExtension, key])
+        case .remove(.profile(let identifier, let user)):
+            return run("/usr/bin/profiles", ["remove", "-identifier", identifier, "-forced"] + (user.map { ["-user", $0] } ?? []))
+        }
+    }
+
+    enum CronOperation {
+        case enable, disable, remove
+    }
+
+    /// The crontab with the job's line turned off (commented with the marker), back on, or gone;
+    /// nil when the line isn't there.
+    static func editCron(_ text: String, line: String, operation: CronOperation) -> String? {
+        let target = line.trimmingCharacters(in: .whitespaces)
+        var lines = text.components(separatedBy: "\n")
+        guard let index = lines.firstIndex(where: { candidate in
+            var c = candidate.trimmingCharacters(in: .whitespaces)
+            if c.hasPrefix(cronDisabledMarker) { c = String(c.dropFirst(cronDisabledMarker.count)).trimmingCharacters(in: .whitespaces) }
+            return c == target
+        }) else { return nil }
+        switch operation {
+        case .enable: lines[index] = target
+        case .disable: lines[index] = cronDisabledMarker + target
+        case .remove: lines.remove(at: index)
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    /// Reads a crontab, edits it and installs the result: /etc/crontab directly (user nil), a user's
+    /// with crontab(1).
+    private static func editCrontab(user: String?, _ edit: (String) -> String?) -> PrivilegedResponse {
+        if user == nil {
+            let path = "/etc/crontab"
+            guard let text = try? String(contentsOfFile: path, encoding: .utf8) else {
+                return .failure(PrivilegedError(code: ENOENT, message: "Can't read /etc/crontab."))
+            }
+            guard let edited = edit(text) else {
+                return .failure(PrivilegedError(code: ENOENT, message: "The job is no longer in /etc/crontab."))
+            }
+            do {
+                try edited.write(toFile: path, atomically: true, encoding: .utf8)
+                return .ok
+            } catch {
+                return .failure(PrivilegedError(code: EPERM, message: error.localizedDescription))
+            }
+        }
+        let other = geteuid() == 0 && user != UserNames.name(getuid())
+        let userArgs = other ? ["-u", user!] : []
+        let current = ToolRunner.run("/usr/bin/crontab", userArgs + ["-l"], timeout: 10)
+        guard current.status == 0 else {
+            return .failure(PrivilegedError(code: ENOENT, message: current.combined.trimmingCharacters(in: .whitespacesAndNewlines)))
+        }
+        guard var edited = edit(current.stdout) else {
+            return .failure(PrivilegedError(code: ENOENT, message: "The job is no longer in the crontab."))
+        }
+        if !edited.hasSuffix("\n") { edited += "\n" }
+        let file = NSTemporaryDirectory() + "procopticon-crontab-\(UUID().uuidString)"
+        defer { unlink(file) }
+        do {
+            try edited.write(toFile: file, atomically: true, encoding: .utf8)
+        } catch {
+            return .failure(PrivilegedError(code: EIO, message: error.localizedDescription))
+        }
+        let install = ToolRunner.run("/usr/bin/crontab", userArgs + [file], timeout: 10)
+        return install.status == 0 ? .ok
+            : .failure(PrivilegedError(code: EIO, message: install.combined.trimmingCharacters(in: .whitespacesAndNewlines)))
+    }
+
+    /// Moves a file to the Trash: the usual way for the user's own, or, as root, into the
+    /// interactive user's Trash folder, so it can still be put back.
+    static func moveToTrash(_ path: String) -> PrivilegedResponse {
+        let url = URL(fileURLWithPath: path)
+        if geteuid() != 0 {
+            do {
+                try FileManager.default.trashItem(at: url, resultingItemURL: nil)
+                return .ok
+            } catch {
+                let code: Int32 = (error as NSError).code == NSFileWriteNoPermissionError ? EPERM : EIO
+                return .failure(PrivilegedError(code: code, message: error.localizedDescription))
+            }
+        }
+        guard let home = UserNames.home(Elevation.interactiveUid) else {
+            return .failure(PrivilegedError(code: ENOENT, message: "Can't find your Trash."))
+        }
+        let trash = URL(fileURLWithPath: home).appendingPathComponent(".Trash")
+        let name = url.lastPathComponent
+        var destination = trash.appendingPathComponent(name)
+        if FileManager.default.fileExists(atPath: destination.path) {
+            let stamp = Date().formatted(.iso8601.year().month().day().time(includingFractionalSeconds: false)).replacingOccurrences(of: ":", with: ".")
+            destination = trash.appendingPathComponent("\((name as NSString).deletingPathExtension) \(stamp)" +
+                (url.pathExtension.isEmpty ? "" : ".\(url.pathExtension)"))
+        }
+        do {
+            try FileManager.default.moveItem(at: url, to: destination)
+            return .ok
+        } catch {
+            return .failure(PrivilegedError(code: EIO, message: error.localizedDescription))
+        }
     }
 
     private static func contents(of folder: String) -> [String] {
