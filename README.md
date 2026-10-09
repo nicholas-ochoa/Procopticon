@@ -15,7 +15,8 @@ are listed under the app responsible for them.
 Columns cover CPU (user/kernel), physical footprint, peak memory, resident and virtual size, disk
 read/write rates, GPU usage and GPU time, network send/receive rates (separately, or together with ↓/↑ arrows in
 **Network rate**) and bytes/packets sent and received (from `nettop`), threads, open files, cycles, instructions and IPC, context switches, system calls,
-wake-ups, energy and power, nice/priority, start time, command line, bundle identifier/version,
+wake-ups, energy and power, power assertions and **Preventing Sleep** (whether the process keeps the Mac or
+its display awake), nice/priority, start time, command line, bundle identifier/version,
 architecture (arm64 or Rosetta), sandbox, code-signing verification and signer, and team ID. There are
 also CPU, memory, disk, GPU and network history graph columns. The **Process title** column shows the title a process
 gave itself by overwriting its first argument (Node's `process.title`, `setproctitle`, "postgres:
@@ -68,6 +69,7 @@ each section as you switch:
 | General | Image, command line, process title, working directory, parent and responsible process, user, code signature |
 | Statistics | CPU, memory, I/O, Mach message, system call and energy counters |
 | Performance | CPU, memory and disk graphs |
+| Power | Power assertions the process holds, or another holds for it (e.g. coreaudiod while it plays sound): type, name, how long, timeout and details |
 | Threads | Live thread list; double-click a thread to capture its stack |
 | Modules | Loaded images, including the dyld shared cache |
 | Memory | VM regions with type, protection, share mode, and resident, dirty and swapped sizes |
@@ -97,7 +99,7 @@ well-known service names. New and closed connections are highlighted.
 * Disk: throughput and capacity of each volume.
 * Network: throughput of each interface.
 * GPU: utilization, core count and memory use, and the processes using the GPU.
-* Power: battery state and estimated process power.
+* Power: battery state, estimated process power, and the processes keeping the Mac or its display awake.
 
 **Resource History** (*View ▸ Resource History*, ⌥⌘G, or the Tools toolbar group) is a floating,
 resizable window of Activity Monitor–style history graphs in one place: one graph per CPU core (user time
@@ -115,7 +117,8 @@ unless you turn off *Always on Top* in the same menu, and reopens at launch if i
 * **Find Process by Window.**
 * **Hidden Process Scan.** Compares the kernel process list against a brute-force probe of every PID.
 * **Logged-in Users.**
-* **Event Log.** Records process start/exit, service start/stop and actions you take.
+* **Event Log.** Records process start/exit, service start/stop, apps that stop or start responding,
+  processes that start or stop keeping the Mac awake, and actions you take.
 * **Run Program** and **Run Program as Root.**
 * **Purge Disk Cache** and **Flush DNS Cache.**
 * **Export.** Saves the process list as text.

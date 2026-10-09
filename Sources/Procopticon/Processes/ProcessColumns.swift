@@ -195,6 +195,14 @@ enum ProcessColumns {
                             value: { $0.power }, text: { Fmt.watts($0.power) }))
         cols.append(.number("energy", "Energy", width: 90, visible: false, help: "Total energy consumed since launch",
                             value: { $0.stats?.energyNj ?? 0 }, text: { e($0.stats?.energyNj) }))
+        cols.append(ProcessColumn("preventingSleep", "Preventing Sleep", width: 90, visible: false,
+                                  help: "Whether the process keeps the Mac awake with a power assertion: System (the Mac stays awake; the display may sleep) or Display (the display stays on too)",
+                                  text: { $0.sleepPrevention?.title ?? "" },
+                                  less: { ($0.sleepPrevention?.rawValue ?? 0) < ($1.sleepPrevention?.rawValue ?? 0) }))
+        cols.append(ProcessColumn("assertions", "Power assertions", width: 200, visible: false,
+                                  help: "The power assertions the process holds, or another holds for it (pmset -g assertions); see Properties ▸ Power",
+                                  text: { assertionTypes($0) },
+                                  less: { $0.assertions.count < $1.assertions.count }))
         cols.append(.number("messages", "Mach messages", width: 100, visible: false,
                             help: "Mach messages sent and received since the process started",
                             value: { Int64($0.stats?.messagesSent ?? 0) + Int64($0.stats?.messagesReceived ?? 0) },
@@ -284,6 +292,13 @@ enum ProcessColumns {
         cols.append(netGraph)
 
         return cols
+    }
+
+    /// The distinct types of the assertions that are on.
+    private static func assertionTypes(_ p: ProcessItem) -> String {
+        guard !p.assertions.isEmpty else { return "" }
+        var seen = Set<String>()
+        return p.assertions.filter { $0.isOn && seen.insert($0.type).inserted }.map(\.type).joined(separator: ", ")
     }
 
     private static func respondingText(_ p: ProcessItem) -> String {

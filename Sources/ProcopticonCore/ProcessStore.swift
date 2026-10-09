@@ -55,6 +55,10 @@ public final class ProcessItem: Identifiable {
     public let responding: Bool?
     /// When the application stopped responding, while it isn't.
     public let notRespondingSince: Date?
+    /// Power assertions the process holds, or that another holds on its behalf.
+    public let assertions: [PowerAssertion]
+    /// Whether its assertions keep the Mac (or the display) awake.
+    public let sleepPrevention: SleepPrevention?
     /// Cached so hot paths (sorting, cell drawing) don't repeat lookups.
     public let userName: String
     public let bundleInfo: ExecutableBundleInfo?
@@ -92,6 +96,8 @@ public final class ProcessItem: Identifiable {
         isInitial = s.isInitial
         responding = s.responding
         notRespondingSince = s.notRespondingSince
+        assertions = s.assertions
+        sleepPrevention = s.assertions.sleepPrevention
         userName = s.userName
         bundleInfo = s.bundleInfo
     }
@@ -175,6 +181,7 @@ final class ProcessState {
     let isInitial: Bool
     var responding: Bool?
     var notRespondingSince: Date?
+    var assertions: [PowerAssertion] = []
     var userName: String
     var bundleInfo: ExecutableBundleInfo?
     private var lastSampleTime: Double
@@ -283,6 +290,7 @@ final class ProcessState {
         removedAt = Date()
         responding = nil
         notRespondingSince = nil
+        assertions = []
         gpu = 0
         netInRate = 0
         netOutRate = 0
@@ -434,6 +442,7 @@ public final class ProcessStore: ObservableObject {
             guard let self else { return }
             let response = Elevation.shared.perform(.sampleProcesses)
             let responsiveness = self.applicationResponsiveness()
+            let assertions = PowerAssertions.byProcess()
             let gpuTimes = GPUUsage.sample()
             let network = NetworkUsage.sample()
             // netstat's true interface totals, once (see InterfaceCounters).
@@ -443,7 +452,8 @@ public final class ProcessStore: ObservableObject {
             let time = Date().timeIntervalSince1970
             var error: String?
             if case .processes(let records) = response {
-                self.merge(records, gpuTimes: gpuTimes, network: network, responsiveness: responsiveness, time: time, options: options)
+                self.merge(records, gpuTimes: gpuTimes, network: network, responsiveness: responsiveness, assertions: assertions,
+                           time: time, options: options)
             } else if case .failure(let e) = response {
                 error = e.message
             }
@@ -496,7 +506,8 @@ public final class ProcessStore: ObservableObject {
 
     /// `network` is nil when nettop couldn't be sampled; processes then keep their last counters.
     private func merge(_ records: [ProcessRecord], gpuTimes: [Int32: UInt64], network: [Int32: NetworkCounters]?,
-                       responsiveness: (checked: Set<Int32>, unresponsive: Set<Int32>), time: Double, options: BuildOptions) {
+                       responsiveness: (checked: Set<Int32>, unresponsive: Set<Int32>), assertions: [Int32: [PowerAssertion]],
+                       time: Double, options: BuildOptions) {
         var seen = Set<ProcessKey>()
         seen.reserveCapacity(records.count)
         for r in records {
@@ -523,6 +534,18 @@ public final class ProcessStore: ObservableObject {
                 } else if let hungSince {
                     EventLog.shared.add(.responding, pid: r.pid,
                                         "\(r.name) (\(r.pid)) is responding again after \(Fmt.relative(seconds: Date().timeIntervalSince(hungSince)))")
+                }
+            }
+            let held = assertions[r.pid] ?? []
+            let before = state.assertions.sleepPrevention
+            state.assertions = held
+            let after = held.sleepPrevention
+            if hasSampled, before != after {
+                if let after, let a = held.first(where: { $0.sleepPrevention == after }) {
+                    let what = after == .display ? "the display on" : "the Mac awake"
+                    EventLog.shared.add(.power, pid: r.pid, "\(r.name) (\(r.pid)) is keeping \(what): \(a.type) “\(a.name)”")
+                } else if after == nil {
+                    EventLog.shared.add(.power, pid: r.pid, "\(r.name) (\(r.pid)) no longer keeps the Mac awake")
                 }
             }
         }

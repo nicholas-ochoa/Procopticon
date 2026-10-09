@@ -443,6 +443,53 @@ struct GPUPanel: View {
     }
 }
 
+/// Processes whose power assertions keep the Mac or its display awake.
+struct SleepPreventersBox: View {
+    var body: some View {
+        SectionBox(title: "Keeping the Mac awake") {
+            let list = processes
+            if list.isEmpty {
+                Text("No process is preventing sleep.").foregroundStyle(.secondary)
+            } else {
+                Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 5) {
+                    GridRow {
+                        Text("Process")
+                        Text("Keeps on")
+                        Text("Assertion")
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    ForEach(list, id: \.key) { p in
+                        let a = p.assertions.first { $0.sleepPrevention == p.sleepPrevention }
+                        GridRow {
+                            Button { PropertiesWindow.open(p, tab: .power) } label: {
+                                Label {
+                                    Text("\(p.displayName)  \(Text(String(p.pid)).foregroundStyle(.secondary))")
+                                } icon: {
+                                    Image(nsImage: ProcessIcons.icon(for: p.record))
+                                }
+                            }
+                            .buttonStyle(.plain)
+                            .help("Show the process's power assertions")
+                            Text(p.sleepPrevention?.title ?? "")
+                            Text(a.map { $0.name.isEmpty ? $0.type : $0.name } ?? "")
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private var processes: [ProcessItem] {
+        ProcessStore.shared.items.values
+            .filter { !$0.isRemoved && $0.sleepPrevention != nil }
+            .sorted { ($0.sleepPrevention!.rawValue, $1.pid) > ($1.sleepPrevention!.rawValue, $0.pid) }
+    }
+}
+
 struct PowerPanel: View {
     let sys: SystemMonitor
     /// Changes every sample so SwiftUI re-evaluates the panel (the monitor is a reference type).
@@ -454,6 +501,7 @@ struct PowerPanel: View {
                       title: "Estimated process power", valueText: Fmt.watts(sys.processPower).ifEmpty("0 W"),
                       formatter: { Fmt.watts($0).ifEmpty("0 W") })
                 .frame(height: 180)
+            SleepPreventersBox()
             if let b = sys.last?.battery, b.present {
                 SectionBox(title: "Battery") {
                     Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 5) {

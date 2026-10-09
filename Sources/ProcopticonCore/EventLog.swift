@@ -10,6 +10,7 @@ public final class EventLog: ObservableObject {
         case processExited = "Process exited"
         case notResponding = "Not responding"
         case responding = "Responding again"
+        case power = "Power"
         case serviceStarted = "Service started"
         case serviceStopped = "Service stopped"
         case action = "Action"

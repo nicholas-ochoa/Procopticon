@@ -25,6 +25,7 @@ struct ProcessPropertiesView: View {
         case general = "General"
         case statistics = "Statistics"
         case performance = "Performance"
+        case power = "Power"
         case threads = "Threads"
         case modules = "Modules"
         case memory = "Memory"
@@ -42,6 +43,7 @@ struct ProcessPropertiesView: View {
             case .general: return "info.circle"
             case .statistics: return "chart.bar"
             case .performance: return "waveform.path.ecg"
+            case .power: return "bolt"
             case .threads: return "square.stack.3d.up"
             case .modules: return "shippingbox"
             case .memory: return "memorychip"
@@ -59,7 +61,7 @@ struct ProcessPropertiesView: View {
             switch self {
             case .general, .statistics, .security, .service: return .content
             case .performance: return .height(700)
-            case .threads, .modules, .memory, .arguments, .environment, .files, .network: return .table
+            case .threads, .modules, .memory, .arguments, .environment, .files, .network, .power: return .table
             }
         }
     }
@@ -73,7 +75,7 @@ struct ProcessPropertiesView: View {
         case table
     }
 
-    static let minHeight: CGFloat = 440
+    static let minHeight: CGFloat = 470
 
     init(key: ProcessKey, tab: PropertyTab = .general) {
         self.key = key
@@ -129,6 +131,7 @@ struct ProcessPropertiesView: View {
         case .general: GeneralTab(item: item, revision: store.revision)
         case .statistics: StatisticsTab(item: item, revision: store.revision)
         case .performance: PerformanceTab(item: item, revision: store.revision)
+        case .power: PowerTab(item: item, revision: store.revision)
         case .threads: ThreadsTab(item: item)
         case .modules: ModulesTab(item: item)
         case .memory: MemoryTab(item: item)
