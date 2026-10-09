@@ -8,6 +8,8 @@ public final class EventLog: ObservableObject {
     public enum Kind: String, Sendable {
         case processStarted = "Process started"
         case processExited = "Process exited"
+        case notResponding = "Not responding"
+        case responding = "Responding again"
         case serviceStarted = "Service started"
         case serviceStopped = "Service stopped"
         case action = "Action"

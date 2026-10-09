@@ -20,6 +20,7 @@ final class AppSettings: ObservableObject {
     @Published var hideAppleProcesses: Bool { didSet { save("hideAppleProcesses", hideAppleProcesses); apply() } }
     @Published var hideZombies: Bool { didSet { save("hideZombies", hideZombies); apply() } }
     @Published var onlyApplications: Bool { didSet { save("onlyApplications", onlyApplications); apply() } }
+    @Published var onlyNotResponding: Bool { didSet { save("onlyNotResponding", onlyNotResponding); apply() } }
     @Published var resolveAddresses: Bool { didSet { save("resolveAddresses", resolveAddresses); apply() } }
     @Published var alwaysOnTop: Bool { didSet { save("alwaysOnTop", alwaysOnTop); applyWindowLevel() } }
     @Published var showStatusBar: Bool { didSet { save("showStatusBar", showStatusBar) } }
@@ -117,6 +118,7 @@ final class AppSettings: ObservableObject {
         hideAppleProcesses = b("hideAppleProcesses", false)
         hideZombies = b("hideZombies", false)
         onlyApplications = b("onlyApplications", false)
+        onlyNotResponding = b("onlyNotResponding", false)
         resolveAddresses = b("resolveAddresses", true)
         alwaysOnTop = b("alwaysOnTop", false)
         showStatusBar = b("showStatusBar", true)
@@ -193,6 +195,7 @@ final class AppSettings: ObservableObject {
         f.hideZombies = hideZombies
         f.regex = searchUsesRegex
         f.onlyApplications = onlyApplications
+        f.onlyNotResponding = onlyNotResponding
         store.filter = f
         NetworkStore.shared.highlightDuration = highlightDuration
         NetworkStore.shared.resolveAddresses = resolveAddresses
@@ -218,6 +221,7 @@ struct HighlightSetting {
 enum HighlightRule: String, CaseIterable, Identifiable {
     case removed
     case new
+    case notResponding
     case suspended
     case zombie
     case debugged
@@ -236,6 +240,7 @@ enum HighlightRule: String, CaseIterable, Identifiable {
         switch self {
         case .removed: return "Terminated processes"
         case .new: return "New processes"
+        case .notResponding: return "Applications not responding"
         case .suspended: return "Stopped (suspended) processes"
         case .zombie: return "Zombie processes"
         case .debugged: return "Processes being traced/debugged"
@@ -261,6 +266,7 @@ enum HighlightRule: String, CaseIterable, Identifiable {
         switch self {
         case .removed: return NSColor(hex: "#FF3C3C")!
         case .new: return NSColor(hex: "#33D17A")!
+        case .notResponding: return NSColor(hex: "#B0102A")!
         case .suspended: return NSColor(hex: "#8E8E93")!
         case .zombie: return NSColor(hex: "#5E5C64")!
         case .debugged: return NSColor(hex: "#B07CFF")!
@@ -297,12 +303,13 @@ enum Highlighter {
         let settings = AppSettings.shared.highlights
         func use(_ rule: HighlightRule) -> RowStyle? {
             guard let s = settings[rule], s.enabled else { return nil }
-            let alpha: CGFloat = (rule == .removed || rule == .new) ? 0.55 : 0.28
+            let alpha: CGFloat = (rule == .removed || rule == .new || rule == .notResponding) ? 0.55 : 0.28
             return RowStyle(background: s.color.withAlphaComponent(alpha))
         }
         let r = item.record
         if item.isRemoved, let s = use(.removed) { return s }
         if store.isNew(item), let s = use(.new) { return s }
+        if item.isNotResponding, let s = use(.notResponding) { return s }
         if r.isStopped, let s = use(.suspended) { return s }
         if r.isZombie, let s = use(.zombie) { return s }
         if r.isTraced, let s = use(.debugged) { return s }
@@ -332,15 +339,27 @@ extension AppSettings {
 extension AppSettings {
     /// True when any of the persistent process filters is active.
     var hasProcessFilters: Bool {
-        onlyApplications || hideOtherUsers || hideSystemProcesses || hideAppleProcesses || hideZombies
+        onlyApplications || hideOtherUsers || hideSystemProcesses || hideAppleProcesses || hideZombies || onlyNotResponding
     }
 
     func resetProcessFilters() {
         onlyApplications = false
+        onlyNotResponding = false
         hideOtherUsers = false
         hideSystemProcesses = false
         hideAppleProcesses = false
         hideZombies = false
+    }
+}
+
+/// Applications whose responsiveness the window server can judge (any with a connection to it,
+/// including menu bar apps), and those of them that aren't responding; see `AppResponsiveness`.
+enum ApplicationResponsiveness {
+    static func current() -> (checked: Set<Int32>, unresponsive: Set<Int32>) {
+        let pids = Set(NSWorkspace.shared.runningApplications
+            .filter { $0.activationPolicy != .prohibited }
+            .map(\.processIdentifier))
+        return (pids, AppResponsiveness.unresponsive(among: pids))
     }
 }
 

@@ -22,15 +22,20 @@ gave itself by overwriting its first argument (Node's `process.title`, `setproct
 checkpointer"); it stays empty for processes started under their own name, a symlink or shim. Hover over a
 cut-off value to see all of it.
 
-* Row highlighting: new/terminated, stopped, zombie, traced, Rosetta,
-  elevated (setuid/sudo), unsigned, sandboxed, applications, own, root and service-account
+* Row highlighting: new/terminated, not responding, stopped, zombie, traced,
+  Rosetta, elevated (setuid/sudo), unsigned, sandboxed, applications, own, root and service-account
   processes. Colors and priorities are configurable.
+* **Hung applications**: an application that has stopped responding to events (the spinning wait
+  cursor) reads "(Not Responding)" after its name, as in Activity Monitor, and is highlighted. The
+  **Responding** column says how long it has been hung, *Filters ▸ Only Applications Not Responding*
+  lists just those, and the Event Log records when an app stops and starts responding again.
 * Search by name, PID, path, command line, user or bundle ID. Every search and filter field accepts
   **regular expressions**. Click `.*` at the right end of the search field or use *View ▸ Use Regular
   Expressions in Search* (⌥⌘R), or write `/pattern/` at any time. Patterns are case-insensitive;
   `/pattern/c` makes one case-sensitive. An invalid pattern is reported in the status bar.
 * **Quick filters** in the toolbar: **Apps** (GUI applications and the processes they started), **Mine** (your processes only),
-  **Tree/List**, and a **Filters** menu (hide root/system, Apple-signed or zombie processes). While a
+  **Tree/List**, and a **Filters** menu (hide root/system, Apple-signed or zombie processes, or show only
+  applications that aren't responding). While a
   filter is active, the status bar shows "Showing N of M" with a **Clear Filters** link.
 * **Summary panel**: click the CPU, Memory, Disk, Network or GPU stats in the status bar to open an
   Activity Monitor–style panel above it: totals and rates beside a history graph (CPU load, memory

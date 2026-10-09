@@ -13,6 +13,8 @@ struct SavedFilter: Codable, Identifiable, Hashable {
     var hideSystem = false
     var hideApple = false
     var hideZombies = false
+    /// Optional so filters saved before it existed still decode; nil means off.
+    var onlyNotResponding: Bool?
     /// nil leaves the current tree/list mode unchanged.
     var treeView: Bool?
 
@@ -21,6 +23,7 @@ struct SavedFilter: Codable, Identifiable, Hashable {
         text.trimmingCharacters(in: .whitespaces) == other.text.trimmingCharacters(in: .whitespaces)
             && regex == other.regex && onlyApplications == other.onlyApplications && onlyMine == other.onlyMine
             && hideSystem == other.hideSystem && hideApple == other.hideApple && hideZombies == other.hideZombies
+            && (onlyNotResponding ?? false) == (other.onlyNotResponding ?? false)
     }
 
     var summary: String {
@@ -32,6 +35,7 @@ struct SavedFilter: Codable, Identifiable, Hashable {
         if hideSystem { parts.append("no system") }
         if hideApple { parts.append("no Apple") }
         if hideZombies { parts.append("no zombies") }
+        if onlyNotResponding == true { parts.append("not responding") }
         if let treeView { parts.append(treeView ? "tree" : "list") }
         return parts.isEmpty ? "No filtering" : parts.joined(separator: " · ")
     }
@@ -49,7 +53,7 @@ extension AppSettings {
     func currentFilter(name: String = "Untitled Filter") -> SavedFilter {
         SavedFilter(name: name, text: ProcessStore.shared.filter.text, regex: searchUsesRegex,
                     onlyApplications: onlyApplications, onlyMine: hideOtherUsers, hideSystem: hideSystemProcesses,
-                    hideApple: hideAppleProcesses, hideZombies: hideZombies, treeView: nil)
+                    hideApple: hideAppleProcesses, hideZombies: hideZombies, onlyNotResponding: onlyNotResponding, treeView: nil)
     }
 
     func applySavedFilter(_ f: SavedFilter) {
@@ -59,6 +63,7 @@ extension AppSettings {
         hideSystemProcesses = f.hideSystem
         hideAppleProcesses = f.hideApple
         hideZombies = f.hideZombies
+        onlyNotResponding = f.onlyNotResponding ?? false
         if let tree = f.treeView {
             treeView = tree
         }
@@ -83,6 +88,7 @@ extension AppSettings {
 private extension SavedFilter {
     var isNonTrivial: Bool {
         !text.trimmingCharacters(in: .whitespaces).isEmpty || onlyApplications || onlyMine || hideSystem || hideApple || hideZombies
+            || onlyNotResponding == true
     }
 }
 
@@ -263,6 +269,9 @@ struct SavedFilterEditor: View {
                 Toggle("Hide root & system processes", isOn: $filter.hideSystem)
                 Toggle("Hide Apple-signed processes", isOn: $filter.hideApple)
                 Toggle("Hide zombie processes", isOn: $filter.hideZombies)
+                Toggle("Only applications that aren't responding", isOn: Binding(
+                    get: { filter.onlyNotResponding ?? false },
+                    set: { filter.onlyNotResponding = $0 ? true : nil }))
                 Picker("View", selection: $filter.treeView) {
                     Text("Keep current").tag(Bool?.none)
                     Text("Tree").tag(Bool?.some(true))

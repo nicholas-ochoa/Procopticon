@@ -171,6 +171,7 @@ struct ProcessToolTipView: View {
             badges.append(Badge(text: text, symbol: symbol, color: Color(nsColor: color)))
         }
         if item.isRemoved { add("Exited", "xmark.circle", .removed) }
+        if item.isNotResponding { add("Not responding", "hourglass", .notResponding) }
         if record.isStopped { add("Stopped", "pause.circle", .suspended) }
         if record.isZombie { add("Zombie", "moon.zzz", .zombie) }
         if record.isTraced { add("Being traced", "ant", .debugged) }

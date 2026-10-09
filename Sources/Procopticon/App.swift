@@ -33,6 +33,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate()
         IsolatedScanner.executablePath = Elevation.helperURL.path
         ProcessStore.shared.applicationPids = ApplicationPids.current
+        ProcessStore.shared.applicationResponsiveness = ApplicationResponsiveness.current
         AppSettings.shared.apply()
         AppSettings.shared.applyAppearance()
         AppSettings.shared.applyAccentColor()
@@ -170,6 +171,7 @@ struct ViewMenuFilterItems: View {
         Toggle("Hide System Processes", isOn: $settings.hideSystemProcesses)
         Toggle("Hide Apple-Signed Processes", isOn: $settings.hideAppleProcesses)
         Toggle("Hide Zombie Processes", isOn: $settings.hideZombies)
+        Toggle("Show Only Applications Not Responding", isOn: $settings.onlyNotResponding)
         Button("Reset Process Filters") { settings.resetProcessFilters() }
             .disabled(!settings.hasProcessFilters)
         Divider()

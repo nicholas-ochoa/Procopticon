@@ -14,6 +14,14 @@ enum ProcessColumns {
         var name = ProcessColumn.string("name", "Name", width: 240,
                                         help: "The executable's name, or the app's name for an app's main executable") { $0.displayName }
         name.image = { ProcessIcons.icon(for: $0.record) }
+        // Like Activity Monitor, a hung application says so after its name.
+        name.attributedText = { p in
+            let text = NSMutableAttributedString(string: p.displayName)
+            if p.isNotResponding {
+                text.append(NSAttributedString(string: " (Not Responding)", attributes: [.foregroundColor: NSColor.systemRed]))
+            }
+            return text
+        }
         name.richTooltip = { AnyView(ProcessToolTipView(item: $0)) }
         name.monospacedDigits = false
         cols.append(name)
@@ -96,6 +104,14 @@ enum ProcessColumns {
         cols.append(.string("group", "Group", width: 80, visible: false, help: "The process's real group") { UserNames.group($0.record.rgid) })
         cols.append(.string("state", "State", width: 80, visible: false,
                             help: "Scheduling state: running, sleeping, idle, stopped or zombie") { $0.record.stateDescription })
+        var responding = ProcessColumn.string("responding", "Responding", width: 130, visible: false,
+                                              help: "Whether an application is responding to events, as the spinning wait cursor shows, and for how long it hasn't been; blank for processes without a user interface") {
+            respondingText($0)
+        }
+        responding.attributedText = { p in
+            NSAttributedString(string: respondingText(p), attributes: p.isNotResponding ? [.foregroundColor: NSColor.systemRed] : [:])
+        }
+        cols.append(responding)
         cols.append(.string("sandbox", "Sandboxed", width: 70, visible: false,
                             help: "Whether the process runs in the App Sandbox") { p in
             p.record.sandboxed == true ? "Yes" : (p.record.sandboxed == false ? "No" : "")
@@ -268,6 +284,16 @@ enum ProcessColumns {
         cols.append(netGraph)
 
         return cols
+    }
+
+    private static func respondingText(_ p: ProcessItem) -> String {
+        switch p.responding {
+        case true?: return "Yes"
+        case false?:
+            let since = p.notRespondingSince.map { Fmt.relative(seconds: Date().timeIntervalSince($0)) }
+            return since.map { "Not responding (\($0))" } ?? "Not responding"
+        case nil: return ""
+        }
     }
 
     private static func s(_ v: UInt64?) -> String {

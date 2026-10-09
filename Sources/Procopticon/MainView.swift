@@ -546,11 +546,12 @@ struct FiltersMenu: View {
                 }
             }
         }
-        .help("More filters (hide system, Apple-signed or zombie processes) and your saved filters")
+        .help("More filters (hide system, Apple-signed or zombie processes, show hung applications) and your saved filters")
     }
 
     private var active: Bool {
-        settings.hideSystemProcesses || settings.hideAppleProcesses || settings.hideZombies || settings.activeSavedFilter != nil
+        settings.hideSystemProcesses || settings.hideAppleProcesses || settings.hideZombies || settings.onlyNotResponding
+            || settings.activeSavedFilter != nil
     }
 
     @MainActor
@@ -566,6 +567,7 @@ struct FiltersMenu: View {
         menu.addItem(.separator())
         toggle("Only Applications", \.onlyApplications)
         toggle("Only My Processes", \.hideOtherUsers)
+        toggle("Only Applications Not Responding", \.onlyNotResponding)
         menu.add("Reset Filters", enabled: settings.hasProcessFilters || !ProcessStore.shared.filter.text.isEmpty) {
             settings.resetProcessFilters()
             ProcessStore.shared.filter.text = ""

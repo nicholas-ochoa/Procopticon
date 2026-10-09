@@ -50,6 +50,11 @@ public final class ProcessItem: Identifiable {
     public let firstSeen: Date
     public let removedAt: Date?
     public let isInitial: Bool
+    /// For GUI applications, whether the window server finds them responding to events; nil for
+    /// processes without a user interface. See `AppResponsiveness`.
+    public let responding: Bool?
+    /// When the application stopped responding, while it isn't.
+    public let notRespondingSince: Date?
     /// Cached so hot paths (sorting, cell drawing) don't repeat lookups.
     public let userName: String
     public let bundleInfo: ExecutableBundleInfo?
@@ -85,6 +90,8 @@ public final class ProcessItem: Identifiable {
         firstSeen = s.firstSeen
         removedAt = s.removedAt
         isInitial = s.isInitial
+        responding = s.responding
+        notRespondingSince = s.notRespondingSince
         userName = s.userName
         bundleInfo = s.bundleInfo
     }
@@ -102,6 +109,7 @@ public final class ProcessItem: Identifiable {
     }
     public var stats: TaskStats? { record.stats }
     public var isRemoved: Bool { removedAt != nil }
+    public var isNotResponding: Bool { responding == false }
 
     /// Description column: bundle display name, otherwise empty.
     public var displayDescription: String {
@@ -165,6 +173,8 @@ final class ProcessState {
     let firstSeen = Date()
     var removedAt: Date?
     let isInitial: Bool
+    var responding: Bool?
+    var notRespondingSince: Date?
     var userName: String
     var bundleInfo: ExecutableBundleInfo?
     private var lastSampleTime: Double
@@ -254,8 +264,25 @@ final class ProcessState {
         netOutRate = Double(bytesOut) / dt
     }
 
+    /// Takes the application's latest responsiveness (nil: not an application). Returns true when it
+    /// stopped responding or started responding again.
+    func updateResponding(_ value: Bool?) -> Bool {
+        let was = responding
+        responding = value
+        if value == false {
+            if notRespondingSince == nil {
+                notRespondingSince = Date()
+            }
+        } else {
+            notRespondingSince = nil
+        }
+        return (value == false && was != false) || (value == true && was == false)
+    }
+
     func markRemoved() {
         removedAt = Date()
+        responding = nil
+        notRespondingSince = nil
         gpu = 0
         netInRate = 0
         netOutRate = 0
@@ -277,11 +304,13 @@ public struct ProcessFilterOptions: Equatable {
     public var regex = false
     /// Only GUI applications (see `ProcessStore.applicationPids`) and the processes they started.
     public var onlyApplications = false
+    /// Only applications that aren't responding (see `ProcessItem.responding`).
+    public var onlyNotResponding = false
 
     /// True when any option (other than the regex flag) narrows the list.
     public var isFiltering: Bool {
         !text.trimmingCharacters(in: .whitespaces).isEmpty || hideOtherUsers || hideSystemProcesses
-            || hideAppleProcesses || hideZombies || onlyApplications
+            || hideAppleProcesses || hideZombies || onlyApplications || onlyNotResponding
     }
 
     public init() {}
@@ -313,6 +342,9 @@ public final class ProcessStore: ObservableObject {
     /// Supplies the PIDs of GUI applications for the "applications only" filter (set by the app).
     /// Called on the background queue.
     public var applicationPids: () -> Set<Int32> = { [] }
+    /// Supplies the applications whose responsiveness is checked, and those of them that aren't
+    /// responding (set by the app). Called on the background queue at each sample.
+    public var applicationResponsiveness: () -> (checked: Set<Int32>, unresponsive: Set<Int32>) = { ([], []) }
 
     public var interval: TimeInterval = 1.0 {
         didSet { if oldValue != interval { schedule() } }
@@ -401,6 +433,7 @@ public final class ProcessStore: ObservableObject {
         queue.async { [weak self] in
             guard let self else { return }
             let response = Elevation.shared.perform(.sampleProcesses)
+            let responsiveness = self.applicationResponsiveness()
             let gpuTimes = GPUUsage.sample()
             let network = NetworkUsage.sample()
             // netstat's true interface totals, once (see InterfaceCounters).
@@ -410,7 +443,7 @@ public final class ProcessStore: ObservableObject {
             let time = Date().timeIntervalSince1970
             var error: String?
             if case .processes(let records) = response {
-                self.merge(records, gpuTimes: gpuTimes, network: network, time: time, options: options)
+                self.merge(records, gpuTimes: gpuTimes, network: network, responsiveness: responsiveness, time: time, options: options)
             } else if case .failure(let e) = response {
                 error = e.message
             }
@@ -463,20 +496,33 @@ public final class ProcessStore: ObservableObject {
 
     /// `network` is nil when nettop couldn't be sampled; processes then keep their last counters.
     private func merge(_ records: [ProcessRecord], gpuTimes: [Int32: UInt64], network: [Int32: NetworkCounters]?,
-                       time: Double, options: BuildOptions) {
+                       responsiveness: (checked: Set<Int32>, unresponsive: Set<Int32>), time: Double, options: BuildOptions) {
         var seen = Set<ProcessKey>()
         seen.reserveCapacity(records.count)
         for r in records {
             seen.insert(r.key)
-            if let state = states[r.key] {
+            let state: ProcessState
+            if let existing = states[r.key] {
+                state = existing
                 state.update(record: r, time: time, cpuCount: options.cpuCount, scaleToSystem: options.scaleCPUToSystem,
                              gpuTime: gpuTimes[r.pid] ?? 0, network: network.map { $0[r.pid] })
             } else {
-                states[r.key] = ProcessState(record: r, time: time, initial: !hasSampled, gpuTime: gpuTimes[r.pid] ?? 0,
-                                             network: network?[r.pid])
+                state = ProcessState(record: r, time: time, initial: !hasSampled, gpuTime: gpuTimes[r.pid] ?? 0,
+                                     network: network?[r.pid])
+                states[r.key] = state
                 if hasSampled {
                     EventLog.shared.add(.processStarted, pid: r.pid,
                                         "\(r.name) (\(r.pid)) started by \(UserNames.name(r.uid)), parent \(r.ppid)\(r.commandLine.map { ": \($0)" } ?? "")")
+                }
+            }
+            let hungSince = state.notRespondingSince
+            let responding: Bool? = responsiveness.checked.contains(r.pid) ? !responsiveness.unresponsive.contains(r.pid) : nil
+            if state.updateResponding(responding) {
+                if responding == false {
+                    EventLog.shared.add(.notResponding, pid: r.pid, "\(r.name) (\(r.pid)) is not responding")
+                } else if let hungSince {
+                    EventLog.shared.add(.responding, pid: r.pid,
+                                        "\(r.name) (\(r.pid)) is responding again after \(Fmt.relative(seconds: Date().timeIntervalSince(hungSince)))")
                 }
             }
         }
@@ -560,6 +606,7 @@ public final class ProcessStore: ObservableObject {
             if f.hideOtherUsers, r.uid != me { return false }
             if f.hideSystemProcesses, r.uid < 500, r.uid != me { return false }
             if f.hideZombies, r.isZombie { return false }
+            if f.onlyNotResponding, !item.isNotResponding { return false }
             if f.onlyApplications, !belongsToApp(item) { return false }
             if f.hideAppleProcesses, let s = item.signing, s.isAppleSigned { return false }
             return true
