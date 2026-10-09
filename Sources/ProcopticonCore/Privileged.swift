@@ -23,6 +23,8 @@ public enum PrivilegedRequest: Codable, Sendable {
     case startStream(tool: String, arguments: [String])
     case readStream(id: Int)
     case stopStream(id: Int)
+    /// Login items, extensions, cron jobs and the like; see `StartupItems`.
+    case startupItems
     case shutdown
 }
 
@@ -72,6 +74,7 @@ public enum PrivilegedResponse: Codable, Sendable {
     case openFiles([OpenFileMatch])
     case streamStarted(id: Int)
     case streamOutput(StreamChunk)
+    case startupItems(StartupItemsReport)
 
     public var error: PrivilegedError? {
         if case .failure(let e) = self { return e }
@@ -225,6 +228,8 @@ public final class PrivilegedExecutor: @unchecked Sendable {
         case let .stopStream(id):
             streams.stop(id)
             return .ok
+        case .startupItems:
+            return .startupItems(StartupItems.collect())
         case .shutdown:
             return .ok
         }

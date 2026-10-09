@@ -261,6 +261,7 @@ struct ToolsMenuItems: View {
         Button("Event Log") { EventLogWindow.open() }
             .keyboardShortcut("l", modifiers: [.command, .option])
         Button("Crash Reports…") { CrashReportsWindow.open() }
+        Button("Startup Items…") { StartupItemsWindow.open() }
         Button("Logged-in Users…") { UsersWindow.open() }
         Divider()
         Button("Purge Disk Cache…") {
@@ -340,6 +341,7 @@ enum LaunchArguments {
         }
         if CommandLine.arguments.contains("--show-log") { EventLogWindow.open() }
         if CommandLine.arguments.contains("--show-crashes") { CrashReportsWindow.open() }
+        if CommandLine.arguments.contains("--show-startup") { StartupItemsWindow.open() }
         if CommandLine.arguments.contains("--show-windows") { WindowFinder.open() }
         if let text = value("--search") {
             NotificationCenter.default.post(name: .showTab, object: MainTab.processes)

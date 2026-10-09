@@ -134,6 +134,14 @@ unless you turn off *Always on Top* in the same menu, and reopens at launch if i
   stand out. JSON crash reports open laid out like classic crash logs: exception, termination reason,
   every thread's backtrace with the crashed one first, and the binary images. Open in Console or reveal
   any report from its menu.
+* **Startup Items.** An Autoruns- or KnockKnock-style tree of what starts code outside launchd's job
+  list (which the Services tab covers): login items and background items from Background Task
+  Management (`sfltool dumpbtm`, with their app, developer, and whether they're allowed in Login Items
+  settings), Quick Look, Spotlight and Dock tile extensions, system and kernel extensions, cron jobs,
+  periodic scripts, login and logout hooks, authorization plug-ins, plug-ins that load into other
+  processes (input methods, screen savers, audio and camera drivers…), configuration profiles and
+  legacy startup items. Apple's own are hidden unless you ask. Every user's cron jobs and the login
+  hooks need the elevated helper.
 * **Logged-in Users.**
 * **Event Log.** Records process start/exit, service start/stop, apps that stop or start responding,
   processes that start or stop keeping the Mac awake, alerts, and actions you take.
@@ -192,7 +200,7 @@ Launch arguments are useful for scripting and testing:
 --tab processes|services|network|disk
 --show-properties <pid>      [--properties-tab General|Threads|Modules|Memory|Files|…]
 --show-sysinfo summary|cpu|memory|disk|network|gpu|power
---show-find <text>    --inspect <path>    --show-service <label>    --show-log    --show-windows    --show-crashes
+--show-find <text>    --inspect <path>    --show-service <label>    --show-log    --show-windows    --show-crashes    --show-startup
 ```
 
 ## Layout
