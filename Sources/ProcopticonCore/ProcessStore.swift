@@ -15,7 +15,7 @@ public final class ProcessItem: Identifiable {
     public internal(set) weak var parent: ProcessItem?
     /// Children currently displayed (filtered, sorted).
     public internal(set) var children: [ProcessItem] = []
-    /// The first custom highlight rule the process meets (see `ProcessStore.highlightExpressions`);
+    /// The first custom highlight rule the process matches (see `ProcessStore.highlightFilters`);
     /// set for displayed processes before publication.
     public internal(set) var customHighlight: UUID?
 
@@ -321,14 +321,14 @@ public struct ProcessFilterOptions: Equatable {
     public var hideSystemProcesses = false
     public var hideAppleProcesses = false
     public var hideZombies = false
-    /// Treat the whole search text as a regular expression (`/pattern/` always is).
-    public var regex = false
+    /// How the text matches (in `.text`, `/pattern/` is a regular expression all the same).
+    public var mode = SearchMode.text
     /// Only GUI applications (see `ProcessStore.applicationPids`) and the processes they started.
     public var onlyApplications = false
     /// Only applications that aren't responding (see `ProcessItem.responding`).
     public var onlyNotResponding = false
 
-    /// True when any option (other than the regex flag) narrows the list.
+    /// True when any option (other than the mode) narrows the list.
     public var isFiltering: Bool {
         !text.trimmingCharacters(in: .whitespaces).isEmpty || hideOtherUsers || hideSystemProcesses
             || hideAppleProcesses || hideZombies || onlyApplications || onlyNotResponding
@@ -389,8 +389,8 @@ public final class ProcessStore: ObservableObject {
         didSet { if oldValue != filter { rebuild() } }
     }
     /// Custom highlight rules, highest priority first.
-    public var highlightExpressions: [HighlightExpression] = [] {
-        didSet { if oldValue != highlightExpressions { rebuild() } }
+    public var highlightFilters: [HighlightFilter] = [] {
+        didSet { if oldValue != highlightFilters { rebuild() } }
     }
 
     private var timer: Timer?
@@ -439,7 +439,7 @@ public final class ProcessStore: ObservableObject {
 
     private struct BuildOptions {
         var filter: ProcessFilterOptions
-        var highlightExpressions: [HighlightExpression]
+        var highlightFilters: [HighlightFilter]
         var treeMode: Bool
         var highlightDuration: TimeInterval
         var interval: TimeInterval
@@ -448,7 +448,7 @@ public final class ProcessStore: ObservableObject {
     }
 
     private var currentOptions: BuildOptions {
-        BuildOptions(filter: filter, highlightExpressions: highlightExpressions, treeMode: treeMode,
+        BuildOptions(filter: filter, highlightFilters: highlightFilters, treeMode: treeMode,
                      highlightDuration: highlightDuration, interval: interval, scaleCPUToSystem: scaleCPUToSystem,
                      cpuCount: max(1, system.logicalCPUCount))
     }
@@ -655,7 +655,7 @@ public final class ProcessStore: ObservableObject {
         }
         let byPid = Self.treeIndex(items.values)
         let f = options.filter
-        let matcher = ProcessMatcher(f.text, regex: f.regex, engine: expressionEngine)
+        let matcher = ProcessMatcher(f.text, mode: f.mode, engine: expressionEngine)
         var expressionErrors = ExpressionErrors()
         let me = Elevation.interactiveUid
         let appPids = f.onlyApplications ? applicationPids() : []
@@ -757,22 +757,22 @@ public final class ProcessStore: ObservableObject {
         }
         let roots = arrange(rootList)
         roots.forEach(walk)
-        highlight(ordered, options.highlightExpressions)
+        highlight(ordered, options.highlightFilters)
         return Snapshot(items: items, roots: roots, visible: ordered, matchCount: matched,
                         processCount: processCount, totalThreads: threads,
                         filterError: matcher.error ?? expressionErrors.summary(rows: "processes"))
     }
 
-    /// Gives each process the first custom highlight rule it meets.
-    private func highlight(_ items: [ProcessItem], _ rules: [HighlightExpression]) {
-        guard let engine = expressionEngine else { return }
-        let compiled = rules.compactMap { rule -> (id: UUID, expression: any CompiledProcessExpression)? in
-            let expression = engine.compileProcessExpression(rule.expression)
-            return expression.error == nil ? (rule.id, expression) : nil
+    /// Gives each process the first custom highlight rule it matches. Rules without text, or with
+    /// text that doesn't work, match nothing.
+    private func highlight(_ items: [ProcessItem], _ rules: [HighlightFilter]) {
+        let matchers = rules.compactMap { rule -> (id: UUID, matcher: ProcessMatcher)? in
+            let matcher = ProcessMatcher(rule.text, mode: rule.mode, engine: expressionEngine)
+            return matcher.isEmpty || !matcher.isValid ? nil : (rule.id, matcher)
         }
-        guard !compiled.isEmpty else { return }
+        guard !matchers.isEmpty else { return }
         for item in items {
-            item.customHighlight = compiled.first { $0.expression.matches(item) }?.id
+            item.customHighlight = matchers.first { $0.matcher.matches(item) }?.id
         }
     }
 

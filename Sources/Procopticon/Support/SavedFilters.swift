@@ -7,7 +7,10 @@ struct SavedFilter: Codable, Identifiable, Hashable {
     var id = UUID()
     var name: String
     var text: String = ""
+    /// Whether `text` is a regular expression, in filters saved before they had a mode.
     var regex = false
+    /// How `text` matches; nil in filters saved before modes (see `searchMode`).
+    var mode: SearchMode?
     var onlyApplications = false
     var onlyMine = false
     var hideSystem = false
@@ -18,22 +21,39 @@ struct SavedFilter: Codable, Identifiable, Hashable {
     /// nil leaves the current tree/list mode unchanged.
     var treeView: Bool?
 
+    var searchMode: SearchMode {
+        get { mode ?? (regex ? .regex : .text) }
+        set {
+            mode = newValue
+            regex = newValue == .regex
+        }
+    }
+
+    /// The filter with a mode. Before filters had one, "=text" was a JavaScript expression.
+    func migrated() -> SavedFilter {
+        var f = self
+        guard f.mode == nil else { return f }
+        if let expression = ProcessExpressions.legacyExpression(in: text) {
+            f.text = expression
+            f.searchMode = .javascript
+        } else {
+            f.searchMode = regex ? .regex : .text
+        }
+        return f
+    }
+
     /// Same filtering effect, ignoring identity, name and view mode.
     func matchesState(of other: SavedFilter) -> Bool {
-        text.trimmingCharacters(in: .whitespaces) == other.text.trimmingCharacters(in: .whitespaces)
-            && regex == other.regex && onlyApplications == other.onlyApplications && onlyMine == other.onlyMine
+        text.trimmingCharacters(in: .whitespacesAndNewlines) == other.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            && searchMode == other.searchMode && onlyApplications == other.onlyApplications && onlyMine == other.onlyMine
             && hideSystem == other.hideSystem && hideApple == other.hideApple && hideZombies == other.hideZombies
             && (onlyNotResponding ?? false) == (other.onlyNotResponding ?? false)
     }
 
     var summary: String {
         var parts: [String] = []
-        let t = text.trimmingCharacters(in: .whitespaces)
-        if let expression = ProcessExpressions.expression(in: t) {
-            parts.append(expression)
-        } else if !t.isEmpty {
-            parts.append(regex ? "regex \(t)" : "“\(t)”")
-        }
+        let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !t.isEmpty { parts.append(searchMode.describe(t)) }
         if onlyApplications { parts.append("apps") }
         if onlyMine { parts.append("mine") }
         if hideSystem { parts.append("no system") }
@@ -48,21 +68,21 @@ struct SavedFilter: Codable, Identifiable, Hashable {
         SavedFilter(name: "My Applications", onlyApplications: true, onlyMine: true),
         SavedFilter(name: "Third-Party Processes", hideApple: true),
         SavedFilter(name: "Root Processes", text: "/^root$/", treeView: false),
-        SavedFilter(name: "Helpers & XPC Services", text: "\\.xpc/|helper", regex: true),
-        SavedFilter(name: "Busy or Large", text: "=cpu > 25 || memory > 1 * GB"),
+        SavedFilter(name: "Helpers & XPC Services", text: "\\.xpc/|helper", regex: true, mode: .regex),
+        SavedFilter(name: "Busy or Large", text: "cpu > 25 || memory > 1 * GB", mode: .javascript),
     ]
 }
 
 extension AppSettings {
     /// Snapshot of the current filters as an unsaved filter.
     func currentFilter(name: String = "Untitled Filter") -> SavedFilter {
-        SavedFilter(name: name, text: ProcessStore.shared.filter.text, regex: searchUsesRegex,
+        SavedFilter(name: name, text: ProcessStore.shared.filter.text, regex: searchUsesRegex, mode: processSearchMode,
                     onlyApplications: onlyApplications, onlyMine: hideOtherUsers, hideSystem: hideSystemProcesses,
                     hideApple: hideAppleProcesses, hideZombies: hideZombies, onlyNotResponding: onlyNotResponding, treeView: nil)
     }
 
     func applySavedFilter(_ f: SavedFilter) {
-        searchUsesRegex = f.regex
+        processSearchMode = f.searchMode
         onlyApplications = f.onlyApplications
         hideOtherUsers = f.onlyMine
         hideSystemProcesses = f.hideSystem
@@ -241,9 +261,9 @@ struct SavedFilterEditor: View {
     @Binding var filter: SavedFilter
 
     var body: some View {
-        let matcher = ProcessMatcher(filter.text, regex: filter.regex, engine: ExpressionCheck.engine)
+        let matcher = ProcessMatcher(filter.text, mode: filter.searchMode, engine: ExpressionCheck.engine)
         VStack(spacing: 0) {
-            form(matcher)
+            form()
             // Outside the scrolling form so it stays visible however long the form gets.
             HStack {
                 Spacer()
@@ -255,27 +275,11 @@ struct SavedFilterEditor: View {
         }
     }
 
-    private func form(_ matcher: ProcessMatcher) -> some View {
+    private func form() -> some View {
         Form {
             TextField("Name", text: $filter.name)
-            Section {
-                TextField("Search text", text: $filter.text, prompt: Text("name, PID, path, command line, user…"))
-                Toggle("Regular expression", isOn: $filter.regex)
-                if let error = matcher.error {
-                    Label(error, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red).font(.caption)
-                } else {
-                    Text("""
-                        Text written as /pattern/ is always a regular expression; /pattern/c is case-sensitive. \
-                        Start with = for a JavaScript expression, such as =cpu > 10 && user == "root".
-                        """)
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-            } header: {
-                HStack {
-                    Text("Search")
-                    Spacer()
-                    ExpressionReferenceButton()
-                }
+            Section("Search") {
+                FilterEditor(text: $filter.text, mode: $filter.searchMode, emptyStatus: "No search: every process passes.")
             }
             Section("Show") {
                 Toggle("Only GUI applications and their child processes", isOn: $filter.onlyApplications)

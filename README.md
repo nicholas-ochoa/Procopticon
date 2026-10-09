@@ -33,7 +33,7 @@ cut-off value to see all of it.
 * Row highlighting: new/terminated, not responding, recording (microphone, camera, screen), stopped, zombie, traced,
   Rosetta, elevated (setuid/sudo), unsigned, sandboxed, applications, own, root and service-account
   processes. Colors and priorities are configurable. Add your own rules in *Settings ▸ Highlighting*: each
-  is an [expression](#expressions) and a color, such as `memory > 2 * GB` in red.
+  is a [filter](#filters) and a color, such as the JavaScript expression `memory > 2 * GB` in red.
 * **Hung applications**: an application that has stopped responding to events (the spinning wait
   cursor) reads "(Not Responding)" after its name, as in Activity Monitor, and is highlighted. The
   **Responding** column says how long it has been hung, *Filters ▸ Only Applications Not Responding*
@@ -42,8 +42,9 @@ cut-off value to see all of it.
   **regular expressions**. Click `.*` at the right end of the search field or use *View ▸ Use Regular
   Expressions in Search* (⌥⌘R), or write `/pattern/` at any time. Patterns are case-insensitive;
   `/pattern/c` makes one case-sensitive. An invalid pattern is reported in the status bar.
-* Search the process list with an **[expression](#expressions)** by starting with `=`:
-  `=cpu > 10 && user == "root"` or `=memory > 1 * GB && !appleSigned`.
+* Search the process list with a **[JavaScript expression](#expressions)**: click `{}` in the search
+  field or use *View ▸ Use JavaScript in Process Search* (⌥⌘J), then type `cpu > 10 && user == "root"`
+  or `memory > 1 * GB && !appleSigned`.
 * **Quick filters** in the toolbar: **Apps** (GUI applications and the processes they started), **Mine** (your processes only),
   **Tree/List**, and a **Filters** menu (hide root/system, Apple-signed or zombie processes, or show only
   applications that aren't responding). While a
@@ -53,10 +54,10 @@ cut-off value to see all of it.
   pressure, disk IO or data, network packets or data, GPU). Click again to close it.
 * **Alerts** (*Settings ▸ Alerts*): rules that post a notification when a process goes over a CPU,
   memory, disk, network or GPU threshold for a given time, starts, exits, stops responding, keeps
-  the Mac awake, uses the microphone, camera or screen recording, or meets a condition of your own (an
-  [expression](#expressions) such as `cpu > 50 && memory > 2 * GB`). A rule can watch every process or those matching a search (name, PID, path, command
-  line, user or bundle ID; regular expressions and `=expression` work too). Clicking a notification selects the process,
-  and every alert is recorded in the Event Log.
+  the Mac awake, uses the microphone, camera or screen recording, or matches a [filter](#filters) of
+  your own (such as the JavaScript expression `cpu > 50 && memory > 2 * GB`). A rule can watch every
+  process or those matching its filter. Clicking a notification selects the process, and every alert is
+  recorded in the Event Log.
 * **Saved filters** store a search plus filter settings under a name. Apply one from the Filters menu or
   from *View ▸ Saved Filters* (⌃⌘1–9). Manage them in *Settings ▸ Filters*: create one from the current
   state, edit, duplicate, reorder or delete.
@@ -183,11 +184,29 @@ unless you turn off *Always on Top* in the same menu, and reopens at launch if i
 
 A **menu bar graph** (CPU, memory, network or disk) opens a popover showing the top processes.
 
+## Filters
+
+Saved filters, custom highlight rules and alerts (*Settings ▸ Filters*, *Highlighting* and *Alerts*) each
+have a filter with three tabs:
+
+* **Text** matches anywhere in the name, path, command line, title, user, app name or bundle ID, ignoring
+  case, or the PID exactly. `/pattern/` is a regular expression here too.
+* **Regex** is a regular expression (ICU syntax, case-insensitive; `(?-i)` makes the rest case-sensitive).
+* **JavaScript** is an [expression](#expressions) over the process's values.
+
+The editor is fixed-width and colors the syntax of regular expressions and JavaScript, including the
+pattern inside a JavaScript regex literal (`/helper/i.test(name)`). A parenthesis that closes nothing or is
+never closed, a quantifier with nothing to repeat and an unfinished character class are marked in red.
+Under the editor, the filter's error or how many running processes it matches updates as you type. The
+search field has the same three modes: plain text, `.*` and `{}`.
+
+Settings saved by earlier versions, where an expression was written `=expression`, are converted.
+
 ## Expressions
 
-Searches, custom highlight rules and alert conditions can be JavaScript expressions, evaluated for each
-process. The process's values are variables, so `cpu > 50 && /helper/i.test(name)` matches busy helpers.
-*View ▸ Expression Reference* lists them all, and the ? buttons in Settings show the same list.
+JavaScript filters are evaluated for each process. The process's values are variables, so
+`cpu > 50 && /helper/i.test(name)` matches busy helpers. *View ▸ Expression Reference* lists them all,
+and the ? button above a JavaScript filter shows the same list.
 
 | | Values |
 | --- | --- |

@@ -85,8 +85,9 @@ final class AlertMonitor {
             return ("\(name) is keeping \(what)", "\(pid)\(lasting.isEmpty ? "" : " ·\(lasting)")\(assertion)")
         case .sensors:
             return ("\(name) is using the \(item.sensors.names.joined(separator: " and "))", "\(pid)\(lasting.isEmpty ? "" : " ·\(lasting)")")
-        case .expression:
-            return ("\(name) meets “\(rule.conditionSource)”", "\(pid)\(lasting.isEmpty ? "" : " ·\(lasting)")")
+        case .matches:
+            let filter = rule.mode.describe(rule.process.trimmingCharacters(in: .whitespacesAndNewlines))
+            return ("\(name) matches \(filter)", "\(pid)\(lasting.isEmpty ? "" : " ·\(lasting)")")
         case .started:
             return ("\(name) started", [pid, item.record.commandLine].compactMap { $0 }.joined(separator: " · "))
         case .exited:

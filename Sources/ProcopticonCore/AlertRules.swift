@@ -5,7 +5,8 @@ public struct AlertRule: Codable, Identifiable, Hashable, Sendable {
     public enum Trigger: String, Codable, CaseIterable, Identifiable, Sendable {
         case cpu, memory, disk, network, gpu
         case started, exited, notResponding, preventingSleep, sensors
-        case expression
+        /// A process matches the rule's filter (stored as "expression": it began as a condition).
+        case matches = "expression"
         public var id: String { rawValue }
 
         public var title: String {
@@ -20,7 +21,7 @@ public struct AlertRule: Codable, Identifiable, Hashable, Sendable {
             case .notResponding: return "An application stops responding"
             case .preventingSleep: return "A process keeps the Mac awake"
             case .sensors: return "A process uses the microphone, camera or screen recording"
-            case .expression: return "A process meets a condition"
+            case .matches: return "A process matches the filter"
             }
         }
 
@@ -37,7 +38,7 @@ public struct AlertRule: Codable, Identifiable, Hashable, Sendable {
             case .notResponding: return "Not responding"
             case .preventingSleep: return "Preventing sleep"
             case .sensors: return "Microphone, camera or screen"
-            case .expression: return "Condition"
+            case .matches: return "Matches"
             }
         }
 
@@ -81,42 +82,74 @@ public struct AlertRule: Codable, Identifiable, Hashable, Sendable {
     public var id = UUID()
     public var enabled = true
     public var trigger: Trigger
-    /// Search text selecting the processes (name, PID, path, command line, user, bundle ID); empty
-    /// for any process. As in the process search field, `/pattern/` is a regular expression and
-    /// `=expression` an expression (see `ProcessMatcher`).
+    /// The filter selecting the processes the rule watches, matched as `mode` says; empty for any
+    /// process. For `.matches` it's the condition itself, and mustn't be empty.
     public var process = ""
-    public var regex = false
-    /// For `.expression`: a JavaScript expression over the process's fields, such as
-    /// `cpu > 50 && memory > 2 * GB` (see `ProcessExpressions`). Optional so rules saved before it
-    /// existed still decode.
-    public var condition: String?
+    public var mode = SearchMode.text
     /// In the trigger's unit (see `Trigger.unit`).
     public var threshold: Double = 0
     /// Seconds the condition must hold before the alert.
     public var duration: Double = 0
 
-    public init(id: UUID = UUID(), enabled: Bool = true, trigger: Trigger, process: String = "", regex: Bool = false,
-                condition: String? = nil, threshold: Double = 0, duration: Double = 0) {
+    public init(id: UUID = UUID(), enabled: Bool = true, trigger: Trigger, process: String = "", mode: SearchMode = .text,
+                threshold: Double = 0, duration: Double = 0) {
         self.id = id
         self.enabled = enabled
         self.trigger = trigger
         self.process = process
-        self.regex = regex
-        self.condition = condition
+        self.mode = mode
         self.threshold = threshold
         self.duration = duration
     }
 
-    /// The condition's expression, without any leading "=".
-    public var conditionSource: String {
-        ProcessExpressions.source(condition ?? "")
+    private enum CodingKeys: String, CodingKey {
+        case id, enabled, trigger, process, mode, threshold, duration
+        /// Saved before filters had a mode.
+        case regex, condition
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
+        trigger = try c.decode(Trigger.self, forKey: .trigger)
+        process = try c.decodeIfPresent(String.self, forKey: .process) ?? ""
+        threshold = try c.decodeIfPresent(Double.self, forKey: .threshold) ?? 0
+        duration = try c.decodeIfPresent(Double.self, forKey: .duration) ?? 0
+        if let mode = try c.decodeIfPresent(SearchMode.self, forKey: .mode) {
+            self.mode = mode
+            return
+        }
+        // Before modes, a regex flag chose regular expressions, "=" started an expression, and the
+        // condition trigger had its expression apart from the process filter (which it now replaces).
+        mode = try c.decodeIfPresent(Bool.self, forKey: .regex) == true ? .regex : .text
+        if let expression = ProcessExpressions.legacyExpression(in: process) {
+            process = expression
+            mode = .javascript
+        }
+        if trigger == .matches, let condition = try c.decodeIfPresent(String.self, forKey: .condition) {
+            let expression = ProcessExpressions.legacyExpression(in: condition) ?? condition.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !expression.isEmpty {
+                process = expression
+                mode = .javascript
+            }
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(enabled, forKey: .enabled)
+        try c.encode(trigger, forKey: .trigger)
+        try c.encode(process, forKey: .process)
+        try c.encode(mode, forKey: .mode)
+        try c.encode(threshold, forKey: .threshold)
+        try c.encode(duration, forKey: .duration)
     }
 
     public var summary: String {
         var parts: [String] = []
-        if trigger == .expression {
-            parts.append(conditionSource.isEmpty ? "No condition" : conditionSource)
-        } else if trigger.hasThreshold {
+        if trigger.hasThreshold {
             parts.append("\(trigger.shortTitle) > \(Self.number(threshold)) \(trigger.unit)")
         } else {
             parts.append(trigger.shortTitle)
@@ -124,8 +157,8 @@ public struct AlertRule: Codable, Identifiable, Hashable, Sendable {
         if trigger.hasDuration, duration > 0 {
             parts.append("for \(Self.durationTitle(duration))")
         }
-        let p = process.trimmingCharacters(in: .whitespaces)
-        parts.append(p.isEmpty ? "any process" : "“\(p)”")
+        let p = process.trimmingCharacters(in: .whitespacesAndNewlines)
+        parts.append(p.isEmpty ? (trigger == .matches ? "no filter" : "any process") : mode.describe(p))
         return parts.joined(separator: " · ")
     }
 
@@ -176,8 +209,8 @@ public struct AlertEvaluator {
     private var known = Set<ProcessKey>()
     private var exited = Set<ProcessKey>()
     private var hasBaseline = false
-    private var matchers: [UUID: (text: String, regex: Bool, matcher: ProcessMatcher)] = [:]
-    /// Compiles expressions in process searches and conditions; nil leaves them unavailable.
+    private var matchers: [UUID: (text: String, mode: SearchMode, matcher: ProcessMatcher)] = [:]
+    /// Compiles the filters' expressions; nil leaves them unavailable.
     private let expressions: (any ProcessExpressionCompiler)?
 
     public init(expressions: (any ProcessExpressionCompiler)? = nil) {
@@ -202,15 +235,8 @@ public struct AlertEvaluator {
         var active = Set<Episode>()
         for rule in rules {
             let matcher = matcher(for: rule)
-            guard matcher.isValid else { continue }
-            var condition: (any CompiledProcessExpression)?
-            if rule.trigger == .expression {
-                let source = rule.conditionSource
-                guard !source.isEmpty, let compiled = expressions?.compileProcessExpression(source), compiled.error == nil else {
-                    continue
-                }
-                condition = compiled
-            }
+            // A "matches" rule without a filter would match every process.
+            guard matcher.isValid, rule.trigger != .matches || !matcher.isEmpty else { continue }
             for item in items where matcher.matches(item) {
                 switch rule.trigger {
                 case .started:
@@ -226,7 +252,7 @@ public struct AlertEvaluator {
                 default:
                     break
                 }
-                guard !item.isRemoved, condition?.matches(item) ?? Self.holds(rule, item, cpuScale: cpuScale) else { continue }
+                guard !item.isRemoved, Self.holds(rule, item, cpuScale: cpuScale) else { continue }
                 let episode = Episode(rule: rule.id, process: item.key)
                 active.insert(episode)
                 let start = since[episode] ?? now
@@ -246,11 +272,11 @@ public struct AlertEvaluator {
     }
 
     private mutating func matcher(for rule: AlertRule) -> ProcessMatcher {
-        if let cached = matchers[rule.id], cached.text == rule.process, cached.regex == rule.regex {
+        if let cached = matchers[rule.id], cached.text == rule.process, cached.mode == rule.mode {
             return cached.matcher
         }
-        let m = ProcessMatcher(rule.process, regex: rule.regex, engine: expressions)
-        matchers[rule.id] = (rule.process, rule.regex, m)
+        let m = ProcessMatcher(rule.process, mode: rule.mode, engine: expressions)
+        matchers[rule.id] = (rule.process, rule.mode, m)
         return m
     }
 
@@ -265,7 +291,8 @@ public struct AlertEvaluator {
         case .notResponding: return item.isNotResponding
         case .preventingSleep: return item.sleepPrevention != nil
         case .sensors: return !item.sensors.isEmpty
-        case .started, .exited, .expression: return false
+        case .matches: return true
+        case .started, .exited: return false
         }
     }
 }

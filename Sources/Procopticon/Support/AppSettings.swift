@@ -26,7 +26,23 @@ final class AppSettings: ObservableObject {
     @Published var showStatusBar: Bool { didSet { save("showStatusBar", showStatusBar) } }
     @Published var menuBarGraph: MenuBarGraphKind { didSet { save("menuBarGraph", menuBarGraph.rawValue) } }
     @Published var searchEngineURL: String { didSet { save("searchEngineURL", searchEngineURL) } }
-    @Published var searchUsesRegex: Bool { didSet { save("searchUsesRegex", searchUsesRegex); apply() } }
+    /// Search text is a regular expression, in every search field.
+    @Published var searchUsesRegex: Bool {
+        didSet {
+            save("searchUsesRegex", searchUsesRegex)
+            if searchUsesRegex, searchUsesJavaScript { searchUsesJavaScript = false }
+            apply()
+        }
+    }
+    /// The process search is a JavaScript expression (see `ProcessExpressions`); other searches
+    /// don't have this mode. Exclusive with `searchUsesRegex`.
+    @Published var searchUsesJavaScript: Bool {
+        didSet {
+            save("searchUsesJavaScript", searchUsesJavaScript)
+            if searchUsesJavaScript, searchUsesRegex { searchUsesRegex = false }
+            apply()
+        }
+    }
     @Published var processListMonospaced: Bool { didSet { save("processListMonospaced", processListMonospaced) } }
     @Published var processListFontSize: Double { didSet { save("processListFontSize", processListFontSize) } }
     @Published var appearance: AppearanceMode { didSet { save("appearance", appearance.rawValue); applyAppearance() } }
@@ -142,14 +158,16 @@ final class AppSettings: ObservableObject {
         showStatusBar = b("showStatusBar", true)
         menuBarGraph = MenuBarGraphKind(rawValue: defaults.string(forKey: "menuBarGraph") ?? "") ?? .cpu
         searchEngineURL = defaults.string(forKey: "searchEngineURL") ?? "https://duckduckgo.com/?q=%s"
-        searchUsesRegex = b("searchUsesRegex", false)
+        let regex = b("searchUsesRegex", false)
+        searchUsesRegex = regex
+        searchUsesJavaScript = b("searchUsesJavaScript", false) && !regex
         processListMonospaced = b("processListMonospaced", false)
         processListFontSize = d("processListFontSize", Double(NSFont.systemFontSize(for: .small) + 1))
         appearance = AppearanceMode(rawValue: defaults.string(forKey: "appearance") ?? "") ?? .system
         accent = AccentChoice(rawValue: defaults.string(forKey: "accent") ?? "") ?? .system
         accentCustom = defaults.string(forKey: "accentCustom").flatMap(NSColor.init(hex:)) ?? .systemTeal
         if let data = defaults.data(forKey: "savedFilters"), let list = try? JSONDecoder().decode([SavedFilter].self, from: data) {
-            savedFilters = list
+            savedFilters = list.map { $0.migrated() }
         } else {
             savedFilters = SavedFilter.defaults
         }
@@ -228,7 +246,7 @@ final class AppSettings: ObservableObject {
         f.hideSystemProcesses = hideSystemProcesses
         f.hideAppleProcesses = hideAppleProcesses
         f.hideZombies = hideZombies
-        f.regex = searchUsesRegex
+        f.mode = processSearchMode
         f.onlyApplications = onlyApplications
         f.onlyNotResponding = onlyNotResponding
         store.filter = f
@@ -237,11 +255,20 @@ final class AppSettings: ObservableObject {
         NetworkStore.shared.resolveAddresses = resolveAddresses
     }
 
+    /// How the process search matches.
+    var processSearchMode: SearchMode {
+        get { searchUsesJavaScript ? .javascript : searchUsesRegex ? .regex : .text }
+        set {
+            searchUsesJavaScript = newValue == .javascript
+            searchUsesRegex = newValue == .regex
+        }
+    }
+
     /// Hands the enabled custom highlight rules to the store, which evaluates them for each process.
     private func applyCustomHighlights() {
-        ProcessStore.shared.highlightExpressions = customHighlights
-            .filter { $0.enabled && !$0.source.isEmpty }
-            .map { HighlightExpression(id: $0.id, expression: $0.source) }
+        ProcessStore.shared.highlightFilters = customHighlights
+            .filter(\.enabled)
+            .map { HighlightFilter(id: $0.id, text: $0.text, mode: $0.mode) }
     }
 
     func applyWindowLevel() {
@@ -265,8 +292,9 @@ struct CustomHighlight: Codable, Identifiable, Hashable {
     var id = UUID()
     var enabled = true
     var name = ""
-    /// A JavaScript expression over the process's values; see `ProcessExpressions`.
-    var expression = ""
+    /// What the rule matches, as `mode` says: text, a regular expression or a JavaScript expression.
+    var text = ""
+    var mode = SearchMode.text
     var colorHex = "#FF9F0A"
 
     var color: NSColor {
@@ -274,18 +302,55 @@ struct CustomHighlight: Codable, Identifiable, Hashable {
         set { colorHex = newValue.hexString }
     }
 
-    /// The expression, without any leading "=".
-    var source: String { ProcessExpressions.source(expression) }
-
     var title: String {
         let n = name.trimmingCharacters(in: .whitespaces)
-        return n.isEmpty ? source : n
+        return n.isEmpty ? mode.describe(text.trimmingCharacters(in: .whitespacesAndNewlines)) : n
     }
 
     static let examples: [CustomHighlight] = [
-        CustomHighlight(enabled: false, name: "Using over 2 GB of memory", expression: "memory > 2 * GB", colorHex: "#FF6482"),
-        CustomHighlight(enabled: false, name: "Busy for an hour or more", expression: "cpu > 50 && age > 3600", colorHex: "#FF9F0A"),
+        CustomHighlight(enabled: false, name: "Using over 2 GB of memory", text: "memory > 2 * GB", mode: .javascript, colorHex: "#FF6482"),
+        CustomHighlight(enabled: false, name: "Busy for an hour or more", text: "cpu > 50 && age > 3600", mode: .javascript, colorHex: "#FF9F0A"),
     ]
+
+    init(enabled: Bool = true, name: String = "", text: String = "", mode: SearchMode = .text, colorHex: String = "#FF9F0A") {
+        self.enabled = enabled
+        self.name = name
+        self.text = text
+        self.mode = mode
+        self.colorHex = colorHex
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, enabled, name, text, mode, colorHex
+        /// Before rules had a mode, each was a JavaScript expression.
+        case expression
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
+        name = try c.decodeIfPresent(String.self, forKey: .name) ?? ""
+        colorHex = try c.decodeIfPresent(String.self, forKey: .colorHex) ?? colorHex
+        if let mode = try c.decodeIfPresent(SearchMode.self, forKey: .mode) {
+            self.mode = mode
+            text = try c.decodeIfPresent(String.self, forKey: .text) ?? ""
+        } else {
+            let expression = try c.decodeIfPresent(String.self, forKey: .expression) ?? ""
+            text = ProcessExpressions.legacyExpression(in: expression) ?? expression
+            mode = .javascript
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(enabled, forKey: .enabled)
+        try c.encode(name, forKey: .name)
+        try c.encode(text, forKey: .text)
+        try c.encode(mode, forKey: .mode)
+        try c.encode(colorHex, forKey: .colorHex)
+    }
 }
 
 /// Row highlighting categories, highest priority first.

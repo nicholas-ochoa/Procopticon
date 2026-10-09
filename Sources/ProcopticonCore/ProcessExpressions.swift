@@ -71,63 +71,82 @@ private final class UnavailableExpression: CompiledProcessExpression {
     }
 }
 
-/// JavaScript expressions over a process's values, for the search field ("=cpu > 50"), custom
-/// highlight rules and alert conditions.
-public enum ProcessExpressions {
-    /// Search text starting with this is an expression.
-    public static let prefix = "="
+/// How filter text matches: as plain text, a regular expression, or (for processes) a JavaScript
+/// expression over the process's values.
+public enum SearchMode: String, Codable, CaseIterable, Identifiable, Sendable {
+    case text, regex, javascript
 
-    /// The expression in search text written as "=expression", or nil for other text.
-    public static func expression(in text: String) -> String? {
-        let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard t.hasPrefix(prefix) else { return nil }
-        return t.dropFirst(prefix.count).trimmingCharacters(in: .whitespacesAndNewlines)
+    public var id: String { rawValue }
+
+    public var title: String {
+        switch self {
+        case .text: return "Text"
+        case .regex: return "Regex"
+        case .javascript: return "JavaScript"
+        }
     }
 
-    /// An expression typed where only expressions go (a highlight rule, an alert condition), which
-    /// may also be written with the "=" of the search field.
-    public static func source(_ text: String) -> String {
-        expression(in: text) ?? text.trimmingCharacters(in: .whitespacesAndNewlines)
+    /// Filter text in this mode, for a summary: “text”, /regex/ or the expression as it is.
+    public func describe(_ text: String) -> String {
+        switch self {
+        case .text: return "“\(text)”"
+        case .regex: return "/\(text)/"
+        case .javascript: return text
+        }
     }
 }
 
-/// What search text selects in the process list: plain text or a regular expression (see
-/// `SearchMatcher`) against the name, PID, path, command line, user and bundle ID, or, written as
-/// "=expression", a JavaScript expression over the process's fields (see `ProcessExpressions`).
+/// JavaScript expressions over a process's values, for the process search, saved filters, custom
+/// highlight rules and alerts. Their fields are in the ProcopticonExpressions module.
+public enum ProcessExpressions {
+    /// The expression in text written as "=expression", which is how an expression was entered
+    /// before filters had a mode; nil for other text. For converting saved settings.
+    public static func legacyExpression(in text: String) -> String? {
+        let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard t.hasPrefix("=") else { return nil }
+        return t.dropFirst().trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+/// What filter text selects among processes: plain text or a regular expression (see
+/// `SearchMatcher`) against the name, PID, path, command line, user and bundle ID, or a JavaScript
+/// expression over the process's fields (see `ProcessExpressions`).
 public struct ProcessMatcher {
-    private enum Mode {
+    private enum Kind {
         case text(SearchMatcher)
         case expression(any CompiledProcessExpression)
     }
 
-    private let mode: Mode
+    private let kind: Kind
 
     /// `engine` compiles an expression; use the matcher on the engine's thread.
-    public init(_ text: String, regex: Bool = false, engine: (any ProcessExpressionCompiler)?) {
-        if let source = ProcessExpressions.expression(in: text) {
-            // "=" alone, as you start typing an expression, still shows everything.
-            mode = source.isEmpty ? .text(SearchMatcher(""))
+    public init(_ text: String, mode: SearchMode, engine: (any ProcessExpressionCompiler)?) {
+        switch mode {
+        case .text, .regex:
+            kind = .text(SearchMatcher(text, regex: mode == .regex))
+        case .javascript:
+            let source = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            // Like empty search text, an empty expression matches everything.
+            kind = source.isEmpty ? .text(SearchMatcher(""))
                 : .expression(engine?.compileProcessExpression(source) ?? UnavailableExpression())
-        } else {
-            mode = .text(SearchMatcher(text, regex: regex))
         }
     }
 
     /// Matches every process.
     public var isEmpty: Bool {
-        if case .text(let m) = mode { return m.isEmpty }
+        if case .text(let m) = kind { return m.isEmpty }
         return false
     }
 
     public var isExpression: Bool {
-        if case .expression = mode { return true }
+        if case .expression = kind { return true }
         return false
     }
 
     /// Why the text can't be used: an invalid regular expression, or an expression that doesn't
     /// compile.
     public var error: String? {
-        switch mode {
+        switch kind {
         case .text(let m): return m.error
         case .expression(let e): return e.error
         }
@@ -137,7 +156,7 @@ public struct ProcessMatcher {
 
     /// Whether `item` matches, or why an expression couldn't tell.
     public func evaluate(_ item: ProcessItem) -> Result<Bool, ExpressionError> {
-        switch mode {
+        switch kind {
         case .text(let m): return .success(m.isEmpty || item.matches(m))
         case .expression(let e): return e.evaluate(item)
         }
@@ -152,14 +171,16 @@ public struct ProcessMatcher {
     }
 }
 
-/// A custom highlight rule as the store evaluates it: processes meeting `expression` get `id` as
-/// their `ProcessItem.customHighlight` (the first such rule's).
-public struct HighlightExpression: Equatable, Sendable {
+/// A custom highlight rule as the store evaluates it: processes matching `text` (in `mode`) get
+/// `id` as their `ProcessItem.customHighlight` (the first such rule's).
+public struct HighlightFilter: Equatable, Sendable {
     public var id: UUID
-    public var expression: String
+    public var text: String
+    public var mode: SearchMode
 
-    public init(id: UUID, expression: String) {
+    public init(id: UUID, text: String, mode: SearchMode) {
         self.id = id
-        self.expression = expression
+        self.text = text
+        self.mode = mode
     }
 }

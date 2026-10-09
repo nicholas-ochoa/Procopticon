@@ -67,25 +67,28 @@ final class AlertEvaluatorTests: XCTestCase {
         XCTAssertTrue(evaluator.evaluate(rules, items: [ProcessItem(busy)], cpuScale: 1).isEmpty)
     }
 
-    func testConditionsAndExpressionProcessFilters() {
+    func testMatchesTriggerAndFilterModes() {
         var evaluator = AlertEvaluator(expressions: ProcessExpressionEngine())
         let busy = state(50, "busy")
         busy.cpu = 70
         let quiet = state(51, "quiet")
         quiet.cpu = 70
-        let condition = AlertRule(trigger: .expression, process: "busy", condition: "= cpu > 60 && pid == 50", duration: 5)
-        let filtered = AlertRule(trigger: .cpu, process: "=name.startsWith('qu')", threshold: 60)
+        let matches = AlertRule(trigger: .matches, process: "cpu > 60 && name == 'busy'", mode: .javascript, duration: 5)
+        let filtered = AlertRule(trigger: .cpu, process: "^qu", mode: .regex, threshold: 60)
         let t0 = Date(timeIntervalSince1970: 2000)
         func run(_ t: Double) -> [String] {
-            evaluator.evaluate([condition, filtered], items: [ProcessItem(busy), ProcessItem(quiet)], cpuScale: 1, now: t0 + t)
+            evaluator.evaluate([matches, filtered], items: [ProcessItem(busy), ProcessItem(quiet)], cpuScale: 1, now: t0 + t)
                 .map { "\($0.rule.trigger.rawValue):\($0.item.pid)" }
         }
         XCTAssertEqual(run(0), ["cpu:51"])
-        XCTAssertEqual(run(5), ["expression:50"], "the condition held for its duration")
+        XCTAssertEqual(run(5), ["expression:50"], "the filter matched for its duration")
         busy.cpu = 10
         XCTAssertEqual(run(6), [])
-        // Conditions that don't compile, or are empty, never fire.
-        let broken = [AlertRule(trigger: .expression, condition: "cpu >"), AlertRule(trigger: .expression, condition: "  ")]
+        // A filter that doesn't compile never fires, and neither does an empty one, which would
+        // match every process.
+        let broken = [AlertRule(trigger: .matches, process: "cpu >", mode: .javascript),
+                      AlertRule(trigger: .matches, process: "  ", mode: .javascript),
+                      AlertRule(trigger: .matches, process: "")]
         XCTAssertTrue(evaluator.evaluate(broken, items: [ProcessItem(busy)], cpuScale: 1).isEmpty)
     }
 
@@ -94,12 +97,27 @@ final class AlertEvaluatorTests: XCTestCase {
         let decoded = try JSONDecoder().decode(AlertRule.self, from: JSONEncoder().encode(rule))
         XCTAssertEqual(decoded, rule)
         XCTAssertEqual(rule.summary, "Memory > 8192 MB · for 1 minute · “Xcode”")
-        // Rules saved before conditions existed still decode.
-        let old = try JSONDecoder().decode(AlertRule.self, from: Data("""
-            {"id":"\(UUID().uuidString)","enabled":true,"trigger":"cpu","process":"","regex":false,"threshold":90,"duration":60}
-            """.utf8))
-        XCTAssertNil(old.condition)
-        let condition = AlertRule(trigger: .expression, condition: "=cpu > 50", duration: 30)
-        XCTAssertEqual(condition.summary, "cpu > 50 · for 30 seconds · any process")
+        let matches = AlertRule(trigger: .matches, process: "cpu > 50", mode: .javascript, duration: 30)
+        XCTAssertEqual(matches.summary, "Matches · for 30 seconds · cpu > 50")
+        XCTAssertEqual(AlertRule(trigger: .cpu, process: "^mds", mode: .regex).summary, "CPU > 0 % of one core · /^mds/")
+    }
+
+    func testRulesSavedBeforeModesDecode() throws {
+        func decode(_ json: String) throws -> AlertRule {
+            try JSONDecoder().decode(AlertRule.self, from: Data(json.utf8))
+        }
+        let id = UUID().uuidString
+        let plain = try decode(#"{"id":"\#(id)","enabled":true,"trigger":"cpu","process":"Safari","regex":false,"threshold":90,"duration":60}"#)
+        XCTAssertEqual(plain.mode, .text)
+        XCTAssertEqual(plain.process, "Safari")
+        let regex = try decode(#"{"id":"\#(id)","enabled":true,"trigger":"cpu","process":"^mds","regex":true,"threshold":90,"duration":60}"#)
+        XCTAssertEqual(regex.mode, .regex)
+        let equals = try decode(#"{"id":"\#(id)","enabled":true,"trigger":"memory","process":"= user == 'root'","regex":false,"threshold":1,"duration":0}"#)
+        XCTAssertEqual(equals.mode, .javascript)
+        XCTAssertEqual(equals.process, "user == 'root'")
+        let condition = try decode(#"{"id":"\#(id)","enabled":true,"trigger":"expression","process":"","regex":false,"condition":"=cpu > 50","threshold":0,"duration":30}"#)
+        XCTAssertEqual(condition.trigger, .matches)
+        XCTAssertEqual(condition.mode, .javascript)
+        XCTAssertEqual(condition.process, "cpu > 50")
     }
 }

@@ -27,6 +27,10 @@ extension ProcessExpressions {
         });
         """
 
+    /// The names of `fields` and of the constants, for coloring expressions.
+    public static let fieldNames = Set(fields.map(\.name))
+    public static let constantNames: Set<String> = ["KB", "MB", "GB", "TB"]
+
     public static let constants: [(name: String, help: String)] = [
         ("KB, MB, GB, TB", "Byte units (1 KB = 1024 bytes): memory > 2 * GB"),
     ]

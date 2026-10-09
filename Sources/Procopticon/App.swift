@@ -184,6 +184,8 @@ struct ViewMenuFilterItems: View {
         Divider()
         Toggle("Use Regular Expressions in Search", isOn: $settings.searchUsesRegex)
             .keyboardShortcut("r", modifiers: [.command, .option])
+        Toggle("Use JavaScript in Process Search", isOn: $settings.searchUsesJavaScript)
+            .keyboardShortcut("j", modifiers: [.command, .option])
         Button("Expression Reference") { ExpressionReferenceWindow.open() }
     }
 }

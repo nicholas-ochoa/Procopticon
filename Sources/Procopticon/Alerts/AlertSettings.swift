@@ -135,12 +135,8 @@ struct AlertSettings: View {
 
 struct AlertRuleEditor: View {
     @Binding var rule: AlertRule
-    /// What the process text matches among the running processes; checked when the text changes
-    /// rather than at every sample, so the form isn't rebuilt each second while you type.
-    @State private var processes = ExpressionCheck.Outcome()
 
     var body: some View {
-        let anyProcess = ProcessMatcher(rule.process, regex: rule.regex, engine: ExpressionCheck.engine).isEmpty
         VStack(spacing: 0) {
             Form {
                 Section {
@@ -167,39 +163,14 @@ struct AlertRuleEditor: View {
                 } footer: {
                     Text(explanation).font(.caption).foregroundStyle(.secondary)
                 }
-                if rule.trigger == .expression {
-                    Section {
-                        ProcessExpressionField(text: Binding(get: { rule.condition ?? "" }, set: { rule.condition = $0 }),
-                                               prompt: "cpu > 50 && memory > 2 * GB")
-                    } header: {
-                        HStack {
-                            Text("Condition")
-                            Spacer()
-                            ExpressionReferenceButton()
-                        }
-                    }
-                }
-                Section {
-                    TextField("Process", text: $rule.process, prompt: Text("Any process"))
-                    Toggle("Regular expression", isOn: $rule.regex)
-                    ExpressionStatus(outcome: processes, placeholder: anyProcess
-                        ? "Matches every process. Search by name, PID, path, command line, user or bundle ID, or write =expression."
-                        : nil)
-                } header: {
-                    HStack {
-                        Text("Processes")
-                        Spacer()
-                        if rule.trigger != .expression {
-                            ExpressionReferenceButton()
-                        }
-                    }
+                Section(rule.trigger == .matches ? "Filter" : "Processes") {
+                    FilterEditor(text: $rule.process, mode: $rule.mode, emptyStatus: rule.trigger == .matches
+                        ? "This rule needs a filter: it alerts for the processes that match it."
+                        : "Watches every process.")
                 }
             }
             .formStyle(.grouped)
             .scrollContentBackground(.hidden)
-            .task(id: "\(rule.id)\(rule.process)\(rule.regex)") {
-                processes = ExpressionCheck.search(rule.process, regex: rule.regex)
-            }
             HStack {
                 Spacer()
                 Button("Send Test Alert") {
@@ -237,7 +208,7 @@ struct AlertRuleEditor: View {
         case .notResponding: return "When the window server finds the app hung (the spinning wait cursor)."
         case .preventingSleep: return "When the process holds a power assertion that keeps the Mac or its display awake."
         case .sensors: return "The microphone from Core Audio; the camera and screen recording from Control Center's privacy indicators."
-        case .expression: return "When a JavaScript expression over the process's values is true, checked at each update. Processes limits which processes it watches."
+        case .matches: return "When a process matches the filter below, for at least the time above. For a condition on its values, pick JavaScript, as in cpu > 50 && memory > 2 * GB."
         }
     }
 }

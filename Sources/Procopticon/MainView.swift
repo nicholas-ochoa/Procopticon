@@ -333,10 +333,11 @@ struct MainSearchField: View {
         RegexSearchFieldView(
             text: state.searchBinding,
             regex: $settings.searchUsesRegex,
+            javaScript: state.tab == .processes ? $settings.searchUsesJavaScript : nil,
             prompt: state.tab == .processes ? "Search processes" : "Search \(state.tab.rawValue.lowercased())",
             toolTip: state.tab == .processes
-                ? "Filter the list by name, PID, path, command line or user. Use /pattern/ for a regular expression, or =expression to filter with JavaScript, e.g. =cpu > 10 && user == \"root\" (⌘F)"
-                : "Filter the list. Use /pattern/ for a regular expression (⌘F)",
+                ? "Filter the list by name, PID, path, command line or user. Click .* for a regular expression, or {} for a JavaScript expression such as cpu > 10 && user == \"root\" (⌘F)"
+                : "Filter the list. Click .* or write /pattern/ for a regular expression (⌘F)",
             focusOnFind: true)
             .frame(minWidth: 180, idealWidth: 260, maxWidth: 360)
     }
@@ -838,6 +839,8 @@ private struct ToolbarClusterCell<Label: View>: View {
 struct RegexSearchFieldView: NSViewRepresentable {
     @Binding var text: String
     @Binding var regex: Bool
+    /// When given, a {} toggle for JavaScript expressions (the process search).
+    var javaScript: Binding<Bool>?
     var prompt: String
     var toolTip: String?
     /// The search is invalid (e.g. a malformed regular expression); the toggle turns red.
@@ -852,7 +855,11 @@ struct RegexSearchFieldView: NSViewRepresentable {
         field.delegate = context.coordinator
         field.regexButton.target = context.coordinator
         field.regexButton.action = #selector(Coordinator.toggleRegex(_:))
+        field.javaScriptButton.target = context.coordinator
+        field.javaScriptButton.action = #selector(Coordinator.toggleJavaScript(_:))
         field.isRegex = regex
+        field.showsJavaScript = javaScript != nil
+        field.isJavaScript = javaScript?.wrappedValue ?? false
         field.isInvalid = isInvalid
         field.sendsSearchStringImmediately = true
         field.sendsWholeSearchString = false
@@ -876,6 +883,12 @@ struct RegexSearchFieldView: NSViewRepresentable {
         }
         if field.isRegex != regex {
             field.isRegex = regex
+        }
+        if field.showsJavaScript != (javaScript != nil) {
+            field.showsJavaScript = javaScript != nil
+        }
+        if field.isJavaScript != (javaScript?.wrappedValue ?? false) {
+            field.isJavaScript = javaScript?.wrappedValue ?? false
         }
         if field.isInvalid != isInvalid {
             field.isInvalid = isInvalid
@@ -909,6 +922,10 @@ struct RegexSearchFieldView: NSViewRepresentable {
             parent.regex = sender.state == .on
         }
 
+        @objc func toggleJavaScript(_ sender: NSButton) {
+            parent.javaScript?.wrappedValue = sender.state == .on
+        }
+
         func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
             // Escape clears the search, like the standard toolbar search field.
             if selector == #selector(NSResponder.cancelOperation(_:)) {
@@ -921,10 +938,11 @@ struct RegexSearchFieldView: NSViewRepresentable {
     }
 }
 
-/// Search field with a ".*" toggle inside its trailing edge. The cell narrows the text area and moves
-/// the clear button left so the two don't overlap.
+/// Search field with a ".*" toggle (and optionally a "{}" one for JavaScript) inside its trailing
+/// edge. The cell narrows the text area and moves the clear button left so they don't overlap.
 final class RegexSearchField: NSSearchField {
     let regexButton = NSButton(title: ".*", target: nil, action: nil)
+    let javaScriptButton = NSButton(title: "{}", target: nil, action: nil)
 
     override class var cellClass: AnyClass? {
         get { RegexSearchFieldCell.self }
@@ -932,21 +950,41 @@ final class RegexSearchField: NSSearchField {
     }
 
     var isRegex = false {
-        didSet { updateRegexButton() }
+        didSet { updateButtons() }
+    }
+
+    var isJavaScript = false {
+        didSet { updateButtons() }
+    }
+
+    var showsJavaScript = false {
+        didSet {
+            javaScriptButton.isHidden = !showsJavaScript
+            updateButtons()
+            needsLayout = true
+            needsDisplay = true
+        }
     }
 
     var isInvalid = false {
-        didSet { updateRegexButton() }
+        didSet { updateButtons() }
     }
+
+    /// The toggles inside the trailing edge.
+    var accessoryCount: Int { showsJavaScript ? 2 : 1 }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        regexButton.setButtonType(.pushOnPushOff)
-        regexButton.isBordered = false
-        regexButton.font = .monospacedSystemFont(ofSize: 12, weight: .semibold)
+        for button in [regexButton, javaScriptButton] {
+            button.setButtonType(.pushOnPushOff)
+            button.isBordered = false
+            button.font = .monospacedSystemFont(ofSize: 12, weight: .semibold)
+            addSubview(button)
+        }
         regexButton.setAccessibilityLabel("Regular expression")
-        addSubview(regexButton)
-        updateRegexButton()
+        javaScriptButton.setAccessibilityLabel("JavaScript expression")
+        javaScriptButton.isHidden = true
+        updateButtons()
     }
 
     required init?(coder: NSCoder) {
@@ -957,29 +995,49 @@ final class RegexSearchField: NSSearchField {
         super.layout()
         let width = RegexSearchFieldCell.accessoryWidth
         regexButton.frame = NSRect(x: bounds.maxX - width - 6, y: bounds.minY, width: width, height: bounds.height)
+        javaScriptButton.frame = regexButton.frame.offsetBy(dx: -width, dy: 0)
     }
 
-    private func updateRegexButton() {
+    private func updateButtons() {
         regexButton.state = isRegex ? .on : .off
-        regexButton.contentTintColor = isInvalid ? .systemRed : isRegex ? .controlAccentColor : .secondaryLabelColor
+        regexButton.contentTintColor = isInvalid && isRegex ? .systemRed : isRegex ? .controlAccentColor : .secondaryLabelColor
         regexButton.toolTip = isRegex
             ? "Search text is a regular expression. Click for plain text matching (⌥⌘R)"
             : "Treat search text as a regular expression (⌥⌘R)"
+        let javaScript = showsJavaScript && isJavaScript
+        javaScriptButton.state = javaScript ? .on : .off
+        javaScriptButton.contentTintColor = isInvalid && javaScript ? .systemRed : javaScript ? .controlAccentColor : .secondaryLabelColor
+        javaScriptButton.toolTip = javaScript
+            ? "Search text is a JavaScript expression over each process's values. Click for plain text matching (⌥⌘J)"
+            : "Search with a JavaScript expression, such as cpu > 10 && user == \"root\" (⌥⌘J)"
+        // Patterns and code read better in a fixed-width font.
+        let size = self.font?.pointSize ?? NSFont.systemFontSize
+        let font: NSFont = isRegex || javaScript
+            ? .monospacedSystemFont(ofSize: size, weight: .regular)
+            : .systemFont(ofSize: size)
+        if self.font != font {
+            self.font = font
+            (currentEditor() as? NSTextView)?.font = font
+        }
     }
 }
 
 final class RegexSearchFieldCell: NSSearchFieldCell {
     static let accessoryWidth: CGFloat = 24
 
+    private var accessoriesWidth: CGFloat {
+        Self.accessoryWidth * CGFloat((controlView as? RegexSearchField)?.accessoryCount ?? 1)
+    }
+
     override func searchTextRect(forBounds rect: NSRect) -> NSRect {
         var r = super.searchTextRect(forBounds: rect)
-        r.size.width -= Self.accessoryWidth
+        r.size.width -= accessoriesWidth
         return r
     }
 
     override func cancelButtonRect(forBounds rect: NSRect) -> NSRect {
         var r = super.cancelButtonRect(forBounds: rect)
-        r.origin.x -= Self.accessoryWidth
+        r.origin.x -= accessoriesWidth
         return r
     }
 
@@ -987,8 +1045,12 @@ final class RegexSearchFieldCell: NSSearchFieldCell {
     // add the toggle so VoiceOver can reach it.
     override func accessibilityChildren() -> [Any]? {
         var children = super.accessibilityChildren() ?? []
-        if let field = controlView as? RegexSearchField, let toggle = NSAccessibility.unignoredDescendant(of: field.regexButton) {
-            children.append(toggle)
+        if let field = controlView as? RegexSearchField {
+            for button in field.showsJavaScript ? [field.javaScriptButton, field.regexButton] : [field.regexButton] {
+                if let toggle = NSAccessibility.unignoredDescendant(of: button) {
+                    children.append(toggle)
+                }
+            }
         }
         return children
     }

@@ -15,24 +15,13 @@ enum ExpressionCheck {
         var error: String?
     }
 
-    /// Search text as the process list uses it: plain text, a regular expression or "=expression".
-    static func search(_ text: String, regex: Bool) -> Outcome {
-        let matcher = ProcessMatcher(text, regex: regex, engine: engine)
+    /// Filter text as the process list would use it.
+    static func search(_ text: String, mode: SearchMode) -> Outcome {
+        let matcher = ProcessMatcher(text, mode: mode, engine: engine)
         if let error = matcher.error {
             return Outcome(error: error)
         }
         return run(matcher.evaluate)
-    }
-
-    /// An expression on its own, as in a highlight rule or an alert condition.
-    static func expression(_ text: String) -> Outcome {
-        let source = ProcessExpressions.source(text)
-        guard !source.isEmpty else { return Outcome() }
-        let compiled = engine.compile(source)
-        if let error = compiled.error {
-            return Outcome(error: error)
-        }
-        return run(compiled.evaluate)
     }
 
     private static func run(_ evaluate: (ProcessItem) -> Result<Bool, ExpressionError>) -> Outcome {
@@ -62,8 +51,6 @@ enum ExpressionCheck {
 /// What a search or expression matches among the running processes, or why it doesn't work.
 struct ExpressionStatus: View {
     let outcome: ExpressionCheck.Outcome
-    /// Shown when there's nothing to check.
-    var placeholder: String?
 
     var body: some View {
         if let error = outcome.error {
@@ -71,47 +58,9 @@ struct ExpressionStatus: View {
                 .foregroundStyle(.red)
                 .font(.caption)
                 .textSelection(.enabled)
-        } else if let placeholder {
-            Text(placeholder).font(.caption).foregroundStyle(.secondary)
         } else {
             Text(ExpressionCheck.summary(outcome.matches)).font(.caption).foregroundStyle(.secondary)
         }
-    }
-}
-
-/// A field for a JavaScript expression over a process's values (see `ProcessExpressions`), with
-/// what it matches among the running processes or why it doesn't work.
-struct ProcessExpressionField: View {
-    @Binding var text: String
-    var prompt: String
-    @State private var outcome = ExpressionCheck.Outcome()
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            TextField("Expression", text: $text, prompt: Text(prompt), axis: .vertical)
-                .labelsHidden()
-                .font(.system(size: NSFont.systemFontSize, design: .monospaced))
-                .lineLimit(1...4)
-            ExpressionStatus(outcome: outcome,
-                             placeholder: ProcessExpressions.source(text).isEmpty ? "Enter an expression, such as \(prompt)." : nil)
-        }
-        // Checked when the text changes rather than at every sample, so the form isn't rebuilt
-        // each second while you type.
-        .task(id: text) { outcome = ExpressionCheck.expression(text) }
-    }
-}
-
-/// The round help button, showing the expression reference in a popover.
-struct ExpressionReferenceButton: View {
-    @State private var showing = false
-
-    var body: some View {
-        HelpLink { showing.toggle() }
-            .controlSize(.small)
-            .help("Show the values and examples expressions can use")
-            .popover(isPresented: $showing, arrowEdge: .trailing) {
-                ExpressionReference().frame(width: 580, height: 540)
-            }
     }
 }
 
@@ -132,16 +81,15 @@ struct ExpressionReference: View {
             VStack(alignment: .leading, spacing: 16) {
                 Text("""
                     An expression is JavaScript, evaluated for each process: the process matches when it's true. \
-                    The process's values below are its variables. Type one in the process search field after \
-                    “=”, as a custom highlight rule (Settings ▸ Highlighting), as an alert condition or to pick \
-                    the processes an alert watches (Settings ▸ Alerts).
+                    The process's values below are its variables. Use one in the process search field (click {} \
+                    or press ⌥⌘J), or pick JavaScript for a saved filter, a highlight rule or an alert in Settings.
                     """)
                     .fixedSize(horizontal: false, vertical: true)
                 section("Examples") {
                     Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 14, verticalSpacing: 6) {
                         ForEach(ProcessExpressions.examples, id: \.expression) { example in
                             GridRow {
-                                Text("=" + example.expression).font(.system(.body, design: .monospaced)).textSelection(.enabled)
+                                Text(example.expression).font(.system(.body, design: .monospaced)).textSelection(.enabled)
                                 Text(example.help).foregroundStyle(.secondary)
                             }
                         }

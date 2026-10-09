@@ -216,8 +216,16 @@ struct GeneralSettings: View {
                 Toggle("Show processes as a tree", isOn: $settings.treeView)
                 Toggle("Confirm before terminating or changing processes", isOn: $settings.confirmActions)
                 TextField("Online search URL (%s = name)", text: $settings.searchEngineURL)
-                Toggle("Treat search text as a regular expression", isOn: $settings.searchUsesRegex)
-                Text("Regardless of this setting, text written as /pattern/ is a regular expression (add c after the closing slash for case-sensitive matching).")
+                Picker("Search text is", selection: $settings.processSearchMode) {
+                    Text("Plain text").tag(SearchMode.text)
+                    Text("A regular expression").tag(SearchMode.regex)
+                    Text("A JavaScript expression (process list)").tag(SearchMode.javascript)
+                }
+                Text("""
+                    Regular expressions apply to every search field, JavaScript to the process list (other lists then \
+                    match plain text). In plain text, /pattern/ is a regular expression all the same; add c after the \
+                    closing slash for case-sensitive matching.
+                    """)
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("Window") {
@@ -337,16 +345,13 @@ struct HighlightSettings: View {
                     .buttonStyle(.borderless)
                     .help("Add a rule that colors the processes an expression matches")
                 } header: {
-                    HStack {
-                        Text("Custom rules")
-                        Spacer()
-                        ExpressionReferenceButton()
-                    }
+                    Text("Custom rules")
                 } footer: {
                     Text("""
-                        Each rule is a JavaScript expression over a process's values, such as memory > 2 * GB or \
-                        user == "root" && !appleSigned. Custom rules come after new and terminated processes and \
-                        before the built-in rules below; the first rule a process matches colors it.
+                        A rule matches processes as the search field does: by text, a regular expression, or a \
+                        JavaScript expression over the process's values, such as memory > 2 * GB. Custom rules come \
+                        after new and terminated processes and before the built-in rules below; the first rule a \
+                        process matches colors it.
                         """)
                 }
                 Section {
@@ -436,7 +441,7 @@ private struct CustomHighlightRow<Actions: View>: View {
                 .fixedSize()
                 .help("Move, duplicate or delete this rule")
             }
-            ProcessExpressionField(text: $rule.expression, prompt: "memory > 2 * GB")
+            FilterEditor(text: $rule.text, mode: $rule.mode, emptyStatus: "Matches nothing until it has something to match.")
                 .padding(.leading, 22)
                 .opacity(rule.enabled ? 1 : 0.6)
         }
