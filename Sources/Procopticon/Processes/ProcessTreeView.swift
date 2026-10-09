@@ -46,7 +46,7 @@ struct ProcessTreeView: View {
             autosaveName: "ProcessTree",
             key: { AnyHashable($0.key) },
             rowStyle: { Highlighter.style(for: $0) },
-            menu: { ProcessMenu.build(for: $0) },
+            menu: { ProcessMenu.build(for: $0, shortcuts: true) },
             onDoubleClick: { PropertiesWindow.open($0) },
             onSelectionChange: { ProcessSelection.shared.items = $0 },
             onDeleteKey: { ProcessActions.terminate($0) },
@@ -60,20 +60,28 @@ struct ProcessTreeView: View {
 
 @MainActor
 enum ProcessMenu {
-    static func build(for items: [ProcessItem]) -> NSMenu {
+    /// `shortcuts` shows the menu bar's shortcuts for the same commands. They act on the process
+    /// list's selection, so only its menu shows them; other tables of processes leave them off.
+    static func build(for items: [ProcessItem], shortcuts: Bool = false) -> NSMenu {
         let menu = NSMenu()
-        populate(menu, items: items)
+        populate(menu, items: items, shortcuts: shortcuts)
         return menu
     }
 
-    static func populate(_ menu: NSMenu, items: [ProcessItem]) {
+    static func populate(_ menu: NSMenu, items: [ProcessItem], shortcuts: Bool = false) {
         let live = items.filter { !$0.isRemoved }
         guard let first = live.first else { return }
         let single = live.count == 1
+        func shortcut(_ item: NSMenuItem, _ key: String, _ modifiers: NSEvent.ModifierFlags) {
+            guard shortcuts else { return }
+            item.keyEquivalent = key
+            item.keyEquivalentModifierMask = modifiers
+        }
+        let delete = String(UnicodeScalar(UInt8(NSBackspaceCharacter)))
 
-        menu.add("Terminate", image: "xmark.circle") { ProcessActions.terminate(live) }
-        menu.add("Terminate Tree", image: "xmark.square") { ProcessActions.terminateTree(live) }
-        menu.add("Force Kill", image: "bolt.circle") { ProcessActions.forceKill(live) }
+        shortcut(menu.add("Terminate", image: "xmark.circle") { ProcessActions.terminate(live) }, delete, .command)
+        shortcut(menu.add("Terminate Tree", image: "xmark.square") { ProcessActions.terminateTree(live) }, delete, [.command, .shift])
+        shortcut(menu.add("Force Kill", image: "bolt.circle") { ProcessActions.forceKill(live) }, delete, [.command, .option])
         if live.contains(where: { $0.record.isStopped }) {
             menu.add("Resume", image: "play.circle") { ProcessActions.resume(live) }
             menu.add("Resume Tree") { ProcessActions.resumeTree(live) }
@@ -122,7 +130,8 @@ enum ProcessMenu {
                 sub.add("Create Core Dump…") { ProcessActions.createCoreDump(first) }
             }
             menu.addItem(.separator())
-            menu.add("Reveal in Finder", enabled: first.record.path != nil, image: "folder") { ProcessActions.revealInFinder(first) }
+            shortcut(menu.add("Reveal in Finder", enabled: first.record.path != nil, image: "folder") { ProcessActions.revealInFinder(first) },
+                     "r", [.command, .shift])
             if BundleInfoCache.outermostApplicationPath(first.record.path ?? "") != nil {
                 menu.add("Reveal Application in Finder") { ProcessActions.revealBundle(first) }
             }
