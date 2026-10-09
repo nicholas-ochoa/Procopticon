@@ -35,6 +35,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ProcessStore.shared.applicationPids = ApplicationPids.current
         AppSettings.shared.apply()
         AppSettings.shared.applyAppearance()
+        AppSettings.shared.applyAccentColor()
         ProcessStore.shared.start()
         // Prefetch launchd jobs in the background so the Services tab opens instantly.
         ServiceStore.shared.refresh()

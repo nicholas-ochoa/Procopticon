@@ -29,6 +29,9 @@ final class AppSettings: ObservableObject {
     @Published var processListMonospaced: Bool { didSet { save("processListMonospaced", processListMonospaced) } }
     @Published var processListFontSize: Double { didSet { save("processListFontSize", processListFontSize) } }
     @Published var appearance: AppearanceMode { didSet { save("appearance", appearance.rawValue); applyAppearance() } }
+    @Published var accent: AccentChoice { didSet { save("accent", accent.rawValue); applyAccentColor() } }
+    /// The color for `AccentChoice.custom`, kept while another choice is selected.
+    @Published var accentCustom: NSColor { didSet { save("accentCustom", accentCustom.hexString); applyAccentColor() } }
     @Published var savedFilters: [SavedFilter] {
         didSet {
             if let data = try? JSONEncoder().encode(savedFilters) {
@@ -57,6 +60,36 @@ final class AppSettings: ObservableObject {
 
     func applyAppearance() {
         NSApp.appearance = appearance.nsAppearance
+    }
+
+    /// The app's accent color, from System Settings' palette, or any color.
+    enum AccentChoice: String, CaseIterable, Identifiable {
+        case system, blue, purple, pink, red, orange, yellow, green, graphite, custom
+        var id: String { rawValue }
+
+        var title: String {
+            self == .system ? "System" : rawValue.capitalized
+        }
+
+        /// nil follows the system's accent color.
+        func color(custom: NSColor) -> NSColor? {
+            switch self {
+            case .system: nil
+            case .blue: .systemBlue
+            case .purple: .systemPurple
+            case .pink: .systemPink
+            case .red: .systemRed
+            case .orange: .systemOrange
+            case .yellow: .systemYellow
+            case .green: .systemGreen
+            case .graphite: .systemGray
+            case .custom: custom
+            }
+        }
+    }
+
+    func applyAccentColor() {
+        AccentColor.apply(accent.color(custom: accentCustom))
     }
 
     enum MenuBarGraphKind: String, CaseIterable, Identifiable {
@@ -93,6 +126,8 @@ final class AppSettings: ObservableObject {
         processListMonospaced = b("processListMonospaced", false)
         processListFontSize = d("processListFontSize", Double(NSFont.systemFontSize(for: .small) + 1))
         appearance = AppearanceMode(rawValue: defaults.string(forKey: "appearance") ?? "") ?? .system
+        accent = AccentChoice(rawValue: defaults.string(forKey: "accent") ?? "") ?? .system
+        accentCustom = defaults.string(forKey: "accentCustom").flatMap(NSColor.init(hex:)) ?? .systemTeal
         if let data = defaults.data(forKey: "savedFilters"), let list = try? JSONDecoder().decode([SavedFilter].self, from: data) {
             savedFilters = list
         } else {

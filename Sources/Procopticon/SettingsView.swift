@@ -29,7 +29,7 @@ enum SettingsTab: String, CaseIterable {
     var size: NSSize {
         switch self {
         case .general: return NSSize(width: 620, height: 620)
-        case .appearance: return NSSize(width: 620, height: 440)
+        case .appearance: return NSSize(width: 620, height: 500)
         case .filters: return NSSize(width: 620, height: 600)
         case .highlighting: return NSSize(width: 620, height: 640)
         case .privileges: return NSSize(width: 620, height: 380)
@@ -240,6 +240,15 @@ struct AppearanceSettings: View {
                 }
                 .pickerStyle(.segmented)
                 .help("Light or dark windows, or System to follow the macOS setting")
+                if AccentColor.isSupported {
+                    LabeledContent("Accent color") {
+                        AccentSwatches(selection: $settings.accent, custom: $settings.accentCustom)
+                    }
+                }
+            } footer: {
+                if AccentColor.isSupported, settings.accent != .system, AccentColor.systemOverrides {
+                    Text("System Settings ▸ Appearance has an accent color chosen, and macOS uses it instead. Set it to Multicolor there to use this one.")
+                }
             }
             Section("Process list") {
                 Toggle("Fixed-width font", isOn: $settings.processListMonospaced)
@@ -261,6 +270,48 @@ struct AppearanceSettings: View {
         .formStyle(.grouped)
         .scrollContentBackground(.hidden)
         .settingsPane()
+    }
+}
+
+/// A row of color swatches like System Settings' accent colors: System (multicolor), the palette,
+/// then a color well for any other color.
+struct AccentSwatches: View {
+    @Binding var selection: AppSettings.AccentChoice
+    @Binding var custom: NSColor
+
+    var body: some View {
+        HStack(spacing: 7) {
+            ForEach(AppSettings.AccentChoice.allCases.filter { $0 != .custom }) { choice in
+                Button { selection = choice } label: {
+                    swatch(choice)
+                }
+                .buttonStyle(.plain)
+                .help(choice == .system ? "Use the accent color from System Settings" : choice.title)
+                .accessibilityLabel(choice.title)
+                .accessibilityAddTraits(selection == choice ? .isSelected : [])
+            }
+            ColorPicker("Custom", selection: Binding(get: { Color(nsColor: custom) },
+                                                     set: { custom = NSColor($0); selection = .custom }),
+                        supportsOpacity: false)
+                .labelsHidden()
+                .controlSize(.small)
+                .padding(2)
+                .overlay(Capsule().strokeBorder(.primary.opacity(selection == .custom ? 0.6 : 0), lineWidth: 1.5))
+                .help("Any other color")
+        }
+    }
+
+    private func swatch(_ choice: AppSettings.AccentChoice) -> some View {
+        let fill: AnyShapeStyle = choice == .system
+            ? AnyShapeStyle(AngularGradient(colors: [.red, .orange, .yellow, .green, .blue, .purple, .pink, .red], center: .center))
+            : AnyShapeStyle(Color(nsColor: choice.color(custom: custom) ?? .controlAccentColor))
+        return Circle()
+            .fill(fill)
+            .frame(width: 16, height: 16)
+            .overlay(Circle().strokeBorder(.black.opacity(0.15), lineWidth: 0.5))
+            .padding(2.5)
+            .overlay(Circle().strokeBorder(.primary.opacity(selection == choice ? 0.6 : 0), lineWidth: 1.5))
+            .contentShape(Circle())
     }
 }
 
