@@ -31,16 +31,25 @@ mkdir -p "$OUT/Contents/MacOS" "$OUT/Contents/Resources"
 cp "$BIN/Procopticon" "$OUT/Contents/MacOS/$EXEC_NAME"
 cp "$BIN/procopticon-helper" "$OUT/Contents/MacOS/procopticon-helper"
 
-# Icon
-ICONSET="build/AppIcon.iconset"
-if [ ! -f build/AppIcon.icns ] || [ scripts/make-icon.swift -nt build/AppIcon.icns ] \
-    || [ Resources/AppIcon.png -nt build/AppIcon.icns ]; then
-    rm -rf "$ICONSET"
-    swift scripts/make-icon.swift Resources/AppIcon.png "$ICONSET"
-    iconutil -c icns "$ICONSET" -o build/AppIcon.icns
-    rm -rf "$ICONSET"
+# Icon: actool compiles the Icon Composer document into Assets.car (what macOS draws, in every
+# appearance) and AppIcon.icns (for anything that only reads CFBundleIconFile). Needs Xcode.
+# Paths are absolute: actool hands the work to a daemon that resolves relative ones against its own
+# working directory, which is wherever actool first ran.
+ICON_SRC="$PWD/Resources/AppIcon.icon"
+ICON_OUT="$PWD/build/icon"
+if [ ! -f "$ICON_OUT/Assets.car" ] || [ -n "$(find "$ICON_SRC" -newer "$ICON_OUT/Assets.car")" ]; then
+    rm -rf "$ICON_OUT"
+    mkdir -p "$ICON_OUT"
+    if ! xcrun actool "$ICON_SRC" --compile "$ICON_OUT" --app-icon AppIcon \
+            --platform macosx --minimum-deployment-target 26.0 --output-partial-info-plist "$ICON_OUT/partial.plist" \
+            --errors --warnings --output-format human-readable-text >"$ICON_OUT/actool.log" 2>&1 \
+        || [ ! -f "$ICON_OUT/Assets.car" ]; then
+        cat "$ICON_OUT/actool.log" >&2
+        rm -f "$ICON_OUT/Assets.car"
+        exit 1
+    fi
 fi
-cp build/AppIcon.icns "$OUT/Contents/Resources/AppIcon.icns"
+cp "$ICON_OUT/Assets.car" "$ICON_OUT/AppIcon.icns" "$OUT/Contents/Resources/"
 
 cat > "$OUT/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -53,6 +62,7 @@ cat > "$OUT/Contents/Info.plist" <<PLIST
     <key>CFBundleExecutable</key><string>${EXEC_NAME}</string>
     <key>CFBundleIdentifier</key><string>${BUNDLE_ID}</string>
     <key>CFBundleIconFile</key><string>AppIcon</string>
+    <key>CFBundleIconName</key><string>AppIcon</string>
     <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleShortVersionString</key><string>${VERSION}</string>

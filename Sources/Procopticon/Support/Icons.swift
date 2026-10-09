@@ -45,7 +45,7 @@ enum ProcessIcons {
     /// redraw constantly, so that was a large part of each frame.
     ///
     /// Each size is scaled down from one 128 px rendering rather than asking for the icon at
-    /// 16 or 32 px: macOS 26 draws legacy .icns-only app icons (Sublime Text, our own) at those
+    /// 16 or 32 px: macOS 26 and later draw legacy .icns-only app icons (Sublime Text) at those
     /// sizes on a light gray plate, which reads as a white border in the table. From 64 px up it
     /// masks them to the standard shape instead, the way the Dock shows them.
     static func rendered(_ icon: NSImage) -> NSImage {

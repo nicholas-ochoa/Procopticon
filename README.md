@@ -178,6 +178,6 @@ Sources/ProcopticonCore     Swift: samplers, process/network stores, launchd ser
 Sources/procopticon-helper  Root helper executable
 Sources/Procopticon         SwiftUI/AppKit app
 Tests/ProcopticonCoreTests  Unit tests
-Resources/AppIcon.png       App icon artwork: a full-bleed square. scripts/make-icon.swift adds the macOS icon shape,
-                            rim light and shadow, and renders every size.
+Resources/AppIcon.icon      App icon (Icon Composer; open it there to edit). macOS draws the shape, shadow and the
+                            Dark, Clear and Tinted styles; build-app.sh compiles it with actool.
 ```
