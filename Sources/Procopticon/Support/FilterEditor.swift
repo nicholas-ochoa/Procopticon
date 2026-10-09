@@ -166,7 +166,7 @@ private struct CodeTextView: NSViewRepresentable {
         }
     }
 
-    /// As tall as the text, within a few lines (JavaScript gets room for more, and two to begin with).
+    /// As tall as the text, within a few lines (JavaScript gets room for more, and three to begin with).
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSScrollView, context: Context) -> CGSize? {
         let width = proposal.width ?? 320
         let textWidth = max(10, width - 2 * (Self.inset.width + Self.linePadding))
@@ -176,7 +176,7 @@ private struct CodeTextView: NSViewRepresentable {
         if text.hasSuffix("\n") {
             height += Self.lineHeight
         }
-        let lines = mode == .javascript ? 2.0...8.0 : 1.0...4.0
+        let lines = mode == .javascript ? 3.0...8.0 : 1.0...4.0
         height = min(max(height, lines.lowerBound * Self.lineHeight), lines.upperBound * Self.lineHeight)
         return CGSize(width: width, height: ceil(height + 2 * Self.inset.height))
     }
