@@ -16,6 +16,8 @@ public struct ExecutableBundleInfo: Sendable {
     public var fileSize: UInt64?
     public var fileModified: Date?
     public var fileCreated: Date?
+    /// Where the executable (or its app) was downloaded from, if it's quarantined.
+    public var quarantine: QuarantineInfo?
 
     public var versionString: String {
         switch (version, build) {
@@ -83,6 +85,7 @@ public final class BundleInfoCache: @unchecked Sendable {
             info.fileModified = attrs[.modificationDate] as? Date
             info.fileCreated = attrs[.creationDate] as? Date
         }
+        info.quarantine = Quarantine.info(forExecutable: executablePath)
         guard let bundlePath = enclosingBundlePath(executablePath), let bundle = Bundle(path: bundlePath) else {
             // Command line tools may embed an Info.plist section; Bundle can't read it, so fall back.
             return info

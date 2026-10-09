@@ -241,6 +241,21 @@ struct PropertyPage<Content: View>: View {
     }
 }
 
+/// Grid rows describing where a quarantined file came from.
+struct QuarantineRows: View {
+    let info: QuarantineInfo
+
+    var body: some View {
+        InfoRow("Quarantine", info.sourceDescription + (info.isApproved ? " · opening approved" : " · not yet approved to open"))
+        if let url = info.downloadURL {
+            InfoRow("Downloaded from", url)
+        }
+        if let page = info.pageURL {
+            InfoRow("Download page", page)
+        }
+    }
+}
+
 /// Banner shown when data requires elevation, with a button to authorize.
 struct AccessDeniedView: View {
     var message: String
@@ -345,6 +360,9 @@ struct GeneralTab: View {
                         }
                         if let m = bundle?.fileModified {
                             InfoRow("Modified", m.formatted(date: .abbreviated, time: .standard))
+                        }
+                        if let q = bundle?.quarantine {
+                            QuarantineRows(info: q)
                         }
                     }
                     HStack {

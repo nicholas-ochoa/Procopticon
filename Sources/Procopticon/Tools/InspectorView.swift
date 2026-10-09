@@ -39,6 +39,7 @@ struct InspectorView: View {
     @State private var slice: Int?
     @State private var tab = Tab.general
     @State private var signing: SigningInfo?
+    @State private var quarantine: QuarantineInfo?
     @State private var symbolFilter = ""
     @ObservedObject private var settings = AppSettings.shared
 
@@ -123,9 +124,11 @@ struct InspectorView: View {
             do {
                 let f = try MachOFile.load(path: p, preferredSlice: s)
                 let sig = CodeSigning.inspect(path: p)
+                let q = Quarantine.info(forExecutable: p)
                 await MainActor.run {
                     file = f
                     signing = sig
+                    quarantine = q
                     error = nil
                 }
             } catch {
@@ -171,6 +174,13 @@ struct InspectorView: View {
                                 InfoRow("Team ID", signing.teamIdentifier ?? "")
                                 InfoRow("Identifier", signing.identifier ?? "")
                                 InfoRow("Hardened runtime", signing.hardenedRuntime ? "Yes" : "No")
+                            }
+                        }
+                    }
+                    if let quarantine {
+                        SectionBox(title: "Quarantine") {
+                            Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 5) {
+                                QuarantineRows(info: quarantine)
                             }
                         }
                     }

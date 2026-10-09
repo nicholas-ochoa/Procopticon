@@ -36,6 +36,9 @@ struct ProcessToolTipView: View {
             if let signing, signing.status != .unknown {
                 row("Signer", signerText(signing))
             }
+            if let q = item.bundleInfo?.quarantine {
+                row("Source", Text(q.url.map { "\(q.sourceDescription)\n\($0)" } ?? q.sourceDescription).lineLimit(3))
+            }
             row("User", userText)
             if record.startMicros > 0 {
                 row("Started", startedText)

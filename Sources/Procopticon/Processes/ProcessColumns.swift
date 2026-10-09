@@ -82,6 +82,11 @@ enum ProcessColumns {
         cols.append(.string("bundleId", "Bundle identifier", width: 180, visible: false,
                             help: "Bundle identifier of the enclosing app or bundle") { $0.bundleInfo?.bundleIdentifier ?? "" })
         cols.append(.string("path", "File name", width: 260, visible: false, help: "Full path of the executable") { $0.record.path ?? "" })
+        cols.append(.string("downloadSource", "Download source", width: 220, visible: false,
+                            help: "For a quarantined executable or app: the URL it was downloaded from, or else the app that downloaded it; blank for software that wasn't downloaded") { p in
+            guard let q = p.bundleInfo?.quarantine else { return "" }
+            return q.url ?? q.agent.map { "Downloaded with \($0)" } ?? "Quarantined"
+        })
         var commandLine = ProcessColumn.string("commandLine", "Command line", width: 300, visible: false,
                                                help: "The executable and the arguments the process was started with") { $0.record.commandLine ?? "" }
         commandLine.attributedText = { CommandLineStyle.commandLine($0.record.commandLineArguments ?? []) }

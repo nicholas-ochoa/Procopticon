@@ -17,7 +17,8 @@ read/write rates, GPU usage and GPU time, network send/receive rates (separately
 **Network rate**) and bytes/packets sent and received (from `nettop`), threads, open files, cycles, instructions and IPC, context switches, system calls,
 wake-ups, energy and power, power assertions and **Preventing Sleep** (whether the process keeps the Mac or
 its display awake), nice/priority, start time, command line, bundle identifier/version,
-architecture (arm64 or Rosetta), sandbox, code-signing verification and signer, and team ID. There are
+architecture (arm64 or Rosetta), sandbox, code-signing verification and signer, team ID, and the
+**Download source** of quarantined software. There are
 also CPU, memory, disk, GPU and network history graph columns. The **Process title** column shows the title a process
 gave itself by overwriting its first argument (Node's `process.title`, `setproctitle`, "postgres:
 checkpointer"); it stays empty for processes started under their own name, a symlink or shim. Hover over a
@@ -71,7 +72,7 @@ each section as you switch:
 
 | Tab | Contents |
 | --- | --- |
-| General | Image, command line, process title, working directory, parent and responsible process, user, code signature |
+| General | Image, command line, process title, working directory, parent and responsible process, user, code signature, and for downloaded software its quarantine flag: which app downloaded it and when, whether you approved opening it, and the download URL and page when recorded |
 | Statistics | CPU, memory, I/O, Mach message, system call and energy counters |
 | Performance | CPU, memory and disk graphs |
 | Power | Power assertions the process holds, or another holds for it (e.g. coreaudiod while it plays sound): type, name, how long, timeout and details |
@@ -119,8 +120,8 @@ unless you turn off *Always on Top* in the same menu, and reopens at launch if i
 
 * **Find Files or Libraries.** Searches the open files and mapped images of every process (`lsof`-like).
 * **Inspect Executable.** A Mach-O viewer showing the header and architecture slices, load commands,
-  segments and sections, linked libraries, symbols, code signature, entitlements and the embedded
-  Info.plist.
+  segments and sections, linked libraries, symbols, code signature, quarantine, entitlements and the
+  embedded Info.plist.
 * **Find Process by Window.**
 * **Hidden Process Scan.** Compares the kernel process list against a brute-force probe of every PID.
 * **Crash Reports.** Every crash, exception, hang, resource and jetsam report in the user and system
