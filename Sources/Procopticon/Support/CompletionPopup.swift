@@ -189,3 +189,154 @@ private struct CompletionList: View {
         }
     }
 }
+
+/// Offers completions in a text view holding a JavaScript process expression: shows a
+/// `CompletionPopup` as the word at the caret changes, handles the keys that choose and accept an
+/// item, and replaces the word with it. Works with an editor's own text view, or a search field's
+/// field editor while it edits.
+@MainActor
+final class ExpressionCompleter {
+    private let popup = CompletionPopup()
+    private let textView: () -> NSTextView?
+    /// Whether the text is a JavaScript expression just now.
+    private let isEnabled: () -> Bool
+    /// The list was asked for (⌃Space, Esc), so it shows for an empty word too.
+    private var requested = false
+    /// Set while accepting an item, so the edit doesn't open the list again.
+    private var accepting = false
+    private var observers: [NSObjectProtocol] = []
+
+    init(textView: @escaping () -> NSTextView?, isEnabled: @escaping () -> Bool) {
+        self.textView = textView
+        self.isEnabled = isEnabled
+        popup.onPick = { [weak self] in self?.accept($0) }
+        // The list stays under the caret only while nothing moves the text or takes its window's focus.
+        let center = NotificationCenter.default
+        observers.append(center.addObserver(forName: NSWindow.didResignKeyNotification, object: nil, queue: .main) { [weak self] n in
+            MainActor.assumeIsolated {
+                if let self, self.popup.isVisible, n.object as? NSWindow === self.textView()?.window { self.hide() }
+            }
+        })
+        observers.append(center.addObserver(forName: NSScrollView.willStartLiveScrollNotification, object: nil, queue: .main) { [weak self] n in
+            MainActor.assumeIsolated {
+                if let self, self.popup.isVisible, (n.object as? NSView)?.window === self.textView()?.window { self.hide() }
+            }
+        })
+    }
+
+    deinit {
+        observers.forEach(NotificationCenter.default.removeObserver)
+    }
+
+    var isShowing: Bool { popup.isVisible }
+
+    /// After the text changed: typing a letter, digit or dot offers completions, and any edit
+    /// updates a list that's showing.
+    func textDidChange() {
+        guard !accepting else { return }
+        if popup.isVisible || Self.typedWordCharacter() {
+            update()
+        }
+    }
+
+    /// After the caret moved: moving it out of the word closes the list.
+    func selectionDidChange() {
+        if popup.isVisible, !accepting {
+            update()
+        }
+    }
+
+    func hide() {
+        popup.hide()
+        requested = false
+    }
+
+    /// Shows everything that fits at the caret, even for an empty word. False when completions
+    /// don't apply.
+    @discardableResult
+    func request() -> Bool {
+        guard isEnabled(), textView() != nil else { return false }
+        requested = true
+        update()
+        return true
+    }
+
+    /// The list's keys while it shows (↑ ↓ to choose, Tab or Return to accept, Esc to close); while
+    /// it doesn't, Tab completes the word being typed, and with `escapeRequests` Esc asks for the
+    /// list. Returns whether it handled `selector`.
+    func handle(_ selector: Selector, escapeRequests: Bool) -> Bool {
+        guard isEnabled(), let textView = textView() else { return false }
+        if popup.isVisible {
+            switch selector {
+            case #selector(NSResponder.moveUp(_:)): popup.move(-1)
+            case #selector(NSResponder.moveDown(_:)): popup.move(1)
+            case #selector(NSResponder.pageUp(_:)), #selector(NSResponder.scrollPageUp(_:)): popup.move(-CompletionPopup.maxRows)
+            case #selector(NSResponder.pageDown(_:)), #selector(NSResponder.scrollPageDown(_:)): popup.move(CompletionPopup.maxRows)
+            case #selector(NSResponder.insertTab(_:)), #selector(NSResponder.insertNewline(_:)):
+                if let item = popup.selectedItem { accept(item) }
+            case #selector(NSResponder.cancelOperation(_:)): hide()
+            default: return false
+            }
+            return true
+        }
+        switch selector {
+        case #selector(NSResponder.complete(_:)):
+            return request()
+        case #selector(NSResponder.cancelOperation(_:)) where escapeRequests:
+            return request()
+        case #selector(NSResponder.insertTab(_:)):
+            // Tab completes the word being typed: at once when only one thing fits. With no word,
+            // it moves on as usual.
+            guard textView.selectedRange().length == 0,
+                  let completion = ExpressionCompletion.at(textView.selectedRange().location, in: textView.string) else {
+                return false
+            }
+            if completion.items.count == 1 {
+                accept(completion.items[0], replacing: completion.range)
+            } else {
+                update()
+            }
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// Shows, updates or hides the list for the word at the caret.
+    private func update() {
+        guard isEnabled(), let textView = textView(), let window = textView.window,
+              window.firstResponder === textView, textView.selectedRange().length == 0,
+              let completion = ExpressionCompletion.at(textView.selectedRange().location, in: textView.string,
+                                                       explicit: requested) else {
+            hide()
+            return
+        }
+        let caret = textView.firstRect(forCharacterRange: NSRange(location: completion.range.location, length: 0), actualRange: nil)
+        popup.show(completion, below: caret, in: window)
+    }
+
+    /// Replaces the word with `item` (in `range`, or the list's word).
+    private func accept(_ item: ExpressionCompletion.Item, replacing range: NSRange? = nil) {
+        guard let textView = textView(), let range = range ?? popup.completion?.range else { return }
+        let insertion = item.insertion
+        accepting = true
+        textView.insertText(insertion.text, replacementRange: range)
+        textView.setSelectedRange(NSRange(location: range.location + insertion.caret, length: 0))
+        accepting = false
+        hide()
+    }
+
+    /// Whether the key being handled typed a letter, digit, "_", "$" or "." (not a paste or a
+    /// deletion), which a completion can follow.
+    private static func typedWordCharacter() -> Bool {
+        guard let event = NSApp.currentEvent, event.type == .keyDown,
+              event.modifierFlags.intersection([.command, .control, .option]).isEmpty,
+              let c = event.characters?.last else { return false }
+        return c.isLetter || c.isNumber || c == "_" || c == "$" || c == "."
+    }
+
+    /// Whether `event` is ⌃Space, the usual key for asking for completions.
+    nonisolated static func isRequest(_ event: NSEvent) -> Bool {
+        event.keyCode == 49 && event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .control
+    }
+}

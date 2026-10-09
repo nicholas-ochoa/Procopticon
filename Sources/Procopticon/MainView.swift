@@ -866,6 +866,8 @@ struct RegexSearchFieldView: NSViewRepresentable {
         field.placeholderString = prompt
         field.stringValue = text
         field.toolTip = toolTip
+        context.coordinator.field = field
+        context.coordinator.startCompleting()
         if focusOnFind {
             context.coordinator.focusObserver = NotificationCenter.default.addObserver(
                 forName: .focusSearch, object: nil, queue: .main) { [weak field] _ in
@@ -889,6 +891,7 @@ struct RegexSearchFieldView: NSViewRepresentable {
         }
         if field.isJavaScript != (javaScript?.wrappedValue ?? false) {
             field.isJavaScript = javaScript?.wrappedValue ?? false
+            context.coordinator.completer.hide()
         }
         if field.isInvalid != isInvalid {
             field.isInvalid = isInvalid
@@ -901,9 +904,21 @@ struct RegexSearchFieldView: NSViewRepresentable {
         }
     }
 
+    static func dismantleNSView(_ field: RegexSearchField, coordinator: Coordinator) {
+        coordinator.stopCompleting()
+    }
+
+    @MainActor
     final class Coordinator: NSObject, NSSearchFieldDelegate {
         var parent: RegexSearchFieldView
         var focusObserver: NSObjectProtocol?
+        weak var field: RegexSearchField?
+        /// Completions for a JavaScript search, in the field editor while the field edits.
+        private(set) lazy var completer = ExpressionCompleter(
+            textView: { [weak self] in self?.field?.currentEditor() as? NSTextView },
+            isEnabled: { [weak self] in self?.parent.javaScript?.wrappedValue == true })
+        private var keyMonitor: Any?
+        private var selectionObserver: NSObjectProtocol?
 
         init(_ parent: RegexSearchFieldView) {
             self.parent = parent
@@ -913,9 +928,44 @@ struct RegexSearchFieldView: NSViewRepresentable {
             if let focusObserver { NotificationCenter.default.removeObserver(focusObserver) }
         }
 
+        /// Watches for ⌃Space and caret moves while the field edits. The field editor is the
+        /// window's, so this goes through a key monitor and notifications rather than a subclass.
+        func startCompleting() {
+            keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                let handled = ExpressionCompleter.isRequest(event) && MainActor.assumeIsolated {
+                    guard let self, let field = self.field, event.window === field.window, field.currentEditor() != nil else {
+                        return false
+                    }
+                    return self.completer.request()
+                }
+                return handled ? nil : event
+            }
+            selectionObserver = NotificationCenter.default.addObserver(
+                forName: NSTextView.didChangeSelectionNotification, object: nil, queue: .main) { [weak self] n in
+                MainActor.assumeIsolated {
+                    if let self, let editor = n.object as? NSTextView, editor === self.field?.currentEditor() {
+                        self.completer.selectionDidChange()
+                    }
+                }
+            }
+        }
+
+        func stopCompleting() {
+            if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
+            if let selectionObserver { NotificationCenter.default.removeObserver(selectionObserver) }
+            keyMonitor = nil
+            selectionObserver = nil
+            completer.hide()
+        }
+
         func controlTextDidChange(_ obj: Notification) {
             guard let field = obj.object as? NSSearchField else { return }
             parent.text = field.stringValue
+            completer.textDidChange()
+        }
+
+        func controlTextDidEndEditing(_ obj: Notification) {
+            completer.hide()
         }
 
         @objc func toggleRegex(_ sender: NSButton) {
@@ -927,6 +977,10 @@ struct RegexSearchFieldView: NSViewRepresentable {
         }
 
         func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+            // The completion list's keys come first; with no list, Esc still clears the search.
+            if completer.handle(selector, escapeRequests: false) {
+                return true
+            }
             // Escape clears the search, like the standard toolbar search field.
             if selector == #selector(NSResponder.cancelOperation(_:)) {
                 (control as? NSSearchField)?.stringValue = ""
@@ -989,6 +1043,18 @@ final class RegexSearchField: NSSearchField {
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) is not used")
+    }
+
+    override func becomeFirstResponder() -> Bool {
+        let became = super.becomeFirstResponder()
+        // Search text is matched literally: no curly quotes or dashes in `user == "root"`.
+        if became, let editor = currentEditor() as? NSTextView {
+            editor.isAutomaticQuoteSubstitutionEnabled = false
+            editor.isAutomaticDashSubstitutionEnabled = false
+            editor.isAutomaticTextReplacementEnabled = false
+            editor.isAutomaticSpellingCorrectionEnabled = false
+        }
+        return became
     }
 
     override func layout() {
