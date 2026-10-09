@@ -863,7 +863,7 @@ struct RegexSearchFieldView: NSViewRepresentable {
         field.isInvalid = isInvalid
         field.sendsSearchStringImmediately = true
         field.sendsWholeSearchString = false
-        field.placeholderString = prompt
+        field.placeholder = prompt
         field.stringValue = text
         field.toolTip = toolTip
         context.coordinator.field = field
@@ -896,8 +896,8 @@ struct RegexSearchFieldView: NSViewRepresentable {
         if field.isInvalid != isInvalid {
             field.isInvalid = isInvalid
         }
-        if field.placeholderString != prompt {
-            field.placeholderString = prompt
+        if field.placeholder != prompt {
+            field.placeholder = prompt
         }
         if field.toolTip != toolTip {
             field.toolTip = toolTip
@@ -1022,6 +1022,18 @@ final class RegexSearchField: NSSearchField {
 
     var isInvalid = false {
         didSet { updateButtons() }
+    }
+
+    /// The placeholder, always in the fixed-width font, so it doesn't change with the text's font
+    /// as the mode does.
+    var placeholder: String {
+        get { placeholderAttributedString?.string ?? "" }
+        set {
+            placeholderAttributedString = NSAttributedString(string: newValue, attributes: [
+                .font: NSFont.monospacedSystemFont(ofSize: font?.pointSize ?? NSFont.systemFontSize, weight: .regular),
+                .foregroundColor: NSColor.placeholderTextColor,
+            ])
+        }
     }
 
     /// The toggles inside the trailing edge.
