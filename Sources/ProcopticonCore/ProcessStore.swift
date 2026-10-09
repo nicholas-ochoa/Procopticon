@@ -336,6 +336,9 @@ public final class ProcessStore: ObservableObject {
     // Background-queue state.
     private var states: [ProcessKey: ProcessState] = [:]
     private var hasSampled = false
+    /// Applications' own processes, kept while they're listed, so that once one exits and leaves
+    /// the running applications, "Apps" still shows it and what it started until they're gone.
+    private var appKeys = Set<ProcessKey>()
     private var needsInterfaceBaseline = true
 
     public init() {
@@ -368,12 +371,13 @@ public final class ProcessStore: ObservableObject {
         var filter: ProcessFilterOptions
         var treeMode: Bool
         var highlightDuration: TimeInterval
+        var interval: TimeInterval
         var scaleCPUToSystem: Bool
         var cpuCount: Int
     }
 
     private var currentOptions: BuildOptions {
-        BuildOptions(filter: filter, treeMode: treeMode, highlightDuration: highlightDuration,
+        BuildOptions(filter: filter, treeMode: treeMode, highlightDuration: highlightDuration, interval: interval,
                      scaleCPUToSystem: scaleCPUToSystem, cpuCount: max(1, system.logicalCPUCount))
     }
 
@@ -477,9 +481,13 @@ public final class ProcessStore: ObservableObject {
             }
         }
         let now = Date()
+        // Exited processes stay, highlighted, for the highlight duration and through the next
+        // scheduled refresh: an extra one (after a kill, say) that finds a process gone just
+        // before it doesn't cut that short.
+        let keepRemoved = max(options.highlightDuration, options.interval / 2)
         for (key, state) in states where !seen.contains(key) {
             if let removed = state.removedAt {
-                if now.timeIntervalSince(removed) >= options.highlightDuration {
+                if now.timeIntervalSince(removed) >= keepRemoved {
                     states.removeValue(forKey: key)
                 }
             } else {
@@ -505,13 +513,17 @@ public final class ProcessStore: ObservableObject {
                 threads += Int(item.record.stats?.threadCount ?? 0)
             }
         }
-        let byPid = Dictionary(items.values.filter { !$0.isRemoved }.map { ($0.pid, $0) }, uniquingKeysWith: { a, b in
-            a.record.startMicros > b.record.startMicros ? a : b
-        })
+        let byPid = Self.treeIndex(items.values)
         let f = options.filter
         let matcher = SearchMatcher(f.text, regex: f.regex)
         let me = Elevation.interactiveUid
         let appPids = f.onlyApplications ? applicationPids() : []
+        if f.onlyApplications {
+            appKeys.formIntersection(items.keys)
+            for item in items.values where !item.isRemoved && appPids.contains(item.pid) {
+                appKeys.insert(item.key)
+            }
+        }
 
         func parentOf(_ item: ProcessItem) -> ProcessItem? {
             Self.treeParent(of: item, in: byPid)
@@ -526,7 +538,7 @@ public final class ProcessStore: ObservableObject {
             var node: ProcessItem? = item
             var result = false
             while let n = node {
-                if appPids.contains(n.record.pid) {
+                if n.isRemoved ? appKeys.contains(n.key) : appPids.contains(n.record.pid) {
                     result = true
                     break
                 }
@@ -598,7 +610,19 @@ public final class ProcessStore: ObservableObject {
                         processCount: processCount, totalThreads: threads, filterError: matcher.error)
     }
 
-    /// The live process `item` is listed under in the tree. Like Activity Monitor, that is the
+    /// Processes by PID, for `treeParent`. Exited processes are in it too, so one that exits with
+    /// its parent stays under it while both are listed; a live process wins a PID over an exited
+    /// one, and the later start wins a PID used twice.
+    static func treeIndex(_ items: some Sequence<ProcessItem>) -> [Int32: ProcessItem] {
+        Dictionary(items.map { ($0.pid, $0) }, uniquingKeysWith: { a, b in
+            if a.isRemoved != b.isRemoved {
+                return a.isRemoved ? b : a
+            }
+            return a.record.startMicros > b.record.startMicros ? a : b
+        })
+    }
+
+    /// The process `item` is listed under in the tree. Like Activity Monitor, that is the
     /// process that started it, except that processes launchd started on another's behalf (XPC
     /// services, helpers that daemonized) go under the process responsible for them. A reused PID
     /// that started later is neither.
