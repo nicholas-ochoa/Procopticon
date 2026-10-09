@@ -1,24 +1,73 @@
 {
   "fill": {
-    "solid": "srgb:0.11373,0.12941,0.15686,1.00000"
+    "linear-gradient": [
+      "srgb:0.23500,0.25900,0.30200,1.00000",
+      "srgb:0.05100,0.05500,0.07100,1.00000"
+    ]
   },
   "groups": [
     {
-      "name": "Artwork",
+      "name": "Signals",
       "layers": [
         {
-          "name": "Artwork",
-          "image-name": "artwork.png",
+          "name": "Waveform",
+          "image-name": "waveform.png",
+          "glass": false
+        },
+        {
+          "name": "Blips",
+          "image-name": "blips.png",
           "glass": false
         }
       ],
       "shadow": {
         "kind": "none",
-        "opacity": 0
+        "opacity": 0.5
       },
       "translucency": {
         "enabled": false,
-        "value": 0
+        "value": 0.5
+      }
+    },
+    {
+      "name": "Bezel",
+      "layers": [
+        {
+          "name": "Bezel",
+          "image-name": "bezel.png",
+          "glass": false
+        }
+      ],
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.5
+      },
+      "translucency": {
+        "enabled": false,
+        "value": 0.5
+      }
+    },
+    {
+      "name": "Screen",
+      "layers": [
+        {
+          "name": "Sweep",
+          "image-name": "sweep.png",
+          "glass": false
+        },
+        {
+          "name": "Screen",
+          "image-name": "screen.png",
+          "glass": false
+        }
+      ],
+      "shadow": {
+        "kind": "none",
+        "opacity": 0.5
+      },
+      "translucency": {
+        "enabled": false,
+        "value": 0.5
       }
     }
   ],

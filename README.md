@@ -180,4 +180,6 @@ Sources/Procopticon         SwiftUI/AppKit app
 Tests/ProcopticonCoreTests  Unit tests
 Resources/AppIcon.icon      App icon (Icon Composer; open it there to edit). macOS draws the shape, shadow and the
                             Dark, Clear and Tinted styles; build-app.sh compiles it with actool.
+Resources/AppIcon-artwork.png  The flat artwork. scripts/split-icon.py splits it into the icon's layers (waveform,
+                            blips, bezel, sweep, screen) and regenerates AppIcon.icon.
 ```
