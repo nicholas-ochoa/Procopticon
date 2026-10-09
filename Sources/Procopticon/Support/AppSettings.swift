@@ -220,13 +220,17 @@ final class AppSettings: ObservableObject {
         highlights = h
     }
 
-    /// Turns every highlight rule, built-in and custom, on or off, keeping their colors.
+    /// Turns every built-in highlight rule on or off, keeping their colors.
     func setAllHighlights(enabled: Bool) {
         var h = highlights
         for rule in HighlightRule.allCases {
             h[rule, default: HighlightSetting(enabled: enabled, color: rule.defaultColor)].enabled = enabled
         }
         highlights = h
+    }
+
+    /// Turns every custom highlight rule on or off.
+    func setAllCustomHighlights(enabled: Bool) {
         var custom = customHighlights
         for i in custom.indices {
             custom[i].enabled = enabled

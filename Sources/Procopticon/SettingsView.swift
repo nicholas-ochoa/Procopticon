@@ -329,31 +329,40 @@ struct AccentSwatches: View {
 
 struct HighlightSettings: View {
     @ObservedObject private var settings = AppSettings.shared
+    @AppStorage("highlightSettingsTab") private var tab = Tab.builtIn
+
+    enum Tab: String, CaseIterable, Identifiable {
+        case builtIn, custom
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .builtIn: return "Built-in Rules"
+            case .custom: return "Custom Rules"
+            }
+        }
+    }
 
     var body: some View {
         VStack(spacing: 0) {
+            Picker("Rules", selection: $tab) {
+                ForEach(Tab.allCases) { Text($0.title).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .fixedSize()
+            .padding(.top, 16)
+            switch tab {
+            case .builtIn: builtIn
+            case .custom: custom
+            }
+        }
+        .settingsPane()
+    }
+
+    private var builtIn: some View {
+        VStack(spacing: 0) {
             Form {
-                Section {
-                    ForEach($settings.customHighlights) { $rule in
-                        CustomHighlightRow(rule: $rule, menu: { menu(for: rule.id) })
-                    }
-                    Button {
-                        settings.customHighlights.append(CustomHighlight())
-                    } label: {
-                        Label("Add Rule", systemImage: "plus")
-                    }
-                    .buttonStyle(.borderless)
-                    .help("Add a rule that colors the processes an expression matches")
-                } header: {
-                    Text("Custom rules")
-                } footer: {
-                    Text("""
-                        A rule matches processes as the search field does: by text, a regular expression, or a \
-                        JavaScript expression over the process's values, such as memory > 2 * GB. Custom rules come \
-                        after new and terminated processes and before the built-in rules below; the first rule a \
-                        process matches colors it.
-                        """)
-                }
                 Section {
                     ForEach(HighlightRule.allCases) { rule in
                         HStack {
@@ -369,10 +378,11 @@ struct HighlightSettings: View {
                                 .controlSize(.small)
                         }
                     }
-                } header: {
-                    Text("Built-in rules")
                 } footer: {
-                    Text("Rules are listed from highest to lowest priority.")
+                    Text("""
+                        Rules are listed from highest to lowest priority. Custom rules come after terminated and \
+                        new processes, before the rest.
+                        """)
                 }
             }
             .formStyle(.grouped)
@@ -380,17 +390,57 @@ struct HighlightSettings: View {
             HStack {
                 Spacer()
                 Button("Enable All") { settings.setAllHighlights(enabled: true) }
-                    .disabled(settings.highlights.values.allSatisfy(\.enabled) && settings.customHighlights.allSatisfy(\.enabled))
-                    .help("Turn on every highlight rule")
+                    .disabled(settings.highlights.values.allSatisfy(\.enabled))
+                    .help("Turn on every built-in rule")
                 Button("Disable All") { settings.setAllHighlights(enabled: false) }
-                    .disabled(!settings.highlights.values.contains(where: \.enabled) && !settings.customHighlights.contains(where: \.enabled))
-                    .help("Turn off every highlight rule; their colors are kept")
+                    .disabled(!settings.highlights.values.contains(where: \.enabled))
+                    .help("Turn off every built-in rule; their colors are kept")
                 Button("Restore Defaults") { settings.resetHighlights() }
-                    .help("Restore the built-in rules and their colors; custom rules are kept")
+                    .help("Restore the built-in rules and their colors")
             }
             .padding([.horizontal, .bottom], 20)
         }
-        .settingsPane()
+    }
+
+    private var custom: some View {
+        VStack(spacing: 0) {
+            Form {
+                Section {
+                    if settings.customHighlights.isEmpty {
+                        Text("No custom rules. Add one to color the processes that match text, a regular expression or a JavaScript expression.")
+                            .foregroundStyle(.secondary)
+                    }
+                    ForEach($settings.customHighlights) { $rule in
+                        CustomHighlightRow(rule: $rule, menu: { menu(for: rule.id) })
+                    }
+                } footer: {
+                    Text("""
+                        A rule matches processes as the search field does: by text, a regular expression, or a \
+                        JavaScript expression over the process's values, such as memory > 2 * GB. The first rule a \
+                        process matches colors it. Custom rules come after terminated and new processes and before \
+                        the other built-in rules.
+                        """)
+                }
+            }
+            .formStyle(.grouped)
+            .scrollContentBackground(.hidden)
+            HStack {
+                Button {
+                    settings.customHighlights.append(CustomHighlight())
+                } label: {
+                    Label("Add Rule", systemImage: "plus")
+                }
+                .help("Add a rule that colors the processes a filter matches")
+                Spacer()
+                Button("Enable All") { settings.setAllCustomHighlights(enabled: true) }
+                    .disabled(settings.customHighlights.allSatisfy(\.enabled))
+                    .help("Turn on every custom rule")
+                Button("Disable All") { settings.setAllCustomHighlights(enabled: false) }
+                    .disabled(!settings.customHighlights.contains(where: \.enabled))
+                    .help("Turn off every custom rule")
+            }
+            .padding([.horizontal, .bottom], 20)
+        }
     }
 
     @ViewBuilder
