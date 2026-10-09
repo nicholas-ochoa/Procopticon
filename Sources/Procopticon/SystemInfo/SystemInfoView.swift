@@ -5,7 +5,11 @@ import SwiftUI
 @MainActor
 enum SystemInfoWindow {
     static func open() {
-        WindowManager.shared.show(id: "sysinfo", title: "System Information", size: NSSize(width: 940, height: 640), autosave: "SystemInformation") {
+        // Full-size content like the other sidebar windows: without it, the split view's title bar
+        // background (and its scroll edge effect) sat a title bar's height too low, over the
+        // first row of graphs.
+        WindowManager.shared.show(id: "sysinfo", title: "System Information", size: NSSize(width: 940, height: 640),
+                                  autosave: "SystemInformation", fullSizeContent: true) {
             SystemInfoView()
         }
     }
