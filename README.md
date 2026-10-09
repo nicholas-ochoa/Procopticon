@@ -82,6 +82,7 @@ each section as you switch:
 | Environment | Environment variables |
 | Files | Open file descriptors: files, sockets, pipes, kqueues and shared memory |
 | Network | The process's sockets |
+| Crash Reports | macOS's crash, exception, hang, resource (CPU, disk writes, wake-ups) and jetsam reports for the executable; double-click one to read it |
 | Log | The process's messages in the unified log, live (`log stream`) after those from the last five minutes, with a Default/Info/Debug level, pause, filter and earlier history (`log show`). Errors and faults are highlighted |
 | Security | Credentials and groups, signing details, certificate chain and entitlements |
 | Service | The launchd job that owns the process |
@@ -122,6 +123,11 @@ unless you turn off *Always on Top* in the same menu, and reopens at launch if i
   Info.plist.
 * **Find Process by Window.**
 * **Hidden Process Scan.** Compares the kernel process list against a brute-force probe of every PID.
+* **Crash Reports.** Every crash, exception, hang, resource and jetsam report in the user and system
+  DiagnosticReports folders (including Retired ones), grouped by process so the apps that keep crashing
+  stand out. JSON crash reports open laid out like classic crash logs: exception, termination reason,
+  every thread's backtrace with the crashed one first, and the binary images. Open in Console or reveal
+  any report from its menu.
 * **Logged-in Users.**
 * **Event Log.** Records process start/exit, service start/stop, apps that stop or start responding,
   processes that start or stop keeping the Mac awake, alerts, and actions you take.
@@ -180,7 +186,7 @@ Launch arguments are useful for scripting and testing:
 --tab processes|services|network|disk
 --show-properties <pid>      [--properties-tab General|Threads|Modules|Memory|Files|…]
 --show-sysinfo summary|cpu|memory|disk|network|gpu|power
---show-find <text>    --inspect <path>    --show-service <label>    --show-log    --show-windows
+--show-find <text>    --inspect <path>    --show-service <label>    --show-log    --show-windows    --show-crashes
 ```
 
 ## Layout

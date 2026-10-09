@@ -41,9 +41,9 @@ final class ProcessLogModel: ObservableObject {
         let stream = ToolStream(tool: "/usr/bin/log", arguments: UnifiedLog.streamArguments(pid: pid, level: level))
         self.stream = stream
         streamStarted = Date()
-        Task {
+        Task { [weak self] in
             if let e = await stream.start(handler: { [weak self] in self?.handle($0) }) {
-                self.fail(e.message)
+                self?.fail(e.message)
             }
         }
         loadHistory(seconds: 5 * 60)

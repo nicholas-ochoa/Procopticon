@@ -185,6 +185,7 @@ struct MainView: View {
         ToolbarItem(id: "group.windows", placement: .primaryAction, showsByDefault: false) {
             ToolbarGroup("Inspection Windows", "rectangle.stack") {
                 ToolbarActionButton(.log)
+                ToolbarActionButton(.crashes)
                 ToolbarActionButton(.windows)
                 ToolbarActionButton(.users)
                 ToolbarActionButton(.hidden)
@@ -233,6 +234,7 @@ struct MainView: View {
         ToolbarItem(id: "history", placement: .primaryAction, showsByDefault: false) { ToolbarActionButton(.history) }
         ToolbarItem(id: "find", placement: .primaryAction, showsByDefault: false) { ToolbarActionButton(.find) }
         ToolbarItem(id: "log", placement: .primaryAction, showsByDefault: false) { ToolbarActionButton(.log) }
+        ToolbarItem(id: "crashes", placement: .primaryAction, showsByDefault: false) { ToolbarActionButton(.crashes) }
         ToolbarItem(id: "windows", placement: .primaryAction, showsByDefault: false) { ToolbarActionButton(.windows) }
         ToolbarItem(id: "users", placement: .primaryAction, showsByDefault: false) { ToolbarActionButton(.users) }
         ToolbarItem(id: "hidden", placement: .primaryAction, showsByDefault: false) { ToolbarActionButton(.hidden) }
@@ -435,7 +437,7 @@ struct PauseToggle: View {
 /// Plain action buttons used in groups and as individual palette items.
 struct ToolbarActionButton: View {
     enum Action {
-        case sysinfo, history, find, settings, properties, terminate, kill, inspect, run, log, windows, users, hidden, export
+        case sysinfo, history, find, settings, properties, terminate, kill, inspect, run, log, crashes, windows, users, hidden, export
     }
 
     let action: Action
@@ -463,6 +465,7 @@ struct ToolbarActionButton: View {
         case .inspect: InspectorWindow.choose()
         case .run: RunWindow.open(asRoot: false)
         case .log: EventLogWindow.open()
+        case .crashes: CrashReportsWindow.open()
         case .windows: WindowFinder.open()
         case .users: UsersWindow.open()
         case .hidden: HiddenProcessesWindow.open()
@@ -482,6 +485,7 @@ struct ToolbarActionButton: View {
         case .inspect: return "Inspect"
         case .run: return "Run"
         case .log: return "Event Log"
+        case .crashes: return "Crash Reports"
         case .windows: return "Find Window"
         case .users: return "Users"
         case .hidden: return "Hidden Scan"
@@ -501,6 +505,7 @@ struct ToolbarActionButton: View {
         case .inspect: return "doc.viewfinder"
         case .run: return "play.rectangle"
         case .log: return "list.bullet.rectangle"
+        case .crashes: return "exclamationmark.triangle"
         case .windows: return "macwindow.badge.plus"
         case .users: return "person.2"
         case .hidden: return "eye.trianglebadge.exclamationmark"
@@ -520,6 +525,7 @@ struct ToolbarActionButton: View {
         case .inspect: return "Inspect an app or binary: architectures, libraries, symbols, code signature (⌘O)"
         case .run: return "Start a program, optionally as root (⌘N)"
         case .log: return "Show the log of processes and services starting and stopping (⌥⌘L)"
+        case .crashes: return "List crash, hang and resource reports, grouped by process"
         case .windows: return "List on-screen windows to find the process that owns one"
         case .users: return "Show logged-in users and their processes, CPU and memory"
         case .hidden: return "Scan every PID to detect processes hidden from the process list"
