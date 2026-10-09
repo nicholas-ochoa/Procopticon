@@ -91,9 +91,25 @@ typedef struct {
     uint64_t ecpuInstructions;  // efficiency cores (derived)
     uint64_t pTimeNs;           // time on performance cores
     uint64_t procStartAbs;
+
+    // task_info(TASK_VM_INFO) through the task's name port (same user or root)
+    int32_t hasVmInfo;
+    uint64_t compressed;        // bytes held in the compressor for the task
+    uint64_t purgeableVolatile; // volatile purgeable memory charged to the task
 } si_task_stats;
 
 int si_task_stats_for_pid(pid_t pid, si_task_stats *out);
+
+/// One process's jetsam (memory pressure) priority band and memory limit.
+typedef struct {
+    int32_t pid;
+    int32_t priority;
+    int32_t limitMB;            // -1 when there is no limit
+} si_jetsam_entry;
+
+/// Every process's jetsam priority and limit (memorystatus_control). Root only. Returns the number
+/// of entries in a malloc'd array (caller frees), or -errno.
+int si_jetsam_list(si_jetsam_entry **out);
 
 /// Current working directory. Returns 0 on success, -errno on failure.
 int si_pid_cwd(pid_t pid, char *buf, int size);

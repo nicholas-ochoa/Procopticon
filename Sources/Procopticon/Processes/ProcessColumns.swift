@@ -236,6 +236,22 @@ enum ProcessColumns {
         cols.append(.number("wired", "Wired memory", width: 85, visible: false,
                             help: "Memory locked in RAM for the process, which can't be paged out or compressed",
                             value: { $0.stats?.wiredSize ?? 0 }, text: { s($0.stats?.wiredSize) }))
+        cols.append(.number("compressed", "Compressed", width: 85, visible: false,
+                            help: "The part of the process's memory the system has compressed to save space (included in Memory)",
+                            value: { $0.stats?.compressed ?? 0 }, text: { s($0.stats?.compressed) }))
+        cols.append(.number("purgeable", "Purgeable", width: 85, visible: false,
+                            help: "Memory the process marked purgeable: caches the system may throw away when memory runs short",
+                            value: { $0.stats?.purgeable ?? 0 }, text: { s($0.stats?.purgeable) }))
+        cols.append(.number("memoryLimit", "Memory limit", width: 85, visible: false,
+                            help: "The footprint at which the system kills the process to free memory (its jetsam limit); needs Show Details for All Processes",
+                            value: { p in p.record.memoryLimitMB.map { $0 < 0 ? Int32.max : $0 } ?? -1 },
+                            text: { p in p.record.memoryLimitMB.map { $0 < 0 ? "None" : Fmt.bytes(UInt64($0) * 1024 * 1024) } ?? "" }))
+        cols.append(.number("jetsamPriority", "Jetsam priority", width: 70, visible: false,
+                            help: "The process's jetsam band: under memory pressure the system kills processes in lower bands first (0 idle, 100 foreground app, 180 the default for processes launchd doesn't manage); needs Show Details for All Processes",
+                            value: { $0.record.jetsamPriority ?? -1 }, text: { $0.record.jetsamPriority.map { "\($0)" } ?? "" }))
+        cols.append(.number("ports", "Ports", width: 60, visible: false,
+                            help: "Mach ports the process holds (from lsmp). Needs Show Details for All Processes; counted every \(Int(ProcessStore.portCountInterval)) seconds while this column shows",
+                            value: { $0.machPorts ?? -1 }, text: { $0.machPorts.map { Fmt.count($0) } ?? "" }))
         cols.append(.number("neural", "Neural Engine memory", width: 85, visible: false, help: "Memory used by the Neural Engine for the process",
                             value: { $0.stats?.neuralFootprint ?? 0 }, text: { s($0.stats?.neuralFootprint) }))
         cols.append(.number("faults", "Page faults", width: 90, visible: false, help: "Page faults since the process started",

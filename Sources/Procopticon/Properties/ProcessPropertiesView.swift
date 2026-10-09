@@ -476,6 +476,8 @@ struct GeneralTab: View {
 struct StatisticsTab: View {
     let item: ProcessItem
     let revision: Int
+    /// Counted once when the tab opens (lsmp, as root), unless the Ports column keeps it current.
+    @State private var ports: Int?
 
     var body: some View {
         let s = item.stats
@@ -510,6 +512,10 @@ struct StatisticsTab: View {
                         InfoRow("Virtual", s.map { Fmt.bytes($0.virtualSize) } ?? "")
                         InfoRow("Wired", s.map { Fmt.bytes($0.wiredSize) } ?? "")
                         InfoRow("Neural Engine", s.map { Fmt.bytes($0.neuralFootprint) } ?? "")
+                        InfoRow("Compressed", s?.compressed.map { Fmt.bytes($0) } ?? "")
+                        InfoRow("Purgeable", s?.purgeable.map { Fmt.bytes($0) } ?? "")
+                        InfoRow("Memory limit", item.record.memoryLimitMB.map { $0 < 0 ? "None" : Fmt.bytes(UInt64($0) * 1024 * 1024) } ?? "")
+                        InfoRow("Jetsam priority", item.record.jetsamPriority.map { "\($0)" } ?? "")
                         InfoRow("Page faults", s.map { Fmt.count(Int($0.faults)) } ?? "")
                         InfoRow("Page-ins", s.map { Fmt.count(Int($0.pageins)) } ?? "")
                         InfoRow("Copy-on-write faults", s.map { Fmt.count(Int($0.cowFaults)) } ?? "")
@@ -546,6 +552,8 @@ struct StatisticsTab: View {
                     Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 5) {
                         InfoRow("Mach messages sent", s.map { Fmt.count(Int($0.messagesSent)) } ?? "")
                         InfoRow("Mach messages received", s.map { Fmt.count(Int($0.messagesReceived)) } ?? "")
+                        InfoRow("Mach ports", (item.machPorts ?? ports).map { Fmt.count($0) }
+                                    ?? (Elevation.shared.isElevated ? "" : "Needs Show Details for All Processes"))
                         InfoRow("Mach system calls", s.map { Fmt.count(Int($0.syscallsMach)) } ?? "")
                         InfoRow("BSD system calls", s.map { Fmt.count(Int($0.syscallsUnix)) } ?? "")
                         InfoRow("Idle wake-ups", s.map { Fmt.count($0.idleWakeups) } ?? "")
@@ -554,6 +562,13 @@ struct StatisticsTab: View {
                         InfoRow("Power", Fmt.watts(item.power))
                     }
                 }
+            }
+        }
+        .task(id: item.key) {
+            guard item.machPorts == nil, Elevation.shared.isElevated else { return }
+            let pid = item.pid
+            if case .portCounts(let counts) = await Task.detached(operation: { Elevation.shared.perform(.machPortCount(pid: pid)) }).value {
+                ports = counts[pid]
             }
         }
     }

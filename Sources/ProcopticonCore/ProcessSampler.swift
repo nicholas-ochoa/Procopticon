@@ -101,6 +101,7 @@ public final class ProcessSampler {
         var records: [ProcessRecord] = []
         records.reserveCapacity(Int(count))
         var seen = Set<ProcessKey>()
+        let jetsam = Self.jetsam()
         for i in 0..<Int(count) {
             let k = list[i]
             let comm = withUnsafeBytes(of: k.comm) { raw -> String in
@@ -138,6 +139,10 @@ public final class ProcessSampler {
             record.csFlags = info.csFlags
             record.sandboxed = info.sandboxed
             record.responsiblePid = info.responsiblePid
+            if let j = jetsam[k.pid] {
+                record.jetsamPriority = j.priority
+                record.memoryLimitMB = j.limitMB
+            }
 
             var stats = si_task_stats()
             if si_task_stats_for_pid(k.pid, &stats) == 0 {
@@ -158,6 +163,20 @@ public final class ProcessSampler {
         }
         cache = cache.filter { seen.contains($0.key) }
         return records
+    }
+
+    /// Jetsam priorities and limits by PID; empty unless running as root.
+    private static func jetsam() -> [Int32: si_jetsam_entry] {
+        var list: UnsafeMutablePointer<si_jetsam_entry>?
+        let n = si_jetsam_list(&list)
+        guard n > 0, let list else { return [:] }
+        defer { free(list) }
+        var result: [Int32: si_jetsam_entry] = [:]
+        result.reserveCapacity(Int(n))
+        for i in 0..<Int(n) {
+            result[list[i].pid] = list[i]
+        }
+        return result
     }
 
     private func csStatus(_ pid: Int32) -> UInt32? {

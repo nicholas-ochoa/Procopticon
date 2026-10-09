@@ -189,7 +189,69 @@ int si_task_stats_for_pid(pid_t pid, si_task_stats *out) {
             out->residentSize = ru.ri_resident_size;
         }
     }
+
+    // The name port is enough for TASK_VM_INFO, and unlike the task port it's granted for any
+    // process of the same user (or any process to root), Apple's included.
+    mach_port_t task = MACH_PORT_NULL;
+    if (pid > 0 && task_name_for_pid(mach_task_self(), pid, &task) == KERN_SUCCESS) {
+        task_vm_info_data_t vm;
+        mach_msg_type_number_t count = TASK_VM_INFO_COUNT;
+        if (task_info(task, TASK_VM_INFO, (task_info_t)&vm, &count) == KERN_SUCCESS) {
+            out->hasVmInfo = 1;
+            out->compressed = vm.compressed;
+            if (count >= TASK_VM_INFO_REV2_COUNT) {
+                out->purgeableVolatile = vm.ledger_purgeable_volatile;
+            }
+        }
+        mach_port_deallocate(mach_task_self(), task);
+    }
     return (out->hasTaskInfo || out->hasRusage || out->hasBsdInfo) ? 0 : -EPERM;
+}
+
+// Private (sys/kern_memorystatus.h); exported by libsystem_kernel.
+extern int memorystatus_control(uint32_t command, int32_t pid, uint32_t flags, void *buffer, size_t buffersize);
+#define SI_MEMORYSTATUS_CMD_GET_PRIORITY_LIST 1
+
+typedef struct {
+    int32_t pid;
+    int32_t priority;
+    uint64_t user_data;
+    int32_t limit;
+    uint32_t state;
+} si_memorystatus_priority_entry;
+
+int si_jetsam_list(si_jetsam_entry **out) {
+    *out = NULL;
+    int size = memorystatus_control(SI_MEMORYSTATUS_CMD_GET_PRIORITY_LIST, 0, 0, NULL, 0);
+    if (size <= 0) {
+        return size < 0 ? -errno : 0;
+    }
+    // Room for processes started since the size was asked for.
+    size_t capacity = (size_t)size + 64 * sizeof(si_memorystatus_priority_entry);
+    si_memorystatus_priority_entry *list = malloc(capacity);
+    if (!list) {
+        return -ENOMEM;
+    }
+    int got = memorystatus_control(SI_MEMORYSTATUS_CMD_GET_PRIORITY_LIST, 0, 0, list, capacity);
+    if (got < 0) {
+        int e = errno;
+        free(list);
+        return -e;
+    }
+    int n = got / (int)sizeof(si_memorystatus_priority_entry);
+    si_jetsam_entry *result = calloc((size_t)(n > 0 ? n : 1), sizeof(si_jetsam_entry));
+    if (!result) {
+        free(list);
+        return -ENOMEM;
+    }
+    for (int i = 0; i < n; i++) {
+        result[i].pid = list[i].pid;
+        result[i].priority = list[i].priority;
+        result[i].limitMB = list[i].limit;
+    }
+    free(list);
+    *out = result;
+    return n;
 }
 
 int si_pid_cwd(pid_t pid, char *buf, int size) {

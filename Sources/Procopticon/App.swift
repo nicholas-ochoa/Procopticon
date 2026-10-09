@@ -34,6 +34,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         IsolatedScanner.executablePath = Elevation.helperURL.path
         ProcessStore.shared.applicationPids = ApplicationPids.current
         ProcessStore.shared.applicationResponsiveness = ApplicationResponsiveness.current
+        // Mach ports are only counted while their column is showing; see OutlineTable's visibility keys.
+        ProcessStore.shared.wantsPortCounts = {
+            UserDefaults.standard.stringArray(forKey: "ProcessTree.shownColumns")?.contains("ports") == true
+        }
         AppSettings.shared.apply()
         AppSettings.shared.applyAppearance()
         AppSettings.shared.applyAccentColor()

@@ -61,6 +61,8 @@ public final class ProcessItem: Identifiable {
     public let sleepPrevention: SleepPrevention?
     /// The microphone, camera or screen recording it's using; see `SensorMonitor`.
     public let sensors: SensorUse
+    /// Mach port names it holds, when counted (see `ProcessStore.wantsPortCounts`).
+    public let machPorts: Int?
     /// Cached so hot paths (sorting, cell drawing) don't repeat lookups.
     public let userName: String
     public let bundleInfo: ExecutableBundleInfo?
@@ -101,6 +103,7 @@ public final class ProcessItem: Identifiable {
         assertions = s.assertions
         sleepPrevention = s.assertions.sleepPrevention
         sensors = s.sensors
+        machPorts = s.machPorts
         userName = s.userName
         bundleInfo = s.bundleInfo
     }
@@ -186,6 +189,7 @@ final class ProcessState {
     var notRespondingSince: Date?
     var assertions: [PowerAssertion] = []
     var sensors: SensorUse = []
+    var machPorts: Int?
     var userName: String
     var bundleInfo: ExecutableBundleInfo?
     private var lastSampleTime: Double
@@ -360,6 +364,10 @@ public final class ProcessStore: ObservableObject {
     /// Supplies the applications whose responsiveness is checked, and those of them that aren't
     /// responding (set by the app). Called on the background queue at each sample.
     public var applicationResponsiveness: () -> (checked: Set<Int32>, unresponsive: Set<Int32>) = { ([], []) }
+    /// Whether anything shows Mach port counts (set by the app). Counting them is costly, so it
+    /// only happens while this is true, when elevated, every `portCountInterval` seconds.
+    public var wantsPortCounts: () -> Bool = { false }
+    public static let portCountInterval: TimeInterval = 30
 
     public var interval: TimeInterval = 1.0 {
         didSet { if oldValue != interval { schedule() } }
@@ -387,6 +395,9 @@ public final class ProcessStore: ObservableObject {
     /// the running applications, "Apps" still shows it and what it started until they're gone.
     private var appKeys = Set<ProcessKey>()
     private var needsInterfaceBaseline = true
+    private var portCounts: [Int32: Int] = [:]
+    private var portCountsTime = Date.distantPast
+    private var countingPorts = false
 
     public init() {
         NotificationCenter.default.publisher(for: Elevation.didChangeNotification)
@@ -465,6 +476,7 @@ public final class ProcessStore: ObservableObject {
             } else if case .failure(let e) = response {
                 error = e.message
             }
+            self.countPortsIfNeeded()
             let snapshot = self.buildSnapshot(options)
             DispatchQueue.main.async {
                 self.sampling = false
@@ -472,6 +484,27 @@ public final class ProcessStore: ObservableObject {
                 self.system.update(sys, processes: snapshot.items.values, interfaceBaseline: interfaceBaseline)
                 self.publish(snapshot, generation: gen)
                 self.didSample.send()
+            }
+        }
+    }
+
+    /// Starts a Mach port count in the background when one is wanted and due. Background queue.
+    private func countPortsIfNeeded() {
+        guard wantsPortCounts(), Elevation.shared.isElevated else {
+            portCounts = [:]
+            return
+        }
+        guard !countingPorts, Date().timeIntervalSince(portCountsTime) >= Self.portCountInterval else { return }
+        countingPorts = true
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let response = Elevation.shared.perform(.machPortCounts)
+            self?.queue.async {
+                guard let self else { return }
+                if case .portCounts(let counts) = response {
+                    self.portCounts = counts
+                }
+                self.portCountsTime = Date()
+                self.countingPorts = false
             }
         }
     }
@@ -571,6 +604,7 @@ public final class ProcessStore: ObservableObject {
                 }
             }
             state.sensors = using
+            state.machPorts = portCounts[r.pid]
         }
         let now = Date()
         // Exited processes stay, highlighted, for the highlight duration and through the next

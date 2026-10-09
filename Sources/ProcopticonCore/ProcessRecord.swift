@@ -49,6 +49,10 @@ public struct TaskStats: Codable, Sendable {
     public var pcpuInstructions: UInt64
     public var pcpuCycles: UInt64
     public var pTimeNs: UInt64
+    /// Bytes of the process's memory held compressed (nil when its task couldn't be inspected).
+    public var compressed: UInt64?
+    /// Volatile purgeable memory: caches the system may discard under memory pressure.
+    public var purgeable: UInt64?
 
     init(_ s: si_task_stats) {
         hasTaskInfo = s.hasTaskInfo != 0
@@ -85,6 +89,8 @@ public struct TaskStats: Codable, Sendable {
         pcpuInstructions = s.pcpuInstructions
         pcpuCycles = s.pcpuCycles
         pTimeNs = s.pTimeNs
+        compressed = s.hasVmInfo != 0 ? s.compressed : nil
+        purgeable = s.hasVmInfo != 0 ? s.purgeableVolatile : nil
     }
 
     public var totalTimeNs: UInt64 { userTimeNs &+ systemTimeNs }
@@ -119,6 +125,10 @@ public struct ProcessRecord: Codable, Sendable {
     public var csFlags: UInt32?
     public var sandboxed: Bool?
     public var responsiblePid: Int32?
+    /// The jetsam band: under memory pressure, lower bands are killed first (root only).
+    public var jetsamPriority: Int32?
+    /// The memory footprint jetsam kills the process beyond, in MB; -1 for none (root only).
+    public var memoryLimitMB: Int32?
 
     public var key: ProcessKey { ProcessKey(pid: pid, startMicros: startMicros) }
     public var startTime: Double { Double(startMicros) / 1_000_000 }

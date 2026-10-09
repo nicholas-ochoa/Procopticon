@@ -25,6 +25,9 @@ public enum PrivilegedRequest: Codable, Sendable {
     case stopStream(id: Int)
     /// Login items, extensions, cron jobs and the like; see `StartupItems`.
     case startupItems
+    /// Mach port counts of every process, or of one (root only); see `MachPorts`.
+    case machPortCounts
+    case machPortCount(pid: Int32)
     case shutdown
 }
 
@@ -75,6 +78,7 @@ public enum PrivilegedResponse: Codable, Sendable {
     case streamStarted(id: Int)
     case streamOutput(StreamChunk)
     case startupItems(StartupItemsReport)
+    case portCounts([Int32: Int])
 
     public var error: PrivilegedError? {
         if case .failure(let e) = self { return e }
@@ -230,6 +234,16 @@ public final class PrivilegedExecutor: @unchecked Sendable {
             return .ok
         case .startupItems:
             return .startupItems(StartupItems.collect())
+        case .machPortCounts:
+            guard let counts = MachPorts.counts() else {
+                return .failure(PrivilegedError(code: EPERM, message: "Counting Mach ports needs root."))
+            }
+            return .portCounts(counts)
+        case let .machPortCount(pid):
+            guard let count = MachPorts.count(pid: pid) else {
+                return .failure(PrivilegedError(code: EPERM, message: "Counting Mach ports needs root."))
+            }
+            return .portCounts([pid: count])
         case .shutdown:
             streams.stopAll()
             return .ok
