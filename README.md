@@ -108,13 +108,17 @@ well-known service names. New and closed connections are highlighted.
 **System Information** has these sections:
 
 * CPU: total plus one graph per core, labeled P or E. Hovering a point shows the busiest process at
-  that moment.
+  that moment. When elevated, each cluster's current frequency too.
 * Memory: app, wired, compressed, cached and free memory, plus pressure, swap, page-in/out and
   compression rates.
 * Disk: throughput and capacity of each volume.
 * Network: throughput of each interface.
 * GPU: utilization, core count and memory use, and the processes using the GPU.
-* Power: battery state, estimated process power, and the processes keeping the Mac or its display awake.
+* Power: battery state, estimated process power, power measured by `powermetrics` when elevated, and
+  the processes keeping the Mac or its display awake.
+* Thermal: the thermal state macOS reports (Nominal, Fair, Serious, Critical) with its history and,
+  from `powermetrics` (as root, while the section is open), thermal pressure, each CPU cluster's
+  frequency and activity, the GPU's frequency, and CPU, GPU and Neural Engine power.
 
 **Resource History** (*View ▸ Resource History*, ⌥⌘G, or the Tools toolbar group) is a floating,
 resizable window of Activity Monitor–style history graphs in one place: one graph per CPU core (user time
@@ -201,7 +205,7 @@ Launch arguments are useful for scripting and testing:
 --search <text>              pre-fill the process search (e.g. '/^mdworker/')
 --tab processes|services|network|disk
 --show-properties <pid>      [--properties-tab General|Threads|Modules|Memory|Files|…]
---show-sysinfo summary|cpu|memory|disk|network|gpu|power
+--show-sysinfo summary|cpu|memory|disk|network|gpu|power|thermal
 --show-find <text>    --inspect <path>    --show-service <label>    --show-log    --show-windows    --show-crashes    --show-startup
 ```
 

@@ -34,3 +34,40 @@ final class PowerAssertionTests: XCTestCase {
         XCTAssertEqual(a.beneficiaryPid, 4242)
     }
 }
+
+final class PowerMetricsTests: XCTestCase {
+    private func plist(pressure: String, freq: Double, idle: [Double]) -> String {
+        let cpus = idle.enumerated().map { "<dict><key>cpu</key><integer>\($0.offset)</integer><key>idle_ratio</key><real>\($0.element)</real></dict>" }.joined()
+        return """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <plist version="1.0"><dict>
+        <key>thermal_pressure</key><string>\(pressure)</string>
+        <key>processor</key><dict>
+        <key>clusters</key><array><dict><key>name</key><string>E-Cluster</string><key>freq_hz</key><real>\(freq)</real>
+        <key>idle_ratio</key><real>0</real><key>cpus</key><array>\(cpus)</array></dict></array>
+        <key>cpu_power</key><real>4862.15</real><key>gpu_power</key><real>369.2</real><key>ane_power</key><real>0</real>
+        </dict>
+        <key>gpu</key><dict><key>freq_hz</key><real>338</real><key>idle_ratio</key><real>0.85</real></dict>
+        </dict></plist>
+        """
+    }
+
+    func testSamplesAreReassembledFromLines() {
+        let text = plist(pressure: "Nominal", freq: 2_034_590_000, idle: [0.5, 0.7]) + "\n\0" + plist(pressure: "Heavy", freq: 1e9, idle: [0.1])
+        var assembler = PowerMetrics.Assembler()
+        let lines = text.split(separator: "\n").map(String.init)
+        let first = assembler.feed(Array(lines.prefix(5)))
+        let rest = assembler.feed(Array(lines.dropFirst(5)))
+        let samples = first + rest
+        XCTAssertEqual(samples.count, 2)
+        XCTAssertEqual(samples[0].thermalPressure, "Nominal")
+        XCTAssertEqual(samples[0].thermalPressureLevel, 0)
+        XCTAssertEqual(samples[0].clusters.first?.name, "E-Cluster")
+        XCTAssertEqual(samples[0].clusters.first?.frequencyHz, 2_034_590_000)
+        XCTAssertEqual(samples[0].clusters.first?.activeRatio ?? 0, 0.4, accuracy: 1e-9)
+        XCTAssertEqual(samples[0].cpuPower ?? 0, 4.86215, accuracy: 1e-9)
+        XCTAssertEqual(samples[0].gpuFrequencyMHz, 338)
+        XCTAssertEqual(samples[1].thermalPressureLevel, 2)
+    }
+}

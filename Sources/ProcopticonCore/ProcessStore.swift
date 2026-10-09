@@ -800,6 +800,9 @@ public final class SystemMonitor {
     public private(set) var netOutPackets = History()
     public private(set) var gpu = History()
     public private(set) var power = History()
+    /// The system's thermal state at each sample (0 nominal, 1 fair, 2 serious, 3 critical).
+    public private(set) var thermalLevel = History()
+    public private(set) var thermalState: ProcessInfo.ThermalState = .nominal
     /// Name of the top CPU consumer at each sample (parallel to cpuTotal).
     public private(set) var topCPUProcess: [String] = []
     public private(set) var topIOProcess: [String] = []
@@ -851,6 +854,8 @@ public final class SystemMonitor {
             return
         }
         let dt = max(0.001, s.timestamp - prev.timestamp)
+        thermalState = ProcessInfo.processInfo.thermalState
+        thermalLevel.append(Double(thermalState.rawValue))
         // CPU
         var totalUser: UInt64 = 0, totalSys: UInt64 = 0, totalAll: UInt64 = 0
         var cores: [Double] = []

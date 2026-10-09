@@ -27,6 +27,7 @@ struct SystemInfoView: View {
         case network = "Network"
         case gpu = "GPU"
         case power = "Power"
+        case thermal = "Thermal"
         var id: String { rawValue }
         var symbol: String {
             switch self {
@@ -37,6 +38,7 @@ struct SystemInfoView: View {
             case .network: return "network"
             case .gpu: return "display"
             case .power: return "bolt.fill"
+            case .thermal: return "thermometer.medium"
             }
         }
     }
@@ -58,6 +60,7 @@ struct SystemInfoView: View {
                     case .network: NetworkPanel(sys: store.system, revision: store.revision)
                     case .gpu: GPUPanel(sys: store.system, revision: store.revision)
                     case .power: PowerPanel(sys: store.system, revision: store.revision)
+                    case .thermal: ThermalPanel(sys: store.system, revision: store.revision)
                     }
                 }
                 .padding()
@@ -164,6 +167,9 @@ struct CPUPanel: View {
                         InfoRow("User", percent(sys.cpuUserUsage))
                         InfoRow("Kernel", percent(sys.cpuKernelUsage))
                         InfoRow("Load average", (sys.last?.loadAverage ?? []).map { String(format: "%.2f", $0) }.joined(separator: "  "))
+                        if let frequency = PowerMetricsMonitor.shared.frequencySummary {
+                            InfoRow("Frequency", frequency)
+                        }
                         InfoRow("Processes", "\(store.processCount)")
                         InfoRow("Threads", Fmt.count(store.totalThreads))
                     }
@@ -182,6 +188,9 @@ struct CPUPanel: View {
                 }
             }
         }
+        // Frequencies show while powermetrics runs; this starts it only when that needs no password.
+        .onAppear { PowerMetricsMonitor.shared.acquire() }
+        .onDisappear { PowerMetricsMonitor.shared.release() }
     }
 }
 
@@ -490,6 +499,98 @@ struct SleepPreventersBox: View {
     }
 }
 
+/// Thermal state, thermal pressure, CPU cluster frequencies and measured power.
+struct ThermalPanel: View {
+    let sys: SystemMonitor
+    let revision: Int
+    @ObservedObject private var metrics = PowerMetricsMonitor.shared
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 12) {
+                SectionBox(title: "Thermal state") {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Label(sys.thermalState.title, systemImage: "thermometer.medium")
+                            .font(.title3.weight(.semibold))
+                            .foregroundStyle(sys.thermalState.color)
+                        Text(sys.thermalState.explanation).foregroundStyle(.secondary)
+                    }
+                }
+                SectionBox(title: "Thermal pressure") {
+                    VStack(alignment: .leading, spacing: 4) {
+                        if let pressure = metrics.latest?.thermalPressure {
+                            Text(pressure).font(.title3.weight(.semibold))
+                                .foregroundStyle(pressure == "Nominal" ? Color.green : pressure == "Moderate" ? .yellow : .red)
+                            Text("How hard the system is working to stay cool, from powermetrics.").foregroundStyle(.secondary)
+                        } else {
+                            Text(metrics.starting ? "Starting powermetrics…" : "Not measured").foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+            GraphView(series: [GraphSeries(values: sys.thermalLevel.ordered, color: .orange, label: "Thermal state")],
+                      maxValue: 3, title: "Thermal state", valueText: sys.thermalState.title,
+                      formatter: { ["Nominal", "Fair", "Serious", "Critical"][max(0, min(3, Int($0.rounded())))] })
+                .frame(height: 90)
+            if metrics.running || metrics.latest != nil {
+                measured
+            } else {
+                powermetricsPrompt
+            }
+        }
+        .onAppear { metrics.acquire() }
+        .onDisappear { metrics.release() }
+    }
+
+    @ViewBuilder
+    private var measured: some View {
+        let names = metrics.clusterNames
+        if !names.isEmpty {
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: min(3, names.count)), spacing: 8) {
+                ForEach(names, id: \.self) { name in
+                    let h = metrics.clusterFrequency[name] ?? History()
+                    let active = metrics.latest?.clusters.first { $0.name == name }?.activeRatio ?? 0
+                    GraphView(series: [GraphSeries(values: h.ordered, color: name.hasPrefix("E") ? .teal : .blue, label: name)],
+                              maxValue: max(1000, h.maxValue), title: name.replacingOccurrences(of: "-Cluster", with: " cluster"),
+                              valueText: String(format: "%.2f GHz · %.0f%% active", h.last / 1000, active * 100),
+                              formatter: { String(format: "%.0f MHz", $0) })
+                        .frame(height: 110)
+                }
+            }
+        }
+        GraphView(series: [GraphSeries(values: metrics.cpuPower.ordered, color: .green, label: "CPU"),
+                           GraphSeries(values: metrics.gpuPower.ordered, color: .indigo, label: "GPU"),
+                           GraphSeries(values: metrics.anePower.ordered, color: .pink, label: "Neural Engine")],
+                  title: "Measured power",
+                  valueText: "CPU \(Fmt.watts(metrics.latest?.cpuPower ?? 0).ifEmpty("0 W")) · GPU \(Fmt.watts(metrics.latest?.gpuPower ?? 0).ifEmpty("0 W")) · ANE \(Fmt.watts(metrics.latest?.anePower ?? 0).ifEmpty("0 W"))",
+                  formatter: { Fmt.watts($0).ifEmpty("0 W") }, stacked: true)
+            .frame(height: 150)
+        GraphView(series: [GraphSeries(values: metrics.gpuFrequency.ordered, color: .indigo, label: "GPU")],
+                  title: "GPU frequency", valueText: String(format: "%.0f MHz", metrics.gpuFrequency.last),
+                  formatter: { String(format: "%.0f MHz", $0) })
+            .frame(height: 90)
+        if let error = metrics.error {
+            Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(.orange).font(.caption)
+        }
+    }
+
+    private var powermetricsPrompt: some View {
+        SectionBox(title: "Frequency and measured power") {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("CPU cluster frequencies, thermal pressure and the power the CPU, GPU and Neural Engine draw come from powermetrics, which needs administrator rights.")
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let error = metrics.error {
+                    Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(.orange).font(.caption)
+                }
+                Button(metrics.starting ? "Starting…" : "Show Frequency and Power…") { metrics.start(prompt: true) }
+                    .disabled(metrics.starting)
+                    .help("Run powermetrics as root while this section is open (asks for an administrator password if needed)")
+            }
+        }
+    }
+}
+
 struct PowerPanel: View {
     let sys: SystemMonitor
     /// Changes every sample so SwiftUI re-evaluates the panel (the monitor is a reference type).
@@ -501,6 +602,16 @@ struct PowerPanel: View {
                       title: "Estimated process power", valueText: Fmt.watts(sys.processPower).ifEmpty("0 W"),
                       formatter: { Fmt.watts($0).ifEmpty("0 W") })
                 .frame(height: 180)
+            if let s = PowerMetricsMonitor.shared.latest {
+                SectionBox(title: "Measured power (powermetrics)") {
+                    Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 5) {
+                        InfoRow("CPU", Fmt.watts(s.cpuPower ?? 0).ifEmpty("0 W"))
+                        InfoRow("GPU", Fmt.watts(s.gpuPower ?? 0).ifEmpty("0 W"))
+                        InfoRow("Neural Engine", Fmt.watts(s.anePower ?? 0).ifEmpty("0 W"))
+                        InfoRow("Combined", Fmt.watts(s.combinedPower ?? 0).ifEmpty("0 W"))
+                    }
+                }
+            }
             SleepPreventersBox()
             if let b = sys.last?.battery, b.present {
                 SectionBox(title: "Battery") {
@@ -518,5 +629,7 @@ struct PowerPanel: View {
                 Text("No battery present.").foregroundStyle(.secondary)
             }
         }
+        .onAppear { PowerMetricsMonitor.shared.acquire() }
+        .onDisappear { PowerMetricsMonitor.shared.release() }
     }
 }
