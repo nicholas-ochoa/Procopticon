@@ -19,6 +19,10 @@ public enum PrivilegedRequest: Codable, Sendable {
     case searchOpenFiles(query: String, includeLibraries: Bool, regex: Bool)
     case runTool(tool: String, arguments: [String])
     case launch(path: String, arguments: [String])
+    /// Starts a long-running tool whose output is read with `readStream`; see `ToolStream`.
+    case startStream(tool: String, arguments: [String])
+    case readStream(id: Int)
+    case stopStream(id: Int)
     case shutdown
 }
 
@@ -66,6 +70,8 @@ public enum PrivilegedResponse: Codable, Sendable {
     case launched(pid: Int32)
     case text(String)
     case openFiles([OpenFileMatch])
+    case streamStarted(id: Int)
+    case streamOutput(StreamChunk)
 
     public var error: PrivilegedError? {
         if case .failure(let e) = self { return e }
@@ -84,7 +90,7 @@ public enum AllowedTools {
         "/usr/bin/leaks", "/usr/sbin/lsof", "/usr/bin/footprint", "/usr/sbin/spindump", "/usr/bin/killall",
         "/usr/bin/dscacheutil", "/usr/sbin/sysctl", "/usr/bin/log", "/usr/bin/taskpolicy", "/usr/bin/renice",
         "/usr/bin/codesign", "/usr/bin/nettop", "/usr/bin/lldb", "/usr/bin/gcore", "/usr/bin/stringdups",
-        "/usr/bin/malloc_history", "/sbin/shutdown", "/usr/bin/pkill",
+        "/usr/bin/malloc_history", "/sbin/shutdown", "/usr/bin/pkill", "/usr/bin/fs_usage", "/usr/bin/powermetrics",
     ]
 }
 
@@ -134,6 +140,7 @@ public enum ToolRunner {
 public final class PrivilegedExecutor: @unchecked Sendable {
     private let samplerLock = NSLock()
     private let sampler = ProcessSampler()
+    private let streams = ToolStreamSessions()
     /// When true (inside the helper), any tool in the allowlist may run; otherwise anything.
     private let restrictTools: Bool
 
@@ -208,6 +215,16 @@ public final class PrivilegedExecutor: @unchecked Sendable {
             return .tool(ToolRunner.run(tool, arguments))
         case let .launch(path, arguments):
             return launch(path: path, arguments: arguments)
+        case let .startStream(tool, arguments):
+            if restrictTools, !AllowedTools.paths.contains(tool) {
+                return .failure(PrivilegedError(code: EPERM, message: "\(tool) is not an allowed tool."))
+            }
+            return streams.start(tool, arguments)
+        case let .readStream(id):
+            return streams.read(id)
+        case let .stopStream(id):
+            streams.stop(id)
+            return .ok
         case .shutdown:
             return .ok
         }

@@ -33,6 +33,7 @@ struct ProcessPropertiesView: View {
         case environment = "Environment"
         case files = "Files"
         case network = "Network"
+        case log = "Log"
         case security = "Security"
         case service = "Service"
         var id: String { rawValue }
@@ -51,6 +52,7 @@ struct ProcessPropertiesView: View {
             case .environment: return "terminal"
             case .files: return "doc.on.doc"
             case .network: return "network"
+            case .log: return "text.alignleft"
             case .security: return "lock.shield"
             case .service: return "gearshape.2"
             }
@@ -61,7 +63,7 @@ struct ProcessPropertiesView: View {
             switch self {
             case .general, .statistics, .security, .service: return .content
             case .performance: return .height(700)
-            case .threads, .modules, .memory, .arguments, .environment, .files, .network, .power: return .table
+            case .threads, .modules, .memory, .arguments, .environment, .files, .network, .power, .log: return .table
             }
         }
     }
@@ -75,7 +77,7 @@ struct ProcessPropertiesView: View {
         case table
     }
 
-    static let minHeight: CGFloat = 470
+    static let minHeight: CGFloat = 500
 
     init(key: ProcessKey, tab: PropertyTab = .general) {
         self.key = key
@@ -139,6 +141,7 @@ struct ProcessPropertiesView: View {
         case .environment: EnvironmentTab(item: item)
         case .files: FilesTab(item: item)
         case .network: ProcessNetworkTab(item: item)
+        case .log: ProcessLogTab(item: item)
         case .security: SecurityTab(item: item)
         case .service: ServiceTab(item: item)
         }

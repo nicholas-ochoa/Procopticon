@@ -82,6 +82,7 @@ each section as you switch:
 | Environment | Environment variables |
 | Files | Open file descriptors: files, sockets, pipes, kqueues and shared memory |
 | Network | The process's sockets |
+| Log | The process's messages in the unified log, live (`log stream`) after those from the last five minutes, with a Default/Info/Debug level, pause, filter and earlier history (`log show`). Errors and faults are highlighted |
 | Security | Credentials and groups, signing details, certificate chain and entitlements |
 | Service | The launchd job that owns the process |
 
