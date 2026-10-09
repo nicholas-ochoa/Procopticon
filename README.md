@@ -69,7 +69,7 @@ cut-off value to see all of it.
   * Bring an app to the front or quit it gracefully.
   * Reveal in Finder, inspect the executable, search online, copy values, go to the parent or the
     responsible process.
-* Diagnostics: `sample`, `spindump`, `vmmap`, `footprint`, `heap`, `leaks`, `lsof` and core dumps.
+* Diagnostics: `sample`, `spindump`, `vmmap`, `footprint`, `heap`, `leaks`, `lsof`, live file activity (`fs_usage`) and core dumps.
   When needed, these run elevated automatically.
 
 **Process properties** open in a window with these sections in a sidebar. The window resizes to fit
@@ -87,6 +87,7 @@ each section as you switch:
 | Arguments | The command line, one argument per row. For a process that replaced them with a title, the arguments as launched when Procopticon saw it start |
 | Environment | Environment variables |
 | Files | Open file descriptors: files, sockets, pipes, kqueues and shared memory |
+| File Activity | The files the process opens, reads, writes and looks up, live (`fs_usage`, as root): each call with its file (named from the descriptor when the call doesn't say), bytes, duration and error, or summed up by file. Also in the process menu under Diagnostics |
 | Network | The process's sockets |
 | Crash Reports | macOS's crash, exception, hang, resource (CPU, disk writes, wake-ups) and jetsam reports for the executable; double-click one to read it |
 | Log | The process's messages in the unified log, live (`log stream`) after those from the last five minutes, with a Default/Info/Debug level, pause, filter and earlier history (`log show`). Errors and faults are highlighted |

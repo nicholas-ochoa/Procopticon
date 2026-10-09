@@ -145,6 +145,18 @@ final class ToolStreamSessions: @unchecked Sendable {
         }
     }
 
+    /// Interrupts every tool, for when the process serving them is about to exit: they would
+    /// otherwise outlive it until their next write.
+    func stopAll() {
+        let all = lock.withLock {
+            defer { sessions.removeAll() }
+            return Array(sessions.values)
+        }
+        for session in all where session.process.isRunning {
+            session.process.interrupt()
+        }
+    }
+
     private func sweep() {
         let stale = lock.withLock {
             sessions.filter { Date().timeIntervalSince($0.value.lastRead) > Self.abandonAfter }.map(\.key)

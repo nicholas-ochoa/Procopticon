@@ -32,6 +32,7 @@ struct ProcessPropertiesView: View {
         case arguments = "Arguments"
         case environment = "Environment"
         case files = "Files"
+        case fileActivity = "File Activity"
         case network = "Network"
         case log = "Log"
         case crashes = "Crash Reports"
@@ -52,6 +53,7 @@ struct ProcessPropertiesView: View {
             case .arguments: return "list.number"
             case .environment: return "terminal"
             case .files: return "doc.on.doc"
+            case .fileActivity: return "doc.text.magnifyingglass"
             case .network: return "network"
             case .log: return "text.alignleft"
             case .crashes: return "exclamationmark.triangle"
@@ -65,7 +67,8 @@ struct ProcessPropertiesView: View {
             switch self {
             case .general, .statistics, .security, .service: return .content
             case .performance: return .height(700)
-            case .threads, .modules, .memory, .arguments, .environment, .files, .network, .power, .log, .crashes: return .table
+            case .threads, .modules, .memory, .arguments, .environment, .files, .fileActivity, .network, .power, .log, .crashes:
+                return .table
             }
         }
     }
@@ -79,7 +82,7 @@ struct ProcessPropertiesView: View {
         case table
     }
 
-    static let minHeight: CGFloat = 530
+    static let minHeight: CGFloat = 560
 
     init(key: ProcessKey, tab: PropertyTab = .general) {
         self.key = key
@@ -142,6 +145,7 @@ struct ProcessPropertiesView: View {
         case .arguments: ArgumentsTab(item: item)
         case .environment: EnvironmentTab(item: item)
         case .files: FilesTab(item: item)
+        case .fileActivity: FileActivityTab(item: item)
         case .network: ProcessNetworkTab(item: item)
         case .log: ProcessLogTab(item: item)
         case .crashes: ProcessReportsTab(item: item)

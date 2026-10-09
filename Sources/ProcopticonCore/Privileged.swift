@@ -231,8 +231,14 @@ public final class PrivilegedExecutor: @unchecked Sendable {
         case .startupItems:
             return .startupItems(StartupItems.collect())
         case .shutdown:
+            streams.stopAll()
             return .ok
         }
+    }
+
+    /// Stops the streaming tools this executor started (see `ToolStreamSessions.stopAll`).
+    public func stopAllStreams() {
+        streams.stopAll()
     }
 
     private func launch(path: String, arguments: [String]) -> PrivilegedResponse {

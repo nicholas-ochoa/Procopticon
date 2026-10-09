@@ -53,6 +53,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         ResourceHistoryWindow.saveState()
+        Elevation.shared.stopLocalStreams()
         Elevation.shared.stopHelper()
     }
 

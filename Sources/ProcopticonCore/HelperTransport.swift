@@ -82,7 +82,8 @@ public final class HelperServer {
     public func run() -> Never {
         // Exit when the owning app goes away.
         let source = DispatchSource.makeProcessSource(identifier: clientPid, eventMask: .exit, queue: .global())
-        source.setEventHandler { [socketPath] in
+        source.setEventHandler { [socketPath, executor] in
+            executor.stopAllStreams()
             unlink(socketPath)
             exit(0)
         }

@@ -127,6 +127,7 @@ enum ProcessMenu {
                 sub.add("Find Leaks…") { ProcessActions.leaks(first) }
                 sub.addItem(.separator())
                 sub.add("Open Files (lsof)…") { ProcessActions.openFiles(first) }
+                sub.add("File Activity…") { PropertiesWindow.open(first, tab: .fileActivity) }
                 sub.add("Create Core Dump…") { ProcessActions.createCoreDump(first) }
             }
             menu.addItem(.separator())

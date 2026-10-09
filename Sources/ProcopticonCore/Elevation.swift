@@ -104,6 +104,11 @@ public final class Elevation: @unchecked Sendable {
         return await Task.detached { self.perform(request) }.value
     }
 
+    /// Stops the streaming tools running in this process (the helper stops its own on shutdown).
+    public func stopLocalStreams() {
+        local.stopAllStreams()
+    }
+
     /// Whether acting on a process owned by `uid` needs root.
     public func needsRoot(forOwner uid: uid_t) -> Bool {
         uid != getuid() && geteuid() != 0
