@@ -19,8 +19,10 @@ enum ProcessColumns {
         cols.append(name)
 
         cols.append(.number("pid", "PID", width: 60, help: "Process ID", value: { $0.pid }, text: { "\($0.pid)" }))
-        cols.append(.number("cpu", "CPU", width: 55, help: "CPU usage (percent of total system capacity, or of one core — see Settings)",
-                            value: { shown($0.cpu) }, text: { Fmt.percent($0.cpu) }))
+        var cpu = ProcessColumn.number("cpu", "CPU", width: 55, help: "CPU usage (percent of total system capacity, or of one core — see Settings)",
+                                       value: { shown($0.cpu) }, text: { Fmt.percent($0.cpu) })
+        cpu.attributedText = { cpuPercent($0.cpu) }
+        cols.append(cpu)
         cols.append(.number("memory", "Memory", width: 85, help: "Physical footprint: memory attributed to the process, including compressed pages",
                             value: { $0.stats?.physFootprint ?? 0 }, text: { s($0.stats?.physFootprint) }))
         cols.append(.number("ioTotalRate", "Disk rate", width: 80, help: "Disk read + write bytes per second",
@@ -118,12 +120,16 @@ enum ProcessColumns {
         })
 
         // CPU
-        cols.append(.number("cpuUser", "CPU (user)", width: 60, visible: false,
-                            help: "CPU usage running the process's own code (user mode)",
-                            value: { $0.cpuUser }, text: { Fmt.percent($0.cpuUser) }))
-        cols.append(.number("cpuKernel", "CPU (kernel)", width: 60, visible: false,
-                            help: "CPU usage in the kernel on the process's behalf (system calls, I/O)",
-                            value: { $0.cpuKernel }, text: { Fmt.percent($0.cpuKernel) }))
+        var cpuUser = ProcessColumn.number("cpuUser", "CPU (user)", width: 60, visible: false,
+                                           help: "CPU usage running the process's own code (user mode)",
+                                           value: { $0.cpuUser }, text: { Fmt.percent($0.cpuUser) })
+        cpuUser.attributedText = { cpuPercent($0.cpuUser) }
+        cols.append(cpuUser)
+        var cpuKernel = ProcessColumn.number("cpuKernel", "CPU (kernel)", width: 60, visible: false,
+                                             help: "CPU usage in the kernel on the process's behalf (system calls, I/O)",
+                                             value: { $0.cpuKernel }, text: { Fmt.percent($0.cpuKernel) })
+        cpuKernel.attributedText = { cpuPercent($0.cpuKernel) }
+        cols.append(cpuKernel)
         cols.append(.number("cpuTime", "Total CPU time", width: 100, visible: false,
                             help: "CPU time used since the process started, in user mode and in the kernel",
                             value: { $0.stats?.totalTimeNs ?? 0 }, text: { t($0.stats?.totalTimeNs) }))
@@ -281,6 +287,16 @@ enum ProcessColumns {
         text.append(NSAttributedString(string: "  "))
         part("↑", .systemRed, p.netOutRate)
         return text
+    }
+
+    /// A CPU percentage as `Fmt.percent` shows it, with the "<" of "< 0.01" in the CPU graph's green
+    /// so a barely busy process stands apart from one at 0.01.
+    static func cpuPercent(_ percent: Double) -> NSAttributedString {
+        let text = Fmt.percent(percent)
+        guard text.hasPrefix("<") else { return NSAttributedString(string: text) }
+        let styled = NSMutableAttributedString(string: text)
+        styled.addAttribute(.foregroundColor, value: NSColor.systemGreen, range: NSRange(location: 0, length: 1))
+        return styled
     }
 
     /// A percentage as displayed (two decimals), for sorting: rows that show the same value tie

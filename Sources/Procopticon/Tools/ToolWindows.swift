@@ -243,9 +243,7 @@ struct UsersView: View {
                          .number("procs", "Processes", width: 80,
                                  help: "Number of processes running as the user",
                                  value: { $0.processes }, text: { "\($0.processes)" }),
-                         .number("cpu", "CPU", width: 60,
-                                 help: "Combined CPU usage of the user's processes",
-                                 value: { $0.cpu }, text: { Fmt.percent($0.cpu) }),
+                         Self.cpuColumn,
                          .number("mem", "Memory", width: 90,
                                  help: "Combined memory footprint of the user's processes",
                                  value: { $0.memory }, text: { Fmt.bytes($0.memory) }),
@@ -263,6 +261,13 @@ struct UsersView: View {
                          return m
                      },
                      defaultSort: (column: "procs", ascending: false))
+    }
+
+    private static var cpuColumn: TableColumnSpec<UserRow> {
+        var cpu = TableColumnSpec<UserRow>.number("cpu", "CPU", width: 60, help: "Combined CPU usage of the user's processes",
+                                                  value: { $0.cpu }, text: { Fmt.percent($0.cpu) })
+        cpu.attributedText = { ProcessColumns.cpuPercent($0.cpu) }
+        return cpu
     }
 
     private var rows: [UserRow] {
