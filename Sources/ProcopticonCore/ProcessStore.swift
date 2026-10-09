@@ -59,6 +59,8 @@ public final class ProcessItem: Identifiable {
     public let assertions: [PowerAssertion]
     /// Whether its assertions keep the Mac (or the display) awake.
     public let sleepPrevention: SleepPrevention?
+    /// The microphone, camera or screen recording it's using; see `SensorMonitor`.
+    public let sensors: SensorUse
     /// Cached so hot paths (sorting, cell drawing) don't repeat lookups.
     public let userName: String
     public let bundleInfo: ExecutableBundleInfo?
@@ -98,6 +100,7 @@ public final class ProcessItem: Identifiable {
         notRespondingSince = s.notRespondingSince
         assertions = s.assertions
         sleepPrevention = s.assertions.sleepPrevention
+        sensors = s.sensors
         userName = s.userName
         bundleInfo = s.bundleInfo
     }
@@ -182,6 +185,7 @@ final class ProcessState {
     var responding: Bool?
     var notRespondingSince: Date?
     var assertions: [PowerAssertion] = []
+    var sensors: SensorUse = []
     var userName: String
     var bundleInfo: ExecutableBundleInfo?
     private var lastSampleTime: Double
@@ -291,6 +295,7 @@ final class ProcessState {
         responding = nil
         notRespondingSince = nil
         assertions = []
+        sensors = []
         gpu = 0
         netInRate = 0
         netOutRate = 0
@@ -445,6 +450,7 @@ public final class ProcessStore: ObservableObject {
             let response = Elevation.shared.perform(.sampleProcesses)
             let responsiveness = self.applicationResponsiveness()
             let assertions = PowerAssertions.byProcess()
+            let sensors = SensorMonitor.shared.sample()
             let gpuTimes = GPUUsage.sample()
             let network = NetworkUsage.sample()
             // netstat's true interface totals, once (see InterfaceCounters).
@@ -455,7 +461,7 @@ public final class ProcessStore: ObservableObject {
             var error: String?
             if case .processes(let records) = response {
                 self.merge(records, gpuTimes: gpuTimes, network: network, responsiveness: responsiveness, assertions: assertions,
-                           time: time, options: options)
+                           sensors: sensors, time: time, options: options)
             } else if case .failure(let e) = response {
                 error = e.message
             }
@@ -510,7 +516,7 @@ public final class ProcessStore: ObservableObject {
     /// `network` is nil when nettop couldn't be sampled; processes then keep their last counters.
     private func merge(_ records: [ProcessRecord], gpuTimes: [Int32: UInt64], network: [Int32: NetworkCounters]?,
                        responsiveness: (checked: Set<Int32>, unresponsive: Set<Int32>), assertions: [Int32: [PowerAssertion]],
-                       time: Double, options: BuildOptions) {
+                       sensors: SensorSnapshot, time: Double, options: BuildOptions) {
         var seen = Set<ProcessKey>()
         seen.reserveCapacity(records.count)
         for r in records {
@@ -551,6 +557,20 @@ public final class ProcessStore: ObservableObject {
                     EventLog.shared.add(.power, pid: r.pid, "\(r.name) (\(r.pid)) no longer keeps the Mac awake")
                 }
             }
+            let bundle = state.bundleInfo
+            let using = sensors.use(pid: r.pid, bundleIdentifier: bundle?.bundleIdentifier,
+                                    isAppMainExecutable: bundle?.isApplication == true && bundle?.isMainExecutable == true)
+            if hasSampled, using != state.sensors {
+                let started = using.subtracting(state.sensors)
+                let stopped = state.sensors.subtracting(using)
+                if !started.isEmpty {
+                    EventLog.shared.add(.privacy, pid: r.pid, "\(r.name) (\(r.pid)) started using the \(started.names.joined(separator: " and "))")
+                }
+                if !stopped.isEmpty {
+                    EventLog.shared.add(.privacy, pid: r.pid, "\(r.name) (\(r.pid)) stopped using the \(stopped.names.joined(separator: " and "))")
+                }
+            }
+            state.sensors = using
         }
         let now = Date()
         // Exited processes stay, highlighted, for the highlight duration and through the next

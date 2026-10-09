@@ -117,6 +117,12 @@ enum ProcessColumns {
             NSAttributedString(string: respondingText(p), attributes: p.isNotResponding ? [.foregroundColor: NSColor.systemRed] : [:])
         }
         cols.append(responding)
+        cols.append(sensorColumn("microphone", "Microphone", .microphone,
+                                 help: "Whether the process is recording from a microphone or other audio input (from Core Audio), or is the app Control Center shows using it"))
+        cols.append(sensorColumn("camera", "Camera", .camera,
+                                 help: "Whether the app is using a camera, as Control Center's green indicator shows (read from the system log, which needs an administrator account)"))
+        cols.append(sensorColumn("screenRecording", "Screen recording", .screenRecording,
+                                 help: "Whether the app is recording or sharing the screen, as Control Center's indicator shows (read from the system log, which needs an administrator account)"))
         cols.append(.string("sandbox", "Sandboxed", width: 70, visible: false,
                             help: "Whether the process runs in the App Sandbox") { p in
             p.record.sandboxed == true ? "Yes" : (p.record.sandboxed == false ? "No" : "")
@@ -297,6 +303,18 @@ enum ProcessColumns {
         cols.append(netGraph)
 
         return cols
+    }
+
+    /// "In use", in the color of the menu bar's privacy indicators, for one sensor.
+    private static func sensorColumn(_ id: String, _ title: String, _ sensor: SensorUse, help: String) -> ProcessColumn {
+        var column = ProcessColumn(id, title, width: 80, visible: false, help: help,
+                                   text: { $0.sensors.contains(sensor) ? "In use" : "" },
+                                   less: { !$0.sensors.contains(sensor) && $1.sensors.contains(sensor) })
+        let color: NSColor = sensor == .camera ? .systemGreen : sensor == .microphone ? .systemOrange : .systemPurple
+        column.attributedText = { p in
+            p.sensors.contains(sensor) ? NSAttributedString(string: "In use", attributes: [.foregroundColor: color]) : NSAttributedString()
+        }
+        return column
     }
 
     /// The distinct types of the assertions that are on.

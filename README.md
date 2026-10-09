@@ -24,7 +24,12 @@ gave itself by overwriting its first argument (Node's `process.title`, `setproct
 checkpointer"); it stays empty for processes started under their own name, a symlink or shim. Hover over a
 cut-off value to see all of it.
 
-* Row highlighting: new/terminated, not responding, stopped, zombie, traced,
+* **Microphone, Camera** and **Screen recording** columns show which processes are using them, and such
+  processes are highlighted. The microphone comes from Core Audio, per process. macOS has no API that
+  says which app uses the camera or records the screen, so those come from the attributions Control
+  Center logs for its privacy indicators (followed with `log stream`, which needs an administrator
+  account). The Event Log records each start and stop.
+* Row highlighting: new/terminated, not responding, recording (microphone, camera, screen), stopped, zombie, traced,
   Rosetta, elevated (setuid/sudo), unsigned, sandboxed, applications, own, root and service-account
   processes. Colors and priorities are configurable.
 * **Hung applications**: an application that has stopped responding to events (the spinning wait
@@ -43,8 +48,8 @@ cut-off value to see all of it.
   Activity Monitor–style panel above it: totals and rates beside a history graph (CPU load, memory
   pressure, disk IO or data, network packets or data, GPU). Click again to close it.
 * **Alerts** (*Settings ▸ Alerts*): rules that post a notification when a process goes over a CPU,
-  memory, disk, network or GPU threshold for a given time, starts, exits, stops responding or keeps
-  the Mac awake. A rule can watch every process or those matching a search (name, PID, path, command
+  memory, disk, network or GPU threshold for a given time, starts, exits, stops responding, keeps
+  the Mac awake, or uses the microphone, camera or screen recording. A rule can watch every process or those matching a search (name, PID, path, command
   line, user or bundle ID; regular expressions work too). Clicking a notification selects the process,
   and every alert is recorded in the Event Log.
 * **Saved filters** store a search plus filter settings under a name. Apply one from the Filters menu or

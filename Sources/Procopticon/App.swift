@@ -39,6 +39,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         AppSettings.shared.applyAccentColor()
         ProcessStore.shared.start()
         AlertMonitor.shared.start()
+        SensorMonitor.shared.start()
         // Prefetch launchd jobs in the background so the Services tab opens instantly.
         ServiceStore.shared.refresh()
         if AppSettings.shared.elevateAtLaunch, Elevation.shared.mode == .standard {

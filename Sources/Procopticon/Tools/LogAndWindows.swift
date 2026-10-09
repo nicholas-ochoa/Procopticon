@@ -53,6 +53,7 @@ struct EventLogView: View {
                     case .processStarted, .serviceStarted: return h[.new].map { RowStyle(background: $0.color.withAlphaComponent(0.18)) }
                     case .processExited, .serviceStopped: return h[.removed].map { RowStyle(background: $0.color.withAlphaComponent(0.18)) }
                     case .alert, .notResponding: return h[.notResponding].map { RowStyle(background: $0.color.withAlphaComponent(0.25)) }
+                    case .privacy: return h[.sensors].map { RowStyle(background: $0.color.withAlphaComponent(0.2)) }
                     default: return nil
                     }
                 },

@@ -4,7 +4,7 @@ import Foundation
 public struct AlertRule: Codable, Identifiable, Hashable, Sendable {
     public enum Trigger: String, Codable, CaseIterable, Identifiable, Sendable {
         case cpu, memory, disk, network, gpu
-        case started, exited, notResponding, preventingSleep
+        case started, exited, notResponding, preventingSleep, sensors
         public var id: String { rawValue }
 
         public var title: String {
@@ -18,6 +18,7 @@ public struct AlertRule: Codable, Identifiable, Hashable, Sendable {
             case .exited: return "A process exits"
             case .notResponding: return "An application stops responding"
             case .preventingSleep: return "A process keeps the Mac awake"
+            case .sensors: return "A process uses the microphone, camera or screen recording"
             }
         }
 
@@ -33,6 +34,7 @@ public struct AlertRule: Codable, Identifiable, Hashable, Sendable {
             case .exited: return "Exits"
             case .notResponding: return "Not responding"
             case .preventingSleep: return "Preventing sleep"
+            case .sensors: return "Microphone, camera or screen"
             }
         }
 
@@ -234,6 +236,7 @@ public struct AlertEvaluator {
         case .network: return item.netTotalRate > rule.threshold * mb
         case .notResponding: return item.isNotResponding
         case .preventingSleep: return item.sleepPrevention != nil
+        case .sensors: return !item.sensors.isEmpty
         case .started, .exited: return false
         }
     }

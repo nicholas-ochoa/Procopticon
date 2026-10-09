@@ -175,6 +175,9 @@ struct ProcessToolTipView: View {
         }
         if item.isRemoved { add("Exited", "xmark.circle", .removed) }
         if item.isNotResponding { add("Not responding", "hourglass", .notResponding) }
+        if item.sensors.contains(.microphone) { add("Microphone", "mic.fill", .sensors) }
+        if item.sensors.contains(.camera) { add("Camera", "video.fill", .sensors) }
+        if item.sensors.contains(.screenRecording) { add("Screen recording", "rectangle.dashed.badge.record", .sensors) }
         if record.isStopped { add("Stopped", "pause.circle", .suspended) }
         if record.isZombie { add("Zombie", "moon.zzz", .zombie) }
         if record.isTraced { add("Being traced", "ant", .debugged) }

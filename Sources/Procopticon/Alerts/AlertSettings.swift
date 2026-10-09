@@ -216,6 +216,7 @@ struct AlertRuleEditor: View {
         case .started, .exited: return "Alerts once per process. A rule matching many processes notifies at most \(AlertMonitor.maxPerMinute) times a minute; the Event Log records them all."
         case .notResponding: return "When the window server finds the app hung (the spinning wait cursor)."
         case .preventingSleep: return "When the process holds a power assertion that keeps the Mac or its display awake."
+        case .sensors: return "The microphone from Core Audio; the camera and screen recording from Control Center's privacy indicators."
         }
     }
 

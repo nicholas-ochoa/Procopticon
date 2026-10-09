@@ -82,6 +82,8 @@ final class AlertMonitor {
             let what = item.sleepPrevention == .display ? "the display on" : "the Mac awake"
             let assertion = item.assertions.first { $0.sleepPrevention == item.sleepPrevention }.map { ": \($0.name)" } ?? ""
             return ("\(name) is keeping \(what)", "\(pid)\(lasting.isEmpty ? "" : " ·\(lasting)")\(assertion)")
+        case .sensors:
+            return ("\(name) is using the \(item.sensors.names.joined(separator: " and "))", "\(pid)\(lasting.isEmpty ? "" : " ·\(lasting)")")
         case .started:
             return ("\(name) started", [pid, item.record.commandLine].compactMap { $0 }.joined(separator: " · "))
         case .exited:

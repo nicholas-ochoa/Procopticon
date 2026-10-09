@@ -19,7 +19,8 @@ let package = Package(
             dependencies: ["CSysInfo"],
             path: "Sources/ProcopticonCore",
             swiftSettings: [.swiftLanguageMode(.v5)],
-            linkerSettings: [.linkedFramework("Security"), .linkedFramework("IOKit")]
+            linkerSettings: [.linkedFramework("Security"), .linkedFramework("IOKit"), .linkedFramework("CoreAudio"),
+                             .linkedFramework("CoreMediaIO")]
         ),
         .executableTarget(
             name: "procopticon-helper",

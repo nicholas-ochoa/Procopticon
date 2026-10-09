@@ -238,6 +238,7 @@ enum HighlightRule: String, CaseIterable, Identifiable {
     case removed
     case new
     case notResponding
+    case sensors
     case suspended
     case zombie
     case debugged
@@ -257,6 +258,7 @@ enum HighlightRule: String, CaseIterable, Identifiable {
         case .removed: return "Terminated processes"
         case .new: return "New processes"
         case .notResponding: return "Applications not responding"
+        case .sensors: return "Using the microphone, camera or screen recording"
         case .suspended: return "Stopped (suspended) processes"
         case .zombie: return "Zombie processes"
         case .debugged: return "Processes being traced/debugged"
@@ -283,6 +285,7 @@ enum HighlightRule: String, CaseIterable, Identifiable {
         case .removed: return NSColor(hex: "#FF3C3C")!
         case .new: return NSColor(hex: "#33D17A")!
         case .notResponding: return NSColor(hex: "#B0102A")!
+        case .sensors: return NSColor(hex: "#FF7F11")!
         case .suspended: return NSColor(hex: "#8E8E93")!
         case .zombie: return NSColor(hex: "#5E5C64")!
         case .debugged: return NSColor(hex: "#B07CFF")!
@@ -326,6 +329,7 @@ enum Highlighter {
         if item.isRemoved, let s = use(.removed) { return s }
         if store.isNew(item), let s = use(.new) { return s }
         if item.isNotResponding, let s = use(.notResponding) { return s }
+        if !item.sensors.isEmpty, let s = use(.sensors) { return s }
         if r.isStopped, let s = use(.suspended) { return s }
         if r.isZombie, let s = use(.zombie) { return s }
         if r.isTraced, let s = use(.debugged) { return s }
