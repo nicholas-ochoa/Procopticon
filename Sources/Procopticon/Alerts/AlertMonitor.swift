@@ -175,9 +175,11 @@ final class Notifier: NSObject, ObservableObject, UNUserNotificationCenterDelega
                                             withCompletionHandler completionHandler: @escaping () -> Void) {
         let info = response.notification.request.content.userInfo
         let pid = (info["pid"] as? NSNumber)?.int32Value
+        let start = (info["start"] as? NSNumber)?.int64Value
         Task { @MainActor in
             NSApp.activate()
-            if let pid, ProcessStore.shared.item(pid: pid) != nil {
+            // The start time tells the process apart from a later one that reused its PID.
+            if let pid, let start, let item = ProcessStore.shared.item(ProcessKey(pid: pid, startMicros: start)), !item.isRemoved {
                 ProcessSelection.shared.reveal(pid: pid)
             } else {
                 EventLogWindow.open()
