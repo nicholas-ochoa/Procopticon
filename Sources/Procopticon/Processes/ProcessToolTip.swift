@@ -173,6 +173,7 @@ struct ProcessToolTipView: View {
             let color = AppSettings.shared.highlights[rule]?.color ?? rule.defaultColor
             badges.append(Badge(text: text, symbol: symbol, color: Color(nsColor: color)))
         }
+        if item.key == ProcessSelection.shared.followed { add("Kept in view", "scope", .keptInView) }
         if item.isRemoved { add("Exited", "xmark.circle", .removed) }
         if item.isNotResponding { add("Not responding", "hourglass", .notResponding) }
         if item.sensors.contains(.microphone) { add("Microphone", "mic.fill", .sensors) }

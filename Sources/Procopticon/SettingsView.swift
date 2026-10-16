@@ -380,8 +380,8 @@ struct HighlightSettings: View {
                     }
                 } footer: {
                     Text("""
-                        Rules are listed from highest to lowest priority. Custom rules come after terminated and \
-                        new processes, before the rest.
+                        Rules are listed from highest to lowest priority. Custom rules come after the process kept \
+                        in view and terminated and new processes, before the rest.
                         """)
                 }
             }
@@ -417,8 +417,8 @@ struct HighlightSettings: View {
                     Text("""
                         A rule matches processes as the search field does: by text, a regular expression, or a \
                         JavaScript expression over the process's values, such as memory > 2 * GB. The first rule a \
-                        process matches colors it. Custom rules come after terminated and new processes and before \
-                        the other built-in rules.
+                        process matches colors it. Custom rules come after the process kept in view and terminated \
+                        and new processes, and before the other built-in rules.
                         """)
                 }
             }

@@ -359,6 +359,7 @@ struct CustomHighlight: Codable, Identifiable, Hashable {
 
 /// Row highlighting categories, highest priority first.
 enum HighlightRule: String, CaseIterable, Identifiable {
+    case keptInView
     case removed
     case new
     case notResponding
@@ -379,6 +380,7 @@ enum HighlightRule: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
+        case .keptInView: return "Process kept in view"
         case .removed: return "Terminated processes"
         case .new: return "New processes"
         case .notResponding: return "Applications not responding"
@@ -406,6 +408,7 @@ enum HighlightRule: String, CaseIterable, Identifiable {
 
     var defaultColor: NSColor {
         switch self {
+        case .keptInView: return NSColor(hex: "#5E5CE6")!
         case .removed: return NSColor(hex: "#FF3C3C")!
         case .new: return NSColor(hex: "#33D17A")!
         case .notResponding: return NSColor(hex: "#B0102A")!
@@ -441,15 +444,16 @@ extension NSColor {
 }
 
 enum Highlighter {
-    /// Background for a process row, or nil.
-    static func style(for item: ProcessItem, store: ProcessStore = .shared) -> RowStyle? {
+    /// Background for a process row, or nil. `followed` is the process the list keeps in view.
+    static func style(for item: ProcessItem, followed: ProcessKey? = nil, store: ProcessStore = .shared) -> RowStyle? {
         let settings = AppSettings.shared.highlights
         func use(_ rule: HighlightRule) -> RowStyle? {
             guard let s = settings[rule], s.enabled else { return nil }
-            let alpha: CGFloat = (rule == .removed || rule == .new || rule == .notResponding) ? 0.55 : 0.28
+            let alpha: CGFloat = [.keptInView, .removed, .new, .notResponding].contains(rule) ? 0.55 : 0.28
             return RowStyle(background: s.color.withAlphaComponent(alpha))
         }
         let r = item.record
+        if item.key == followed, let s = use(.keptInView) { return s }
         if item.isRemoved, let s = use(.removed) { return s }
         if store.isNew(item), let s = use(.new) { return s }
         // Custom rules, evaluated with each snapshot, come next.

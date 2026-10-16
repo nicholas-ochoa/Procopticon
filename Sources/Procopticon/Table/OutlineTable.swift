@@ -231,6 +231,12 @@ final class OutlineTableController {
     fileprivate var exportHandler: (() -> ExportTable)?
     fileprivate var revealHandler: ((AnyHashable) -> Bool)?
     fileprivate var focusHandler: (() -> Void)?
+    fileprivate var followHandler: (() -> Void)?
+
+    /// The row kept in view, together with its expanded descendants, after every update.
+    var followedKey: AnyHashable? {
+        didSet { if followedKey != nil, followedKey != oldValue { followHandler?() } }
+    }
 
     /// The visible columns and rows in display order, or nil before the table exists.
     func exportTable() -> ExportTable? { exportHandler?() }
@@ -315,6 +321,42 @@ final class OutlineTableCoordinator<Item>: NSObject, NSOutlineViewDataSource, NS
             guard let outline = self?.outline else { return }
             outline.window?.makeFirstResponder(outline)
         }
+        controller.followHandler = { [weak self] in self?.startFollowing() }
+    }
+
+    /// Expands the followed row (and the rows above it) so its children show, then scrolls to it.
+    private func startFollowing() {
+        guard let outline, let key = parent.controller?.followedKey, let node = nodes[key] else { return }
+        var chain = [node]
+        var p = node.parentNode
+        while let n = p {
+            chain.insert(n, at: 0)
+            p = n.parentNode
+        }
+        for n in chain where !n.children.isEmpty && !outline.isItemExpanded(n) {
+            outline.expandItem(n)
+        }
+        scrollToFollowed()
+    }
+
+    /// Scrolls as little as possible to show the followed row and its expanded descendants; when they
+    /// don't all fit, the followed row goes to the top. Does nothing while the row is filtered out or
+    /// inside a collapsed parent.
+    private func scrollToFollowed() {
+        guard let outline, !outline.isHiddenOrHasHiddenAncestor, let key = parent.controller?.followedKey,
+              let node = nodes[key], let scroll = outline.enclosingScrollView else { return }
+        let first = outline.row(forItem: node)
+        guard first >= 0 else { return }
+        var lastNode = node
+        while outline.isItemExpanded(lastNode), let child = lastNode.children.last {
+            lastNode = child
+        }
+        let last = max(first, outline.row(forItem: lastNode))
+        let visibleRows = max(1, outline.rows(in: scroll.documentVisibleRect).length)
+        // Bring the bottom of the range into view, then the followed row: the second call only
+        // scrolls back up when the range is taller than the view.
+        outline.scrollRowToVisible(min(last, first + visibleRows - 1))
+        outline.scrollRowToVisible(first)
     }
 
     func reveal(_ key: AnyHashable) -> Bool {
@@ -505,6 +547,7 @@ final class OutlineTableCoordinator<Item>: NSObject, NSOutlineViewDataSource, NS
         // Tiny lists aren't worth a thread hop (and avoid an empty first frame).
         if roots.count < 64 && childrenFn == nil {
             apply(work(), force: force)
+            scrollToFollowed()
             return
         }
         Self.prepareQueue.async { [weak self] in
@@ -512,6 +555,7 @@ final class OutlineTableCoordinator<Item>: NSObject, NSOutlineViewDataSource, NS
             DispatchQueue.main.async {
                 guard let self, gen == self.prepareGeneration else { return }
                 self.apply(prepared, force: force)
+                self.scrollToFollowed()
             }
         }
     }

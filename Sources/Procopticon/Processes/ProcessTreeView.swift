@@ -8,6 +8,23 @@ final class ProcessSelection: ObservableObject {
     static let shared = ProcessSelection()
     @Published var items: [ProcessItem] = []
     let table = OutlineTableController()
+    private var followObserver: AnyCancellable?
+
+    /// The process the list keeps in view, with its children, as it updates.
+    @Published private(set) var followed: ProcessKey?
+
+    /// Keeps `key` in view in place of any process kept in view before; nil stops.
+    func follow(_ key: ProcessKey?) {
+        followed = key
+        table.followedKey = key.map(AnyHashable.init)
+        // Stop following once the process exits.
+        followObserver = key == nil ? nil : ProcessStore.shared.$revision.receive(on: DispatchQueue.main).sink { [weak self] _ in
+            guard let self, let key = self.followed else { return }
+            if ProcessStore.shared.item(key)?.isRemoved ?? true {
+                self.follow(nil)
+            }
+        }
+    }
 
     func reveal(pid: Int32) {
         guard let item = ProcessStore.shared.item(pid: pid) else { return }
@@ -35,6 +52,7 @@ struct ProcessTreeView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .highlightsChanged)) { _ in highlightRevision &+= 1 }
         .onReceive(NotificationCenter.default.publisher(for: SigningCache.didUpdateNotification)) { _ in highlightRevision &+= 1 }
+        .onReceive(ProcessSelection.shared.$followed.dropFirst()) { _ in highlightRevision &+= 1 }
     }
 
     private func table(topInset: CGFloat) -> some View {
@@ -45,7 +63,7 @@ struct ProcessTreeView: View {
             columns: columns,
             autosaveName: "ProcessTree",
             key: { AnyHashable($0.key) },
-            rowStyle: { Highlighter.style(for: $0) },
+            rowStyle: { Highlighter.style(for: $0, followed: ProcessSelection.shared.followed) },
             menu: { ProcessMenu.build(for: $0, shortcuts: true) },
             onDoubleClick: { PropertiesWindow.open($0) },
             onSelectionChange: { ProcessSelection.shared.items = $0 },
@@ -153,6 +171,13 @@ enum ProcessMenu {
             }
             if let r = first.record.responsiblePid, r != first.pid, let rp = ProcessStore.shared.item(pid: r) {
                 menu.add("Go to Responsible Process (\(rp.name))") { ProcessSelection.shared.reveal(pid: r) }
+            }
+            // Only the process list scrolls to follow a process.
+            if shortcuts {
+                let following = ProcessSelection.shared.followed == first.key
+                menu.add("Keep in View", state: following ? .on : .off, image: "scope") {
+                    ProcessSelection.shared.follow(following ? nil : first.key)
+                }
             }
             menu.addItem(.separator())
             let props = menu.add("Properties", image: "info.circle") { PropertiesWindow.open(first) }
