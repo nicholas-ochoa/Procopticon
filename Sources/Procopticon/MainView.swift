@@ -645,6 +645,9 @@ struct StatusBarView: View {
         HStack(spacing: 6) {
             sectionButton(.cpu) {
                 stat("CPU", String(format: "%.1f%%", sys.cpuUsage))
+                if let load = sys.last?.loadAverage, !load.isEmpty {
+                    stat("Load", load.prefix(3).map { String(format: "%.2f", $0) }.joined(separator: " "))
+                }
                 stat("Processes", "\(store.processCount)")
                 stat("Threads", Fmt.count(store.totalThreads))
             }
