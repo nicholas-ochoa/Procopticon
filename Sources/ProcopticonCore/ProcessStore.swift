@@ -351,6 +351,8 @@ public final class ProcessStore: ObservableObject {
     public let didSample = PassthroughSubject<Void, Never>()
     /// Published snapshot (main thread).
     public private(set) var items: [ProcessKey: ProcessItem] = [:]
+    /// The same items by PID; a live process wins a PID over an exited one (see `treeIndex`).
+    private var itemsByPid: [Int32: ProcessItem] = [:]
     public private(set) var roots: [ProcessItem] = []
     /// Visible items in display order (depth-first).
     public private(set) var visibleItems: [ProcessItem] = []
@@ -455,6 +457,7 @@ public final class ProcessStore: ObservableObject {
 
     private struct Snapshot {
         var items: [ProcessKey: ProcessItem]
+        var byPid: [Int32: ProcessItem]
         var roots: [ProcessItem]
         var visible: [ProcessItem]
         var matchCount: Int
@@ -541,6 +544,7 @@ public final class ProcessStore: ObservableObject {
         // A newer request (e.g. another keystroke) supersedes this one; its result will follow.
         guard gen == generation else { return }
         items = s.items
+        itemsByPid = s.byPid
         roots = s.roots
         visibleItems = s.visible
         matchCount = s.matchCount
@@ -553,7 +557,7 @@ public final class ProcessStore: ObservableObject {
     }
 
     public func item(pid: Int32) -> ProcessItem? {
-        items.values.first { $0.pid == pid && !$0.isRemoved }
+        itemsByPid[pid].flatMap { $0.isRemoved ? nil : $0 }
     }
 
     public func item(_ key: ProcessKey) -> ProcessItem? { items[key] }
@@ -758,7 +762,7 @@ public final class ProcessStore: ObservableObject {
         let roots = arrange(rootList)
         roots.forEach(walk)
         highlight(ordered, options.highlightFilters)
-        return Snapshot(items: items, roots: roots, visible: ordered, matchCount: matched,
+        return Snapshot(items: items, byPid: byPid, roots: roots, visible: ordered, matchCount: matched,
                         processCount: processCount, totalThreads: threads,
                         filterError: matcher.error ?? expressionErrors.summary(rows: "processes"))
     }
