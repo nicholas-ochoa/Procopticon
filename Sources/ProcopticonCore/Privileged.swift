@@ -31,6 +31,20 @@ public enum PrivilegedRequest: Codable, Sendable {
     /// Turns a startup item off or on, or removes it; see `StartupItems.perform`.
     case startupAction(StartupAction)
     case shutdown
+
+    /// How long the helper may take to answer before the client gives up on it; generous enough
+    /// for the slowest work each request does.
+    var replyTimeout: TimeInterval {
+        switch self {
+        case .ping: return 5
+        case .runTool: return ToolRunner.defaultTimeout + 30
+        // Several tools in turn (sfltool, kmutil, profiles, pluginkit, launchctl), up to 30 s each.
+        case .startupItems: return 240
+        case .startupAction: return 90
+        case .regions, .connections, .searchOpenFiles, .machPortCounts: return 60
+        default: return 15
+        }
+    }
 }
 
 public struct PrivilegedError: Error, Codable, Sendable, LocalizedError {
@@ -92,20 +106,21 @@ public enum PrivilegedResponse: Codable, Sendable {
     }
 }
 
-/// Command-line tools the helper is willing to run as root.
+/// Command-line tools the helper is willing to run as root: those the app sends it (`runTool`,
+/// `startStream`), and no more. Not a security boundary on its own; see `HelperServer`.
 public enum AllowedTools {
     public static let paths: Set<String> = [
         "/usr/bin/vmmap", "/usr/bin/sample", "/bin/launchctl", "/usr/sbin/purge", "/usr/bin/heap",
         "/usr/bin/leaks", "/usr/sbin/lsof", "/usr/bin/footprint", "/usr/sbin/spindump", "/usr/bin/killall",
-        "/usr/bin/dscacheutil", "/usr/sbin/sysctl", "/usr/bin/log", "/usr/bin/taskpolicy", "/usr/bin/renice",
-        "/usr/bin/codesign", "/usr/bin/nettop", "/usr/bin/lldb", "/usr/bin/gcore", "/usr/bin/stringdups",
-        "/usr/bin/malloc_history", "/sbin/shutdown", "/usr/bin/pkill", "/usr/bin/fs_usage", "/usr/bin/powermetrics",
+        "/usr/bin/dscacheutil", "/usr/bin/log", "/usr/bin/gcore", "/usr/bin/fs_usage", "/usr/bin/powermetrics",
     ]
 }
 
 public enum ToolRunner {
+    public static let defaultTimeout: TimeInterval = 120
+
     /// Runs a tool and captures output. Blocks the calling thread.
-    public static func run(_ path: String, _ arguments: [String], timeout: TimeInterval = 120) -> ToolOutput {
+    public static func run(_ path: String, _ arguments: [String], timeout: TimeInterval = defaultTimeout) -> ToolOutput {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: path)
         process.arguments = arguments

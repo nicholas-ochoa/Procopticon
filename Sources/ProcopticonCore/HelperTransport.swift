@@ -64,7 +64,21 @@ private func makeUnixAddress(_ path: String) -> sockaddr_un? {
     return addr
 }
 
+/// Where the helper listens. The directory belongs to root and nobody else may write to it, so no
+/// other process can swap the socket for a symlink while root sets it up, or put its own in its place.
+public enum HelperSocket {
+    public static let directory = "/var/run/procopticon"
+
+    public static func path(clientPid: pid_t) -> String {
+        "\(directory)/\(clientPid).sock"
+    }
+}
+
 /// Root helper: serves requests from exactly one client process (pid + uid verified per connection).
+///
+/// The helper is root-equivalent for that client: "Run as root" launches any program and Services
+/// can bootstrap any launchd plist. The peer check, and the hardened runtime keeping other code out
+/// of the client, are the boundary; `AllowedTools` only keeps the helper to the tools the app uses.
 public final class HelperServer {
     private let socketPath: String
     private let clientPid: pid_t
@@ -73,8 +87,8 @@ public final class HelperServer {
     private var listenFd: Int32 = -1
     private var exitSource: DispatchSourceProcess?
 
-    public init(socketPath: String, clientPid: pid_t, clientUid: uid_t) {
-        self.socketPath = socketPath
+    public init(clientPid: pid_t, clientUid: uid_t) {
+        socketPath = HelperSocket.path(clientPid: clientPid)
         self.clientPid = clientPid
         self.clientUid = clientUid
     }
@@ -93,6 +107,7 @@ public final class HelperServer {
             exit(0)
         }
 
+        makeSocketDirectory()
         unlink(socketPath)
         listenFd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard listenFd >= 0, var addr = makeUnixAddress(socketPath) else {
@@ -108,9 +123,11 @@ public final class HelperServer {
         guard bound == 0 else {
             fatal("bind \(socketPath): \(String(cString: strerror(errno)))")
         }
-        // Only the client user may connect (plus the per-connection peer checks below).
-        chown(socketPath, clientUid, 0)
-        chmod(socketPath, 0o600)
+        // Only the client user may connect (plus the per-connection peer checks below). The umask
+        // made it 0600; lchown, so that even a symlink in its place couldn't redirect it.
+        guard lchown(socketPath, clientUid, 0) == 0 else {
+            fatal("chown \(socketPath): \(String(cString: strerror(errno)))")
+        }
         guard listen(listenFd, 16) == 0 else {
             fatal("listen: \(String(cString: strerror(errno)))")
         }
@@ -125,9 +142,24 @@ public final class HelperServer {
                 close(fd)
                 continue
             }
-            Thread.detachNewThread { [executor] in
-                Self.serve(fd: fd, executor: executor)
+            Thread.detachNewThread { [executor, socketPath] in
+                Self.serve(fd: fd, executor: executor, socketPath: socketPath)
             }
+        }
+    }
+
+    /// Creates `HelperSocket.directory`, or checks that the one there is root's alone.
+    private func makeSocketDirectory() {
+        let dir = HelperSocket.directory
+        let oldMask = umask(0o022)
+        let made = mkdir(dir, 0o755) == 0 || errno == EEXIST
+        umask(oldMask)
+        guard made else {
+            fatal("mkdir \(dir): \(String(cString: strerror(errno)))")
+        }
+        var st = stat()
+        guard lstat(dir, &st) == 0, st.st_mode & S_IFMT == S_IFDIR, st.st_uid == 0, st.st_mode & 0o022 == 0 else {
+            fatal("\(dir) isn't a directory only root can write to")
         }
     }
 
@@ -145,7 +177,7 @@ public final class HelperServer {
         return true
     }
 
-    private static func serve(fd: Int32, executor: PrivilegedExecutor) {
+    private static func serve(fd: Int32, executor: PrivilegedExecutor, socketPath: String) {
         defer { close(fd) }
         let decoder = JSONDecoder()
         let encoder = JSONEncoder()
@@ -162,6 +194,8 @@ public final class HelperServer {
                 return
             }
             if shutdown {
+                // The client can't remove it: the directory is root's.
+                unlink(socketPath)
                 exit(0)
             }
         }
@@ -220,9 +254,18 @@ public final class HelperClient: @unchecked Sendable {
         }
         guard let fd else { throw PrivilegedError(code: EIO, message: "No helper connection") }
         let data = try encoder.encode(request)
+        // A helper that's suspended (from the process list, say) or stuck would otherwise hold
+        // this thread, and with it sampling or the action waiting on it, for good.
+        var limit = timeval(tv_sec: Int(request.replyTimeout), tv_usec: 0)
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &limit, socklen_t(MemoryLayout<timeval>.size))
+        setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &limit, socklen_t(MemoryLayout<timeval>.size))
+        errno = 0
         guard Framing.write(fd, data), let reply = Framing.read(fd) else {
+            let timedOut = errno == EAGAIN
             close(fd)
-            throw PrivilegedError(code: EPIPE, message: "Lost connection to the privileged helper.")
+            throw timedOut
+                ? PrivilegedError(code: ETIMEDOUT, message: "The privileged helper stopped responding.")
+                : PrivilegedError(code: EPIPE, message: "Lost connection to the privileged helper.")
         }
         lock.lock()
         idle.append(fd)

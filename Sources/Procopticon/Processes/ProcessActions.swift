@@ -292,10 +292,7 @@ enum ProcessActions {
         let pid = p.pid
         let needsRoot = Elevation.shared.needsRoot(forOwner: p.record.uid)
         Reports.show(title: "Core dump of \(p.name) (\(pid))") {
-            let tool = FileManager.default.isExecutableFile(atPath: "/usr/bin/gcore") ? "/usr/bin/gcore" : "/usr/bin/lldb"
-            let args = tool.hasSuffix("gcore") ? ["-o", url.path, "\(pid)"]
-                : ["--batch", "-p", "\(pid)", "-o", "process save-core \"\(url.path)\"", "-o", "detach"]
-            var out = await Reports.runTool(tool, args, requiresRoot: needsRoot)
+            var out = await Reports.runTool("/usr/bin/gcore", ["-o", url.path, "\(pid)"], requiresRoot: needsRoot)
             if FileManager.default.fileExists(atPath: url.path) {
                 out += "\n\nCore dump written to \(url.path)"
             } else {

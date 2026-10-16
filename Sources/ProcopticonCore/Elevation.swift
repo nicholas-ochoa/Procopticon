@@ -54,11 +54,6 @@ public final class Elevation: @unchecked Sendable {
         return exe.deletingLastPathComponent().appendingPathComponent("procopticon-helper")
     }
 
-    private var socketPath: String {
-        let dir = NSTemporaryDirectory()
-        return (dir as NSString).appendingPathComponent("procopticon-\(getpid()).sock")
-    }
-
     // MARK: Executing requests
 
     /// Executes without ever prompting. Uses the most privileged channel available.
@@ -141,9 +136,9 @@ public final class Elevation: @unchecked Sendable {
         guard FileManager.default.isExecutableFile(atPath: helper) else {
             throw PrivilegedError(code: ENOENT, message: "The privileged helper is missing at \(helper).")
         }
-        let socket = socketPath
-        unlink(socket)
-        let helperArgs = ["--serve", "--socket", socket, "--client-pid", "\(getpid())", "--client-uid", "\(getuid())"]
+        // The helper picks the path from the pid, in a directory only root can write to.
+        let socket = HelperSocket.path(clientPid: getpid())
+        let helperArgs = ["--serve", "--client-pid", "\(getpid())", "--client-uid", "\(getuid())"]
         // Passwordless sudo (NOPASSWD) avoids the dialog entirely; otherwise use the system prompt.
         let viaSudo = await Task.detached { Self.startWithPasswordlessSudo(helper, helperArgs) }.value
         if !viaSudo {
@@ -181,8 +176,8 @@ public final class Elevation: @unchecked Sendable {
         client = nil
         lock.unlock()
         if let c {
+            // The helper removes its socket as it exits.
             _ = try? c.send(.shutdown)
-            unlink(c.socketPath)
             NotificationCenter.default.post(name: Self.didChangeNotification, object: nil)
         }
     }
