@@ -548,6 +548,7 @@ struct ToolbarActionButton: View {
 /// while it was open.
 struct FiltersMenu: View {
     @ObservedObject private var settings = AppSettings.shared
+    @ObservedObject private var selection = ProcessSelection.shared
 
     var body: some View {
         NativeMenuButton(menu: Self.makeMenu) {
@@ -566,7 +567,7 @@ struct FiltersMenu: View {
 
     private var active: Bool {
         settings.hideSystemProcesses || settings.hideAppleProcesses || settings.hideZombies || settings.onlyNotResponding
-            || settings.activeSavedFilter != nil
+            || settings.activeSavedFilter != nil || selection.focused != nil
     }
 
     @MainActor
@@ -583,6 +584,10 @@ struct FiltersMenu: View {
         toggle("Only Applications", \.onlyApplications)
         toggle("Only My Processes", \.hideOtherUsers)
         toggle("Only Applications Not Responding", \.onlyNotResponding)
+        if let key = ProcessSelection.shared.focused {
+            let name = ProcessStore.shared.item(key)?.name ?? "Process"
+            menu.add("Stop Focusing on \(name) (\(key.pid))", image: "viewfinder") { ProcessSelection.shared.focus(nil) }
+        }
         menu.add("Reset Filters", enabled: settings.hasProcessFilters || !ProcessStore.shared.filter.text.isEmpty) {
             settings.resetProcessFilters()
             ProcessStore.shared.filter.text = ""
@@ -673,6 +678,11 @@ struct StatusBarView: View {
             if showFilterSummary, store.filter.isFiltering {
                 if let saved = AppSettings.shared.activeSavedFilter {
                     Label(saved.name, systemImage: "line.3.horizontal.decrease.circle.fill").foregroundStyle(.secondary)
+                }
+                if let key = store.filter.focus {
+                    Label("\(store.item(key)?.name ?? "Process") (\(key.pid))", systemImage: "viewfinder")
+                        .foregroundStyle(.secondary)
+                        .help("Only this process and its descendants are shown. Choose Focus again on it, or Clear Filters, to show every process.")
                 }
                 Text("Showing \(Fmt.count(store.matchCount)) of \(Fmt.count(store.processCount)) processes")
                     .foregroundStyle(.secondary)

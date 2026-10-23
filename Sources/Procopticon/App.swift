@@ -167,6 +167,8 @@ final class PauseState: ObservableObject {
 
 struct ViewMenuFilterItems: View {
     @ObservedObject private var settings = AppSettings.shared
+    /// Observed so Reset Process Filters updates when a process is focused.
+    @ObservedObject private var selection = ProcessSelection.shared
 
     var body: some View {
         Toggle("Show Processes as Tree", isOn: $settings.treeView)

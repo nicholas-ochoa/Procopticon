@@ -49,6 +49,10 @@ cut-off value to see all of it.
   **Tree/List**, and a **Filters** menu (hide root/system, Apple-signed or zombie processes, or show only
   applications that aren't responding). While a
   filter is active, the status bar shows "Showing N of M" with a **Clear Filters** link.
+* **Focus**: right-click a process and choose *Focus* to list only it and its descendants, with the
+  process at the top of the tree. The search and other filters still apply within it. Choose *Focus*
+  again, *Filters ▸ Stop Focusing*, or **Clear Filters** to show every process again; focus also ends
+  once the process has exited and left the list.
 * **Summary panel**: click the CPU, Memory, Disk, Network or GPU stats in the status bar to open an
   Activity Monitor–style panel above it: totals and rates beside a history graph (CPU load, memory
   pressure, disk IO or data, network packets or data, GPU). Click again to close it.

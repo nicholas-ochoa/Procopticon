@@ -9,6 +9,7 @@ final class ProcessSelection: ObservableObject {
     @Published var items: [ProcessItem] = []
     let table = OutlineTableController()
     private var followObserver: AnyCancellable?
+    private var focusObserver: AnyCancellable?
 
     /// The process the list keeps in view, with its children, as it updates.
     @Published private(set) var followed: ProcessKey?
@@ -26,13 +27,31 @@ final class ProcessSelection: ObservableObject {
         }
     }
 
+    /// The process the list is narrowed to, with its descendants (see `ProcessFilterOptions.focus`).
+    @Published private(set) var focused: ProcessKey?
+
+    /// Narrows the list to `key` and its descendants in place of any process focused before; nil
+    /// shows everything again.
+    func focus(_ key: ProcessKey?) {
+        if focused != key { focused = key }
+        ProcessStore.shared.filter.focus = key
+        // Stop focusing once the process has left the list (after it exits and is no longer shown).
+        focusObserver = key == nil ? nil : ProcessStore.shared.$revision.receive(on: DispatchQueue.main).sink { [weak self] _ in
+            guard let self, let key = self.focused else { return }
+            if ProcessStore.shared.item(key) == nil {
+                self.focus(nil)
+            }
+        }
+    }
+
     func reveal(pid: Int32) {
         guard let item = ProcessStore.shared.item(pid: pid) else { return }
         NotificationCenter.default.post(name: .showTab, object: MainTab.processes)
         DispatchQueue.main.async {
             if !self.table.reveal(AnyHashable(item.key)) {
-                // Filtered out: clear the search and try again.
+                // Filtered out: clear the search and focus, and try again.
                 ProcessStore.shared.filter.text = ""
+                self.focus(nil)
                 DispatchQueue.main.async { self.table.reveal(AnyHashable(item.key)) }
             }
         }
@@ -172,11 +191,15 @@ enum ProcessMenu {
             if let r = first.record.responsiblePid, r != first.pid, let rp = ProcessStore.shared.item(pid: r) {
                 menu.add("Go to Responsible Process (\(rp.name))") { ProcessSelection.shared.reveal(pid: r) }
             }
-            // Only the process list scrolls to follow a process.
+            // Only the process list scrolls to follow a process, or narrows to one.
             if shortcuts {
                 let following = ProcessSelection.shared.followed == first.key
                 menu.add("Keep in View", state: following ? .on : .off, image: "scope") {
                     ProcessSelection.shared.follow(following ? nil : first.key)
+                }
+                let focusing = ProcessSelection.shared.focused == first.key
+                menu.add("Focus", state: focusing ? .on : .off, image: "viewfinder") {
+                    ProcessSelection.shared.focus(focusing ? nil : first.key)
                 }
             }
             menu.addItem(.separator())

@@ -489,12 +489,14 @@ extension AppSettings {
 }
 
 extension AppSettings {
-    /// True when any of the persistent process filters is active.
+    /// True when any of the persistent process filters, or the focus on a process, is active.
     var hasProcessFilters: Bool {
         onlyApplications || hideOtherUsers || hideSystemProcesses || hideAppleProcesses || hideZombies || onlyNotResponding
+            || ProcessSelection.shared.focused != nil
     }
 
     func resetProcessFilters() {
+        ProcessSelection.shared.focus(nil)
         onlyApplications = false
         onlyNotResponding = false
         hideOtherUsers = false

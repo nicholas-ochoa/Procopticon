@@ -327,11 +327,14 @@ public struct ProcessFilterOptions: Equatable {
     public var onlyApplications = false
     /// Only applications that aren't responding (see `ProcessItem.responding`).
     public var onlyNotResponding = false
+    /// Only this process and its descendants, as the tree arranges them (see `ProcessStore.treeParent`).
+    /// In tree mode the process is shown as a root, without its ancestors.
+    public var focus: ProcessKey?
 
     /// True when any option (other than the mode) narrows the list.
     public var isFiltering: Bool {
         !text.trimmingCharacters(in: .whitespaces).isEmpty || hideOtherUsers || hideSystemProcesses
-            || hideAppleProcesses || hideZombies || onlyApplications || onlyNotResponding
+            || hideAppleProcesses || hideZombies || onlyApplications || onlyNotResponding || focus != nil
     }
 
     public init() {}
@@ -700,7 +703,10 @@ public final class ProcessStore: ObservableObject {
             return result
         }
 
+        let focused = f.focus.map { Self.subtree(of: $0, in: items.values, byPid: byPid) }
+
         func passesOptions(_ item: ProcessItem) -> Bool {
+            if let focused, !focused.contains(item.key) { return false }
             let r = item.record
             if f.hideOtherUsers, r.uid != me { return false }
             if f.hideSystemProcesses, r.uid < 500, r.uid != me { return false }
@@ -714,7 +720,8 @@ public final class ProcessStore: ObservableObject {
         var childMap: [ProcessKey: [ProcessItem]] = [:]
         var rootList: [ProcessItem] = []
         for item in items.values {
-            if options.treeMode, let parent = parentOf(item) {
+            // The focused process heads its subtree, so its ancestors don't show above it.
+            if options.treeMode, item.key != f.focus, let parent = parentOf(item) {
                 item.parent = parent
                 childMap[parent.key, default: []].append(item)
             } else {
@@ -790,6 +797,30 @@ public final class ProcessStore: ObservableObject {
             }
             return a.record.startMicros > b.record.startMicros ? a : b
         })
+    }
+
+    /// `root` and every process under it, following `treeParent`. Empty when `root` isn't among `items`.
+    static func subtree(of root: ProcessKey, in items: some Collection<ProcessItem>, byPid: [Int32: ProcessItem]) -> Set<ProcessKey> {
+        guard items.contains(where: { $0.key == root }) else { return [] }
+        // Memoized so each chain is walked once.
+        var inside: [ProcessKey: Bool] = [root: true]
+        for item in items {
+            var chain: [ProcessKey] = []
+            var node: ProcessItem? = item
+            var result = false
+            while let n = node {
+                if let known = inside[n.key] {
+                    result = known
+                    break
+                }
+                chain.append(n.key)
+                node = chain.count < 512 ? treeParent(of: n, in: byPid) : nil
+            }
+            for key in chain {
+                inside[key] = result
+            }
+        }
+        return Set(inside.compactMap { $0.value ? $0.key : nil })
     }
 
     /// The process `item` is listed under in the tree. Like Activity Monitor, that is the

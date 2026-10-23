@@ -94,6 +94,7 @@ extension AppSettings {
         }
         NotificationCenter.default.post(name: .showTab, object: MainTab.processes)
         ProcessStore.shared.filter.text = f.text
+        ProcessSelection.shared.focus(nil)
     }
 
     /// The saved filter equivalent to the current state, if any.

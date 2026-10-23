@@ -70,4 +70,28 @@ final class TreeParentTests: XCTestCase {
         let later = item(960, ppid: 1, start: 6)
         XCTAssertEqual(ProcessStore.treeIndex([later, earlier])[960]!.record.startMicros, 6)
     }
+
+    func testSubtreeOfAFocusedProcess() {
+        let launchd = item(1, ppid: 0, start: 1)
+        let terminal = item(100, ppid: 1, start: 10)
+        let shell = item(101, ppid: 100, start: 11)
+        let make = item(102, ppid: 101, start: 12)
+        let compiler = item(103, ppid: 102, start: 13)
+        // Started by launchd for the terminal, so it is listed under it.
+        let service = item(104, ppid: 1, responsible: 100, start: 14)
+        let other = item(200, ppid: 1, start: 20)
+        let otherChild = item(201, ppid: 200, start: 21)
+        let all = [launchd, terminal, shell, make, compiler, service, other, otherChild]
+        let byPid = ProcessStore.treeIndex(all)
+        func pids(_ root: ProcessItem) -> Set<Int32> {
+            Set(ProcessStore.subtree(of: root.key, in: all, byPid: byPid).map(\.pid))
+        }
+
+        XCTAssertEqual(pids(terminal), [100, 101, 102, 103, 104])
+        XCTAssertEqual(pids(make), [102, 103])
+        XCTAssertEqual(pids(compiler), [103])
+        XCTAssertEqual(pids(launchd).count, all.count)
+        // A process that is no longer listed has no subtree.
+        XCTAssertTrue(ProcessStore.subtree(of: ProcessKey(pid: 300, startMicros: 30), in: all, byPid: byPid).isEmpty)
+    }
 }
