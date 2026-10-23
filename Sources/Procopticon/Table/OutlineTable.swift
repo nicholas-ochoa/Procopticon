@@ -613,9 +613,14 @@ final class OutlineTableCoordinator<Item>: NSObject, NSOutlineViewDataSource, NS
             node.value = value
             newNodes[k] = node
         }
+        // A node can change parent while the row order stays the same (a process that daemonized
+        // moving from under its exited parent to just after it), and the outline must hear of that
+        // too; otherwise its child counts drift from ours and a later removal throws.
+        var reparented = false
         func link(_ keys: [AnyHashable], parentNode: OutlineNode<Item>?) -> [OutlineNode<Item>] {
             keys.compactMap { k in
                 guard let node = newNodes[k] else { return nil }
+                if node.parentNode !== parentNode { reparented = true }
                 node.parentNode = parentNode
                 node.children = link(p.childKeys[k] ?? [], parentNode: node)
                 return node
@@ -624,7 +629,7 @@ final class OutlineTableCoordinator<Item>: NSObject, NSOutlineViewDataSource, NS
         rootNodes = link(p.rootKeys, parentNode: nil)
         nodes = newNodes
 
-        if force || p.flat != flatKeys {
+        if force || reparented || p.flat != flatKeys {
             let selectedKeys = selectedNodes().map(\.key)
             suppressSelectionCallback = true
             outline.reloadData()
