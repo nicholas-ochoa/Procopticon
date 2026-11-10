@@ -275,7 +275,7 @@ runs in one of three modes. The current mode appears at the right end of the sta
 | Mode | How | Behaviour |
 | --- | --- | --- |
 | **Standard** | Normal launch | You see your own processes in full and other processes in outline. If an action is denied, you are asked for an administrator password once, which starts the helper (below). |
-| **Elevated helper** | Toolbar 🔒 button, *File ▸ Show Details for All Processes*, or *Settings ▸ Privileges ▸ Authorize at launch* | `procopticon-helper` is started as root through the standard macOS authorization dialog. If `sudo` needs no password, it is started with `sudo -n` and no dialog appears. The helper listens on a `0600` Unix socket in your per-user temporary directory and serves exactly one client: every connection is checked against the app's PID and UID. Tools it may run are allowlisted. It exits when the app quits. |
+| **Elevated helper** | Toolbar 🔒 button, *File ▸ Show Details for All Processes*, or *Settings ▸ Privileges ▸ Authorize at launch* | `procopticon-helper` is started as root through the standard macOS authorization dialog. If `sudo` needs no password, it is started with `sudo -n` and no dialog appears. The helper listens on a `0600` Unix socket in `/var/run/procopticon`, which only root can write to, and serves exactly one client: every connection is checked against the app's PID and UID. It does what the app asks of it, including running programs as root, so see [SECURITY.md](SECURITY.md) for what that does and doesn't protect against. It exits when the app quits. |
 | **Root ("sudo mode")** | `sudo "/Applications/Procopticon.app/Contents/MacOS/Procopticon"` or *File ▸ Relaunch as Root…* | The whole app runs as root. Everything executes in-process and **you are never prompted**. Your own processes are still recognized through `SUDO_UID`. |
 
 System Integrity Protection still applies in every mode. Apple platform binaries cannot be attached to,
@@ -289,7 +289,11 @@ You need Xcode 26 or later and macOS 26 or later (the project was developed with
 ./scripts/build-app.sh               # release build → build/Procopticon.app (ad-hoc signed)
 SIGN_IDENTITY="Apple Development: …" ./scripts/build-app.sh   # sign with a certificate
 swift test                           # unit tests for the samplers and parsers
+VERSION=1.0.0 ./scripts/release.sh   # universal, Developer ID-signed and notarized → build/Procopticon-1.0.0.dmg
 ```
+
+`release.sh` is for the copy handed to other people. It needs a Developer ID Application certificate
+and notarization credentials in the keychain; the top of the script says how to set them up.
 
 You can also use `swift build` and `swift run Procopticon` while developing.
 `VARIANT=dev ./scripts/build-app.sh` builds **Procopticon Dev.app**. It has its own bundle
@@ -325,3 +329,19 @@ Resources/AppIcon.icon      App icon (Icon Composer; open it there to edit). mac
 Resources/AppIcon-artwork.png  The flat artwork. scripts/split-icon.py splits it into the icon's layers (waveform,
                             blips, bezel, sweep, screen) and regenerates AppIcon.icon.
 ```
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for building, testing and what a change should look like,
+[AI-POLICY.md](AI-POLICY.md) for AI-assisted contributions, and [SECURITY.md](SECURITY.md) for
+reporting a vulnerability and for what the elevated helper does and doesn't protect against.
+
+## License
+
+Procopticon is released under the [MIT License](LICENSE). It includes
+[QuickJS-ng](https://github.com/quickjs-ng/quickjs), also MIT licensed; see
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Both licenses are shown in *Procopticon ▸ About
+Procopticon*.
+
+Procopticon uses undocumented macOS interfaces for some of what it shows, so it isn't, and can't be,
+distributed through the Mac App Store.

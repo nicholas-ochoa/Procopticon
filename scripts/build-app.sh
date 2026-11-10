@@ -2,6 +2,9 @@
 # Builds "Procopticon.app" into ./build.
 #   CONFIG=debug|release (default release)
 #   SIGN_IDENTITY="Apple Development: …" to sign with a certificate (default: ad-hoc)
+#   UNIVERSAL=1 builds for Apple silicon and Intel (default: this Mac's architecture)
+#   VERSION=1.2.3 sets the version shown in About (default 1.0.0)
+# scripts/release.sh builds, signs and notarizes a copy to hand to other people.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -22,9 +25,13 @@ VERSION="${VERSION:-1.0.0}"
 BUILD_NUMBER="${BUILD_NUMBER:-$(git rev-list --count HEAD 2>/dev/null || echo 1)}"
 OUT="build/${APP_NAME}.app"
 
-swift build -c "$CONFIG" --product Procopticon
-swift build -c "$CONFIG" --product procopticon-helper
-BIN="$(swift build -c "$CONFIG" --show-bin-path)"
+ARCHS=()
+if [ "${UNIVERSAL:-0}" = 1 ]; then
+    ARCHS=(--arch arm64 --arch x86_64)
+fi
+swift build -c "$CONFIG" ${ARCHS[@]+"${ARCHS[@]}"} --product Procopticon
+swift build -c "$CONFIG" ${ARCHS[@]+"${ARCHS[@]}"} --product procopticon-helper
+BIN="$(swift build -c "$CONFIG" ${ARCHS[@]+"${ARCHS[@]}"} --show-bin-path)"
 
 rm -rf "$OUT"
 mkdir -p "$OUT/Contents/MacOS" "$OUT/Contents/Resources"
@@ -98,7 +105,11 @@ cat > "$ENTITLEMENTS" <<PLIST
 PLIST
 
 IDENTITY="${SIGN_IDENTITY:--}"
-codesign --force --sign "$IDENTITY" --timestamp=none --options runtime --identifier "${BUNDLE_ID}.helper" \
+# Notarization wants Apple's timestamp on a Developer ID signature; other builds do without the
+# round trip to Apple's server.
+TIMESTAMP="--timestamp=none"
+case "$IDENTITY" in "Developer ID"*) TIMESTAMP="--timestamp" ;; esac
+codesign --force --sign "$IDENTITY" "$TIMESTAMP" --options runtime --identifier "${BUNDLE_ID}.helper" \
     "$OUT/Contents/MacOS/procopticon-helper"
-codesign --force --sign "$IDENTITY" --timestamp=none --options runtime --entitlements "$ENTITLEMENTS" "$OUT"
+codesign --force --sign "$IDENTITY" "$TIMESTAMP" --options runtime --entitlements "$ENTITLEMENTS" "$OUT"
 echo "Built $OUT"
