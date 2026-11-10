@@ -289,9 +289,27 @@ struct ToolsMenuItems: View {
         }
         Button("Flush DNS Cache…") {
             Task { @MainActor in
-                _ = await Reports.runTool("/usr/bin/dscacheutil", ["-flushcache"], requiresRoot: true)
-                let out = await Reports.runTool("/usr/bin/killall", ["-HUP", "mDNSResponder"], requiresRoot: true)
-                Alerts.info("DNS cache flushed", out.isEmpty ? "The DNS resolver cache was flushed." : out)
+                // Both steps have to succeed; the second isn't tried when the first was cancelled or failed.
+                var failure: String?
+                for (tool, arguments) in [("/usr/bin/dscacheutil", ["-flushcache"]), ("/usr/bin/killall", ["-HUP", "mDNSResponder"])] {
+                    switch await Reports.toolResult(tool, arguments, requiresRoot: true) {
+                    case .success(let out) where out.status == 0:
+                        continue
+                    case .success(let out):
+                        let name = (tool as NSString).lastPathComponent
+                        let detail = out.combined.trimmingCharacters(in: .whitespacesAndNewlines)
+                        failure = "\(name) exited with status \(out.status)." + (detail.isEmpty ? "" : "\n\n" + detail)
+                    case .failure(let error):
+                        if error == .cancelled { return }
+                        failure = error.message
+                    }
+                    break
+                }
+                if let failure {
+                    Alerts.error("The DNS cache was not flushed", failure)
+                } else {
+                    Alerts.info("DNS cache flushed", "The DNS resolver cache was flushed.")
+                }
             }
         }
         Divider()
