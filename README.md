@@ -157,7 +157,6 @@ unless you turn off *Always on Top* in the same menu, and reopens at launch if i
   pointer tables and `__LINKEDIT` (whose symbols the Symbols page lists) are skipped. Show one
   section, set a minimum length, filter, and copy.
 * **Find Process by Window.**
-* **Hidden Process Scan.** Compares the kernel process list against a brute-force probe of every PID.
 * **Crash Reports.** Every crash, exception, hang, resource and jetsam report in the user and system
   DiagnosticReports folders (including Retired ones), grouped by process so the apps that keep crashing
   stand out. JSON crash reports open laid out like classic crash logs: exception, termination reason,

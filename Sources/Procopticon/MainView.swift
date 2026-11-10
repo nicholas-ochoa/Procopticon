@@ -189,7 +189,6 @@ struct MainView: View {
                 ToolbarActionButton(.startup)
                 ToolbarActionButton(.windows)
                 ToolbarActionButton(.users)
-                ToolbarActionButton(.hidden)
             }
         }
         ToolbarItem(id: "group.files", placement: .primaryAction, showsByDefault: false) {
@@ -239,7 +238,6 @@ struct MainView: View {
         ToolbarItem(id: "startup", placement: .primaryAction, showsByDefault: false) { ToolbarActionButton(.startup) }
         ToolbarItem(id: "windows", placement: .primaryAction, showsByDefault: false) { ToolbarActionButton(.windows) }
         ToolbarItem(id: "users", placement: .primaryAction, showsByDefault: false) { ToolbarActionButton(.users) }
-        ToolbarItem(id: "hidden", placement: .primaryAction, showsByDefault: false) { ToolbarActionButton(.hidden) }
     }
 }
 
@@ -442,7 +440,7 @@ struct PauseToggle: View {
 /// Plain action buttons used in groups and as individual palette items.
 struct ToolbarActionButton: View {
     enum Action {
-        case sysinfo, history, find, settings, properties, terminate, kill, inspect, run, log, crashes, startup, windows, users, hidden, export
+        case sysinfo, history, find, settings, properties, terminate, kill, inspect, run, log, crashes, startup, windows, users, export
     }
 
     let action: Action
@@ -474,7 +472,6 @@ struct ToolbarActionButton: View {
         case .startup: StartupItemsWindow.open()
         case .windows: WindowFinder.open()
         case .users: UsersWindow.open()
-        case .hidden: HiddenProcessesWindow.open()
         case .export: TableExport.saveProcessList()
         }
     }
@@ -495,7 +492,6 @@ struct ToolbarActionButton: View {
         case .startup: return "Startup Items"
         case .windows: return "Find Window"
         case .users: return "Users"
-        case .hidden: return "Hidden Scan"
         case .export: return "Export"
         }
     }
@@ -516,7 +512,6 @@ struct ToolbarActionButton: View {
         case .startup: return "power.circle"
         case .windows: return "macwindow.badge.plus"
         case .users: return "person.2"
-        case .hidden: return "eye.trianglebadge.exclamationmark"
         case .export: return "square.and.arrow.up"
         }
     }
@@ -537,7 +532,6 @@ struct ToolbarActionButton: View {
         case .startup: return "List login items, background items, extensions, cron jobs and other things that start code"
         case .windows: return "List on-screen windows to find the process that owns one"
         case .users: return "Show logged-in users and their processes, CPU and memory"
-        case .hidden: return "Scan every PID to detect processes hidden from the process list"
         case .export: return "Save the visible process list as JSON or CSV (⌘S)"
         }
     }

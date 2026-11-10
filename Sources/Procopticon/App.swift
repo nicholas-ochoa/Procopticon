@@ -267,7 +267,6 @@ struct ToolsMenuItems: View {
             .keyboardShortcut("f", modifiers: [.command, .shift])
         Button("Inspect Executable…") { InspectorWindow.choose() }
         Button("Find Process by Window…") { WindowFinder.open() }
-        Button("Hidden Process Scan…") { HiddenProcessesWindow.open() }
         Button("Event Log") { EventLogWindow.open() }
             .keyboardShortcut("l", modifiers: [.command, .option])
         Button("Crash Reports…") { CrashReportsWindow.open() }
