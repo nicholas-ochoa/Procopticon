@@ -196,6 +196,9 @@ struct GeneralSettings: View {
 
     var body: some View {
         Form {
+            Section("Startup") {
+                LaunchAtLoginRows()
+            }
             Section("Updates") {
                 Picker("Update interval", selection: $settings.refreshInterval) {
                     ForEach([0.5, 1, 2, 3, 5, 10], id: \.self) { v in

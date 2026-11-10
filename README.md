@@ -193,6 +193,9 @@ unless you turn off *Always on Top* in the same menu, and reopens at launch if i
 * **Event Log.** Records process start/exit, service start/stop, apps that stop or start responding,
   processes that start or stop keeping the Mac awake, alerts, and actions you take.
 * **Run Program** and **Run Program as Root.**
+* **Open at login**: *Settings ▸ General ▸ Open Procopticon at login* adds the app to *System Settings ▸
+  General ▸ Login Items* (useful with the menu bar graph). If macOS asks for approval, a button opens
+  those settings.
 * **Purge Disk Cache** and **Flush DNS Cache.**
 * **Export** (*File ▸ Export Process List…*, ⌘S). Saves the process list as shown (its visible columns
   and rows, filtered and sorted) as JSON, the default, or CSV, chosen in the save panel. Values are
