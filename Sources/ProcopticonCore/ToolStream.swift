@@ -36,7 +36,16 @@ final class ToolStreamSessions: @unchecked Sendable {
 
     private let lock = NSLock()
     private var sessions: [Int: Session] = [:]
-    private var nextId = 1
+    private var nextId: Int
+    private let step: Int
+
+    /// The app's own sessions count down from -1 and the helper's up from 1. The app talks to both
+    /// at once (a stream it started itself before the helper existed, and the helper's), and the
+    /// sign of an id says which of the two a read or stop is meant for; see `Elevation.perform`.
+    init(inApp: Bool) {
+        nextId = inApp ? -1 : 1
+        step = inApp ? -1 : 1
+    }
 
     func start(_ tool: String, _ arguments: [String]) -> PrivilegedResponse {
         sweep()
@@ -71,7 +80,7 @@ final class ToolStreamSessions: @unchecked Sendable {
         }
         let id: Int = lock.withLock {
             let id = nextId
-            nextId += 1
+            nextId += step
             sessions[id] = session
             return id
         }

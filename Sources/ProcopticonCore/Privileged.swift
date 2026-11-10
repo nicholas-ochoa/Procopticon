@@ -166,12 +166,13 @@ public enum ToolRunner {
 public final class PrivilegedExecutor: @unchecked Sendable {
     private let samplerLock = NSLock()
     private let sampler = ProcessSampler()
-    private let streams = ToolStreamSessions()
+    private let streams: ToolStreamSessions
     /// When true (inside the helper), any tool in the allowlist may run; otherwise anything.
     private let restrictTools: Bool
 
     public init(restrictTools: Bool) {
         self.restrictTools = restrictTools
+        streams = ToolStreamSessions(inApp: !restrictTools)
     }
 
     public func handle(_ request: PrivilegedRequest) -> PrivilegedResponse {
@@ -192,12 +193,19 @@ public final class PrivilegedExecutor: @unchecked Sendable {
             }
             return .ok
         case let .setPriority(pid, nice, start):
+            // Pid 0 means "the calling process" to setpriority, which here is the app or the helper.
+            guard pid > 0 else {
+                return .failure(PrivilegedError(code: EINVAL, message: "The priority of pid \(pid) can't be changed."))
+            }
             if let error = Self.checkIdentity(pid: pid, startMicros: start) { return .failure(error) }
             if setpriority(PRIO_PROCESS, id_t(pid), nice) != 0 {
                 return .failure(PrivilegedError(errno: errno, context: "setpriority(\(pid), \(nice))"))
             }
             return .ok
         case let .setBackground(pid, enabled, start):
+            guard pid > 0 else {
+                return .failure(PrivilegedError(code: EINVAL, message: "The scheduling of pid \(pid) can't be changed."))
+            }
             if let error = Self.checkIdentity(pid: pid, startMicros: start) { return .failure(error) }
             if setpriority(PRIO_DARWIN_PROCESS, id_t(pid), enabled ? PRIO_DARWIN_BG : 0) != 0 {
                 return .failure(PrivilegedError(errno: errno, context: "setpriority(PRIO_DARWIN_PROCESS, \(pid))"))

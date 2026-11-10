@@ -58,7 +58,7 @@ public final class Elevation: @unchecked Sendable {
 
     /// Executes without ever prompting. Uses the most privileged channel available.
     public func perform(_ request: PrivilegedRequest) -> PrivilegedResponse {
-        if geteuid() == 0 {
+        if geteuid() == 0 || Self.isLocalStream(request) {
             return local.handle(request)
         }
         lock.lock()
@@ -73,6 +73,16 @@ public final class Elevation: @unchecked Sendable {
             }
         }
         return local.handle(request)
+    }
+
+    /// A read or stop of a stream this process started itself (a negative id; the helper's are
+    /// positive). It must go back to this process even after the helper has started, or it would
+    /// read, or stop, whichever of the helper's streams has the same number.
+    static func isLocalStream(_ request: PrivilegedRequest) -> Bool {
+        switch request {
+        case .readStream(let id), .stopStream(let id): return id < 0
+        default: return false
+        }
     }
 
     /// Executes, and if the result is a permission failure (or `requiresRoot` is set) and we are not
