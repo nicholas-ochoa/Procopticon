@@ -72,6 +72,15 @@ public enum HelperSocket {
     public static func path(clientPid: pid_t) -> String {
         "\(directory)/\(clientPid).sock"
     }
+
+    /// Creates the directory (as root), or checks that the one there is root's alone.
+    static func ensureDirectory() -> Bool {
+        let oldMask = umask(0o022)
+        let made = mkdir(directory, 0o755) == 0 || errno == EEXIST
+        umask(oldMask)
+        var st = stat()
+        return made && lstat(directory, &st) == 0 && st.st_mode & S_IFMT == S_IFDIR && st.st_uid == 0 && st.st_mode & 0o022 == 0
+    }
 }
 
 /// Root helper: serves requests from exactly one client process (pid + uid verified per connection).
@@ -86,8 +95,11 @@ public final class HelperServer {
     private let executor = PrivilegedExecutor(restrictTools: true)
     private var listenFd: Int32 = -1
     private var exitSource: DispatchSourceProcess?
+    /// Removed, with the socket, when the helper exits: root's copy of this executable.
+    private let ownCopy: String?
 
-    public init(clientPid: pid_t, clientUid: uid_t) {
+    public init(clientPid: pid_t, clientUid: uid_t, ownCopy: String? = nil) {
+        self.ownCopy = ownCopy
         socketPath = HelperSocket.path(clientPid: clientPid)
         self.clientPid = clientPid
         self.clientUid = clientUid
@@ -96,9 +108,10 @@ public final class HelperServer {
     public func run() -> Never {
         // Exit when the owning app goes away.
         let source = DispatchSource.makeProcessSource(identifier: clientPid, eventMask: .exit, queue: .global())
-        source.setEventHandler { [socketPath, executor] in
+        source.setEventHandler { [socketPath, executor, ownCopy] in
             executor.stopAllStreams()
             unlink(socketPath)
+            if let ownCopy { unlink(ownCopy) }
             exit(0)
         }
         source.resume()
@@ -142,24 +155,16 @@ public final class HelperServer {
                 close(fd)
                 continue
             }
-            Thread.detachNewThread { [executor, socketPath] in
-                Self.serve(fd: fd, executor: executor, socketPath: socketPath)
+            Thread.detachNewThread { [executor, socketPath, ownCopy] in
+                Self.serve(fd: fd, executor: executor, socketPath: socketPath, ownCopy: ownCopy)
             }
         }
     }
 
     /// Creates `HelperSocket.directory`, or checks that the one there is root's alone.
     private func makeSocketDirectory() {
-        let dir = HelperSocket.directory
-        let oldMask = umask(0o022)
-        let made = mkdir(dir, 0o755) == 0 || errno == EEXIST
-        umask(oldMask)
-        guard made else {
-            fatal("mkdir \(dir): \(String(cString: strerror(errno)))")
-        }
-        var st = stat()
-        guard lstat(dir, &st) == 0, st.st_mode & S_IFMT == S_IFDIR, st.st_uid == 0, st.st_mode & 0o022 == 0 else {
-            fatal("\(dir) isn't a directory only root can write to")
+        guard HelperSocket.ensureDirectory() else {
+            fatal("\(HelperSocket.directory) isn't a directory only root can write to")
         }
     }
 
@@ -177,7 +182,7 @@ public final class HelperServer {
         return true
     }
 
-    private static func serve(fd: Int32, executor: PrivilegedExecutor, socketPath: String) {
+    private static func serve(fd: Int32, executor: PrivilegedExecutor, socketPath: String, ownCopy: String?) {
         defer { close(fd) }
         let decoder = JSONDecoder()
         let encoder = JSONEncoder()
@@ -196,6 +201,7 @@ public final class HelperServer {
             if shutdown {
                 // The client can't remove it: the directory is root's.
                 unlink(socketPath)
+                if let ownCopy { unlink(ownCopy) }
                 exit(0)
             }
         }

@@ -20,6 +20,9 @@ public enum PrivilegedRequest: Codable, Sendable {
     case connections
     case searchOpenFiles(query: String, includeLibraries: Bool, regex: Bool)
     case runTool(tool: String, arguments: [String])
+    /// Runs a tool that writes a report to a file, and answers with the report. The argument
+    /// equal to `ToolReport.placeholder` becomes the file's path; see `ToolReport`.
+    case runToolReport(tool: String, arguments: [String])
     case launch(path: String, arguments: [String])
     /// Starts a long-running tool whose output is read with `readStream`; see `ToolStream`.
     case startStream(tool: String, arguments: [String])
@@ -39,7 +42,7 @@ public enum PrivilegedRequest: Codable, Sendable {
     var replyTimeout: TimeInterval {
         switch self {
         case .ping: return 5
-        case .runTool: return ToolRunner.defaultTimeout + 30
+        case .runTool, .runToolReport: return ToolRunner.defaultTimeout + 30
         // Several tools in turn (sfltool, kmutil, profiles, pluginkit, launchctl), up to 30 s each.
         case .startupItems: return 240
         case .startupAction: return 90
@@ -250,6 +253,11 @@ public final class PrivilegedExecutor: @unchecked Sendable {
                 return .failure(PrivilegedError(code: EPERM, message: "\(tool) is not an allowed tool."))
             }
             return .tool(ToolRunner.run(tool, arguments))
+        case let .runToolReport(tool, arguments):
+            if restrictTools, !AllowedTools.paths.contains(tool) {
+                return .failure(PrivilegedError(code: EPERM, message: "\(tool) is not an allowed tool."))
+            }
+            return .tool(ToolReport.run(tool, arguments))
         case let .launch(path, arguments):
             return launch(path: path, arguments: arguments)
         case let .startStream(tool, arguments):

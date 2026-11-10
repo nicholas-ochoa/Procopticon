@@ -24,9 +24,12 @@ Procopticon runs in one of three modes (see *Privileges* in the README):
 - **Standard.** Everything runs as you. Nothing here is privileged.
 - **Elevated helper.** After you authorize in the macOS administrator dialog (or without a dialog,
   if your account has passwordless `sudo`), `procopticon-helper` runs as root until the app quits.
-  It listens on a Unix socket in `/var/run/procopticon`, a directory only root can write to. The
-  socket is owned by you with mode `0600`, and the helper accepts a connection only when the peer
-  is the app process that started it (checked by PID and UID before any request is read).
+  Root never runs the helper inside the application bundle: it copies it into
+  `/var/run/procopticon`, a directory only root can write to, checks that the copy is signed by
+  the same developer team as the running app, and runs the copy. The helper listens on a Unix
+  socket in that directory. The socket is owned by you with mode `0600`, and the helper accepts a
+  connection only when the peer is the app process that started it (checked by PID and UID before
+  any request is read).
 - **Root.** The whole app runs as root (`sudo …/Procopticon` or *File ▸ Relaunch as Root…*).
 
 Release builds are signed with a Developer ID certificate, notarized, and use the hardened runtime,
@@ -41,6 +44,13 @@ unsigned libraries, no debugger attach).
   engine with no access to files, the network, timers or the app's objects, with a time limit and
   a memory limit.
 - **Files you open in the inspector** (Mach-O files, crash reports) are treated as untrusted input.
+- **A replaced helper.** A program running as you that swaps the helper in the bundle for its own
+  doesn't get it run as root: the copy root makes fails the signature check, and nothing is
+  started. The team is read from the kernel's record of the running app, not from the files on
+  disk. Once running, the helper only ever re-runs root's copy of itself.
+- **Reports written as root.** Tools that write a report to a file (`sample`, `spindump`) write it
+  into a new directory only root can open, and the text is passed back to the app, so there is no
+  file in a shared place for another program to redirect.
 
 ## What it does not protect against
 
@@ -50,24 +60,24 @@ Be aware of these before you authorize the helper or run as root.
   through the helper (that is what *Run Program as Root* is). The helper's list of allowed tools
   limits which diagnostic tools it starts, but it is not a security boundary: several of those
   tools take arguments that write files or run commands.
-- **Software already running as you can become root through Procopticon.** The app and the helper
-  are files in an application bundle that your account can usually modify (anything in
-  `/Applications` that you installed by dragging). A malicious program running as you could replace
-  them and wait for you to approve Procopticon's password dialog, or, while the helper is running,
-  replace the helper's file, which the helper runs again as root for memory-region scans. The
-  helper does not verify the code signature of the app or of itself. macOS has the same limitation
-  for any tool that elevates from a user-writable location; a helper installed in a root-owned
-  location and checked by signature would close it and is planned.
-- **Reports written as root.** Some diagnostics (`sample`, `spindump`) are run as root with an
-  output file in your temporary directory. A malicious program running as you could plant a link
-  there to make root overwrite another file.
-- **Root mode trusts your settings.** A root instance reads preferences and saved expressions that
-  your account can write, and everything it starts runs as root unless Procopticon starts it as you
-  (it does for Restart and for Run Program without *Run as root*).
+- **A replaced app.** The check above protects the helper, on the word of the running app. It
+  can't help if the whole application was replaced before you opened it: the password dialog you
+  approve is then the replacement's. For the notarized release, macOS itself stops other apps from
+  modifying the bundle (*App Management* in Privacy & Security); keep that protection on, and
+  install Procopticon from the signed disk image.
+- **Builds without a developer team.** A build you make yourself without a signing certificate
+  (`swift build`, or `scripts/build-app.sh` with an ad-hoc signature) has no team to check the
+  helper against. Root still runs only its own copy, but a helper swapped in the bundle before you
+  authorize would be accepted. `swift build` output also has no hardened runtime.
+- **Core dumps.** *Create Core Dump* runs `gcore` as root when the process isn't yours, writing to
+  the place you choose. Choose a folder other programs can't prepare in advance.
+- **Root mode runs the bundle as root.** `sudo …/Procopticon` and *Relaunch as Root* run the
+  application itself as root, from wherever it is installed, with no signature check. A root
+  instance also reads preferences and saved expressions that your account can write, and
+  everything it starts runs as root unless Procopticon starts it as you (it does for Restart and
+  for Run Program without *Run as root*). Prefer the helper.
 - **Passwordless `sudo`.** If your account can `sudo` without a password, the helper starts with no
   dialog at all. Such an account is already equivalent to root.
-- **Builds you make yourself** with `swift build` or `scripts/build-app.sh` are ad-hoc signed.
-  `swift build` output has no hardened runtime.
 
 In short: authorize the helper on a Mac you trust the other software on, and quit Procopticon (or
 choose *Tools ▸ Stop Privileged Helper*) when you no longer need it elevated.

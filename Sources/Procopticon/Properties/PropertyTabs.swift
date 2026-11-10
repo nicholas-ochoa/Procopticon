@@ -162,10 +162,7 @@ struct ThreadsTab: View {
         let pid = item.pid
         let needsRoot = Elevation.shared.needsRoot(forOwner: item.record.uid)
         Reports.show(title: "Stack of thread \(t.threadId)\(t.name.isEmpty ? "" : " (\(t.name))") — \(item.name)") {
-            let file = NSTemporaryDirectory() + "stack-\(pid)-\(UUID().uuidString).txt"
-            let out = await Reports.runTool("/usr/bin/sample", ["\(pid)", "0.2", "1", "-mayDie", "-file", file], requiresRoot: needsRoot)
-            guard let text = try? String(contentsOfFile: file, encoding: .utf8) else { return out }
-            try? FileManager.default.removeItem(atPath: file)
+            let text = await Reports.runToolReport("/usr/bin/sample", ["\(pid)", "0.2", "1", "-mayDie", "-file", ToolReport.placeholder], requiresRoot: needsRoot)
             return SampleParser.thread(t.threadId, in: text) ?? text
         }
     }

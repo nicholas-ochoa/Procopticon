@@ -4,8 +4,9 @@ import ProcopticonCore
 
 // Privileged helper for Procopticon.
 //
-// Started as root through the macOS authorization dialog:
-//   procopticon-helper --serve --client-pid <pid> --client-uid <uid>
+// Started as root through the macOS authorization dialog, from a copy only root can change (see
+// TrustedHelper.startScript):
+//   helper-<pid> --serve --client-pid <pid> --client-uid <uid>
 // It listens at HelperSocket.path(clientPid:), accepts connections only from <client-pid> running
 // as <client-uid>, and exits when that process exits.
 
@@ -18,7 +19,11 @@ func usage() -> Never {
 if CommandLine.arguments.dropFirst().first == "--scan-regions" {
     IsolatedScanner.runChild()
 }
-IsolatedScanner.executablePath = Bundle.main.executablePath ?? CommandLine.arguments[0]
+// Where this executable really is, from the kernel. Scans run it again, as root when serving, so
+// IsolatedScanner uses it only if nobody but root can change it.
+var ownPathBuffer = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
+let ownPath: String? = proc_pidpath(getpid(), &ownPathBuffer, UInt32(ownPathBuffer.count)) > 0 ? String(cString: ownPathBuffer) : nil
+IsolatedScanner.executablePath = ownPath
 
 var clientPid: pid_t?
 var clientUid: uid_t?
@@ -44,4 +49,9 @@ guard geteuid() == 0 else {
 
 // Detach from the authorization trampoline's session so we outlive it.
 setsid()
-HelperServer(clientPid: clientPid, clientUid: clientUid).run()
+// Root's copy of this executable, made for this client, goes away with the helper.
+let expectedCopy = TrustedHelper.path(clientPid: clientPid)
+let ownCopy = ownPath.flatMap { path in
+    (path == expectedCopy || path == "/private" + expectedCopy) && TrustedHelper.isRootOnly(path) ? path : nil
+}
+HelperServer(clientPid: clientPid, clientUid: clientUid, ownCopy: ownCopy).run()

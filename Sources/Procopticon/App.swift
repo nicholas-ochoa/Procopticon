@@ -32,7 +32,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate()
-        IsolatedScanner.executablePath = Elevation.helperURL.path
+        // As root, scans run a copy of the helper that only root can change (or run in-process).
+        IsolatedScanner.executablePath = geteuid() == 0
+            ? TrustedHelper.installCopy(of: Elevation.helperURL.path)
+            : Elevation.helperURL.path
         ProcessStore.shared.expressionEngine = ProcessExpressionEngine()
         ProcessStore.shared.applicationPids = ApplicationPids.current
         ProcessStore.shared.applicationResponsiveness = ApplicationResponsiveness.current
@@ -61,6 +64,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ResourceHistoryWindow.saveState()
         Elevation.shared.stopLocalStreams()
         Elevation.shared.stopHelper()
+        TrustedHelper.removeOwnCopy()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {

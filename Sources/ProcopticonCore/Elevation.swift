@@ -148,12 +148,19 @@ public final class Elevation: @unchecked Sendable {
         }
         // The helper picks the path from the pid, in a directory only root can write to.
         let socket = HelperSocket.path(clientPid: getpid())
-        let helperArgs = ["--serve", "--client-pid", "\(getpid())", "--client-uid", "\(getuid())"]
+        // Root doesn't run the helper in the bundle, which other software running as the user could
+        // have replaced: it copies it, checks the copy's signature against this app's, and runs that.
+        let script = TrustedHelper.startScript(helper: helper, clientPid: getpid(), clientUid: getuid(),
+                                               requirement: TrustedHelper.ownRequirement())
         // Passwordless sudo (NOPASSWD) avoids the dialog entirely; otherwise use the system prompt.
-        let viaSudo = await Task.detached { Self.startWithPasswordlessSudo(helper, helperArgs) }.value
-        if !viaSudo {
-            let command = ([helper] + helperArgs).shellJoined + " >/dev/null 2>&1 &"
-            try Self.runWithAdministratorPrivileges(command, prompt: "Procopticon needs administrator access to inspect and control processes owned by other users.")
+        let viaSudo = await Task.detached { Self.runWithPasswordlessSudo(script) }.value
+        if let viaSudo {
+            guard viaSudo.status == 0 else {
+                let reason = viaSudo.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+                throw PrivilegedError(code: EPERM, message: reason.isEmpty ? "The privileged helper could not be started." : reason)
+            }
+        } else {
+            try Self.runWithAdministratorPrivileges(script, prompt: "Procopticon needs administrator access to inspect and control processes owned by other users.")
         }
 
         let newClient = HelperClient(socketPath: socket)
@@ -202,6 +209,14 @@ public final class Elevation: @unchecked Sendable {
                 NotificationCenter.default.post(name: Self.didChangeNotification, object: nil)
             }
         }
+    }
+
+    /// Runs shell commands as root through `sudo -n` when sudo needs no password; nil otherwise.
+    static func runWithPasswordlessSudo(_ script: String) -> ToolOutput? {
+        guard ToolRunner.run("/usr/bin/sudo", ["-n", "/usr/bin/true"], timeout: 5).status == 0 else {
+            return nil
+        }
+        return ToolRunner.run("/usr/bin/sudo", ["-n", "/bin/sh", "-c", script], timeout: 60)
     }
 
     /// Starts `path` as root through `sudo -n` when sudo needs no password. Returns false otherwise.

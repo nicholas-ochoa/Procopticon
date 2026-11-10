@@ -248,9 +248,28 @@ enum Reports {
         }
     }
 
+    /// Runs an allowed tool, elevating if `requiresRoot`, and returns what it printed and its exit
+    /// status, for callers that have to know whether it worked.
+    static func toolResult(_ tool: String, _ args: [String], requiresRoot: Bool) async -> Result<ToolOutput, PrivilegedError> {
+        switch await Elevation.shared.performElevated(.runTool(tool: tool, arguments: args), requiresRoot: requiresRoot) {
+        case .tool(let out): return .success(out)
+        case .failure(let e): return .failure(e)
+        default: return .failure(PrivilegedError(code: EIO, message: "Unexpected reply."))
+        }
+    }
+
     /// Runs an allowed tool, elevating if `requiresRoot`, and returns combined output.
     static func runTool(_ tool: String, _ args: [String], requiresRoot: Bool) async -> String {
-        let response = await Elevation.shared.performElevated(.runTool(tool: tool, arguments: args), requiresRoot: requiresRoot)
+        text(of: await Elevation.shared.performElevated(.runTool(tool: tool, arguments: args), requiresRoot: requiresRoot), tool: tool)
+    }
+
+    /// Runs a tool that writes its report to a file (the argument `ToolReport.placeholder`), and
+    /// returns the report, or what the tool printed when it wrote none.
+    static func runToolReport(_ tool: String, _ args: [String], requiresRoot: Bool) async -> String {
+        text(of: await Elevation.shared.performElevated(.runToolReport(tool: tool, arguments: args), requiresRoot: requiresRoot), tool: tool)
+    }
+
+    private static func text(of response: PrivilegedResponse, tool: String) -> String {
         switch response {
         case .tool(let out):
             if out.status != 0, out.stdout.isEmpty {

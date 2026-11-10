@@ -301,13 +301,7 @@ enum ProcessActions {
         let pid = p.pid
         let needsRoot = Elevation.shared.needsRoot(forOwner: p.record.uid)
         Reports.show(title: "Sample of \(p.name) (\(pid))") {
-            let file = NSTemporaryDirectory() + "sample-\(pid)-\(UUID().uuidString).txt"
-            let out = await Reports.runTool("/usr/bin/sample", ["\(pid)", "3", "1", "-mayDie", "-file", file], requiresRoot: needsRoot)
-            if let text = try? String(contentsOfFile: file, encoding: .utf8) {
-                try? FileManager.default.removeItem(atPath: file)
-                return text
-            }
-            return out
+            await Reports.runToolReport("/usr/bin/sample", ["\(pid)", "3", "1", "-mayDie", "-file", ToolReport.placeholder], requiresRoot: needsRoot)
         }
     }
 
@@ -346,12 +340,7 @@ enum ProcessActions {
     static func spindump(_ p: ProcessItem) {
         let pid = p.pid
         Reports.show(title: "Spindump of \(p.name) (\(pid))") {
-            let file = NSTemporaryDirectory() + "spindump-\(pid)-\(UUID().uuidString).txt"
-            let out = await Reports.runTool("/usr/sbin/spindump", ["\(pid)", "2", "10", "-file", file, "-noProcessingWhileSampling"], requiresRoot: true)
-            if let text = try? String(contentsOfFile: file, encoding: .utf8) {
-                return text
-            }
-            return out
+            await Reports.runToolReport("/usr/sbin/spindump", ["\(pid)", "2", "10", "-file", ToolReport.placeholder, "-noProcessingWhileSampling"], requiresRoot: true)
         }
     }
 

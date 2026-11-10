@@ -9,7 +9,8 @@ import Foundation
 /// it was scanning is reported as unreadable and the scan resumes with the remaining processes.
 public enum IsolatedScanner {
     /// Executable that understands `--scan-regions` (the bundled `procopticon-helper`). When nil or
-    /// missing, scans run in-process.
+    /// missing, scans run in-process. Root only runs one that nobody else can change (see
+    /// `TrustedHelper`), and otherwise scans in-process too.
     nonisolated(unsafe) public static var executablePath: String?
 
     private static let startMarker = "#start "
@@ -54,7 +55,8 @@ public enum IsolatedScanner {
         if pids.contains(own) {
             results[own] = ProcessDetails.regions(pid: own)
         }
-        guard let exe = executablePath, FileManager.default.isExecutableFile(atPath: exe) else {
+        guard let exe = executablePath, FileManager.default.isExecutableFile(atPath: exe),
+              geteuid() != 0 || TrustedHelper.isRootOnly(exe) else {
             for pid in remaining { results[pid] = ProcessDetails.regions(pid: pid) }
             return results
         }

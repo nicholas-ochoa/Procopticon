@@ -530,6 +530,26 @@ int si_cs_status(pid_t pid, uint32_t *flags) {
     return 0;
 }
 
+int si_cs_identity(pid_t pid, int team, char *buf, int size) {
+    // The kernel answers with an 8-byte header (magic, total length; big-endian) and the string.
+    uint8_t blob[8 + 512];
+    memset(blob, 0, sizeof(blob));
+    if (csops(pid, team ? 14 /* CS_OPS_TEAMID */ : 11 /* CS_OPS_IDENTITY */, blob, sizeof(blob)) != 0) {
+        return -errno;
+    }
+    uint32_t total = ((uint32_t)blob[4] << 24) | ((uint32_t)blob[5] << 16) | ((uint32_t)blob[6] << 8) | blob[7];
+    if (total <= 8 || total > sizeof(blob) || size <= 0) {
+        return -EINVAL;
+    }
+    size_t length = strnlen((const char *)blob + 8, total - 8);
+    if (length == 0 || length >= (size_t)size) {
+        return -EINVAL;
+    }
+    memcpy(buf, blob + 8, length);
+    buf[length] = 0;
+    return 0;
+}
+
 int si_is_sandboxed(pid_t pid) {
     typedef int (*sandbox_check_fn)(pid_t, const char *, int, ...);
     static sandbox_check_fn fn = NULL;

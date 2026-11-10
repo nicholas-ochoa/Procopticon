@@ -216,6 +216,10 @@ int si_pid_regions(pid_t pid, si_region_info *out, int max);
 
 /// Code-signing status flags via csops(CS_OPS_STATUS). Returns 0 on success.
 int si_cs_status(pid_t pid, uint32_t *flags);
+/// The team identifier (`team` nonzero) or signing identifier of a process's code signature, as
+/// the kernel holds it for the code that is running. Returns 0 on success, or -errno (an ad-hoc
+/// or unsigned process has no team).
+int si_cs_identity(pid_t pid, int team, char *buf, int size);
 /// 1 sandboxed, 0 not, -1 unknown.
 int si_is_sandboxed(pid_t pid);
 /// Responsible process (the app that launched an XPC service etc), or -1.
