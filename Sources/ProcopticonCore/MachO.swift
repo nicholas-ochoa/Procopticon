@@ -410,6 +410,118 @@ public struct MachOFile: Sendable {
     }
 }
 
+// MARK: - Strings
+
+extension MachOFile {
+    /// A run of text found in one of the selected slice's sections.
+    public struct ExtractedString: Sendable, Identifiable, Hashable {
+        public var id: Int
+        public var text: String
+        /// "__TEXT,__cstring" and so on.
+        public var section: String
+        public var address: UInt64
+        /// Offset in the file (not the slice).
+        public var fileOffset: Int
+        public var encoding: Encoding
+
+        public enum Encoding: String, Sendable {
+            case utf8 = "UTF-8"
+            case ascii = "ASCII"
+            case utf16 = "UTF-16"
+        }
+    }
+
+    public struct StringsResult: Sendable {
+        public var strings: [ExtractedString]
+        /// Whether `limit` cut the list short.
+        public var truncated: Bool
+    }
+
+    /// The text in the selected slice's sections, in file order. C-string sections (`__cstring`,
+    /// `__objc_methname`, `__oslogstring`…) are split at their NUL terminators and decoded as UTF-8;
+    /// `__ustring` holds UTF-16. Other sections are searched for runs of printable ASCII, as
+    /// `strings(1)` does. Code, stubs, pointer tables and zero-fill sections are skipped: they hold
+    /// no text, only byte patterns that happen to look like it. So is `__LINKEDIT`, whose symbol
+    /// names the Symbols page lists.
+    public func strings(minLength: Int = 4, limit: Int = 200_000) throws -> StringsResult {
+        let data: Data
+        do {
+            data = try Data(contentsOf: URL(fileURLWithPath: path), options: .alwaysMapped)
+        } catch {
+            throw ParseError.unreadable(error.localizedDescription)
+        }
+        guard slices.indices.contains(selectedSlice) else { return StringsResult(strings: [], truncated: false) }
+        let base = slices[selectedSlice].offset
+        let minLength = max(1, minLength)
+        var out: [ExtractedString] = []
+        var truncated = false
+
+        data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
+            let bytes = raw.bindMemory(to: UInt8.self)
+            sectionLoop: for segment in segments where segment.name != "__LINKEDIT" {
+                for section in segment.sections {
+                    let type = section.flags & 0xff
+                    let instructions = section.flags & 0x8000_0400 != 0
+                    let noText: Set<UInt32> = [0x1, 0x6, 0x7, 0x8, 0x9, 0xa, 0xc, 0x10, 0x12, 0x13, 0x15]
+                    guard section.offset > 0, section.size > 0, !instructions, !noText.contains(type) else { continue }
+                    let start = base + Int(section.offset)
+                    let end = min(start + Int(clamping: section.size), bytes.count)
+                    guard start < end else { continue }
+                    let name = "\(section.segment),\(section.name)"
+
+                    func add(_ text: String, at offset: Int, _ encoding: ExtractedString.Encoding) -> Bool {
+                        guard out.count < limit else { truncated = true; return false }
+                        out.append(ExtractedString(id: out.count, text: text, section: name,
+                                                   address: section.address + UInt64(offset - start),
+                                                   fileOffset: offset, encoding: encoding))
+                        return true
+                    }
+
+                    if type == 0x2 {
+                        // C strings: NUL-terminated UTF-8.
+                        var i = start
+                        while i < end {
+                            var j = i
+                            while j < end, bytes[j] != 0 { j += 1 }
+                            if j - i >= minLength,
+                               let text = String(bytes: UnsafeBufferPointer(rebasing: bytes[i..<j]), encoding: .utf8),
+                               text.count >= minLength {
+                                guard add(text, at: i, .utf8) else { break sectionLoop }
+                            }
+                            i = j + 1
+                        }
+                    } else if section.name == "__ustring" {
+                        // UTF-16 little-endian, NUL-terminated.
+                        var i = start
+                        while i + 1 < end {
+                            var j = i
+                            while j + 1 < end, bytes[j] != 0 || bytes[j + 1] != 0 { j += 2 }
+                            if (j - i) / 2 >= minLength,
+                               let text = String(bytes: UnsafeBufferPointer(rebasing: bytes[i..<j]), encoding: .utf16LittleEndian) {
+                                guard add(text, at: i, .utf16) else { break sectionLoop }
+                            }
+                            i = j + 2
+                        }
+                    } else {
+                        // Anything else: printable ASCII runs.
+                        var i = start
+                        while i < end {
+                            var j = i
+                            while j < end, bytes[j] == 0x09 || (0x20...0x7e).contains(bytes[j]) { j += 1 }
+                            if j - i >= minLength {
+                                let text = String(decoding: UnsafeBufferPointer(rebasing: bytes[i..<j]), as: UTF8.self)
+                                guard add(text, at: i, .ascii) else { break sectionLoop }
+                            }
+                            i = j + 1
+                        }
+                    }
+                }
+            }
+        }
+        return StringsResult(strings: out, truncated: truncated)
+    }
+}
+
 private extension Data {
     func le32(_ o: Int) -> UInt32 {
         guard o >= 0, o + 4 <= count else { return 0 }

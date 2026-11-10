@@ -49,6 +49,7 @@ struct InspectorView: View {
         case segments = "Segments"
         case libraries = "Libraries"
         case symbols = "Symbols"
+        case strings = "Strings"
         case signature = "Signature"
         case infoPlist = "Info.plist"
 
@@ -62,6 +63,7 @@ struct InspectorView: View {
             case .segments: return "square.stack"
             case .libraries: return "books.vertical"
             case .symbols: return "function"
+            case .strings: return "textformat.abc"
             case .signature: return "signature"
             case .infoPlist: return "doc.text"
             }
@@ -249,6 +251,9 @@ struct InspectorView: View {
                              ],
                              autosaveName: "InspectorSymbols", key: { AnyHashable($0.index) })
             }
+        case .strings:
+            InspectorStringsPage(file: f)
+                .id(f.selectedSlice)
         case .signature:
             ScrollView {
                 VStack(alignment: .leading, spacing: 10) {
@@ -294,6 +299,119 @@ struct InspectorView: View {
         }
         return "No Info.plist."
     }
+}
+
+/// The text in the executable's sections; see `MachOFile.strings`.
+struct InspectorStringsPage: View {
+    let file: MachOFile
+    @State private var result: MachOFile.StringsResult?
+    @State private var error: String?
+    @State private var filter = ""
+    /// Empty for every section.
+    @State private var section = ""
+    @AppStorage("InspectorStringsMinLength") private var minLength = 4
+    @ObservedObject private var settings = AppSettings.shared
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 10) {
+                Text(summary).foregroundStyle(.secondary)
+                Spacer()
+                Picker("Section", selection: $section) {
+                    Text("All Sections").tag("")
+                    if !sections.isEmpty { Divider() }
+                    ForEach(sections, id: \.name) { s in
+                        Text("\(s.name) (\(Fmt.count(s.count)))").tag(s.name)
+                    }
+                }
+                .labelsHidden()
+                .fixedSize()
+                .help("Show the strings of one section")
+                Picker("Minimum length", selection: $minLength) {
+                    ForEach([4, 6, 8, 12, 16, 24], id: \.self) { Text("\($0)+ characters").tag($0) }
+                }
+                .labelsHidden()
+                .fixedSize()
+                .help("Hide strings shorter than this")
+                FilterField($filter, width: 220)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            Divider()
+            if let error {
+                ContentUnavailableView("Cannot read strings", systemImage: "exclamationmark.triangle", description: Text(error))
+            } else if result == nil {
+                ProgressView("Reading strings…").frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                OutlineTable(roots: rows, children: nil,
+                             revision: filter.hashValue &+ section.hashValue &+ minLength &+ (settings.searchUsesRegex ? 1 : 0) &+ (result?.strings.count ?? 0),
+                             columns: Self.columns, autosaveName: "InspectorStrings", key: { AnyHashable($0.id) },
+                             menu: { rows in
+                                 let m = NSMenu()
+                                 if !rows.isEmpty {
+                                     m.add(rows.count == 1 ? "Copy String" : "Copy \(rows.count) Strings") {
+                                         ProcessActions.copy(rows.map(\.text).joined(separator: "\n"))
+                                     }
+                                 }
+                                 return m
+                             })
+            }
+        }
+        .task(id: file.selectedSlice) { await load() }
+    }
+
+    private func load() async {
+        let f = file
+        let loaded = await Task.detached(priority: .userInitiated) { () -> Result<MachOFile.StringsResult, Error> in
+            Result { try f.strings() }
+        }.value
+        switch loaded {
+        case .success(let r): result = r
+        case .failure(let e): error = e.localizedDescription
+        }
+    }
+
+    private var sections: [(name: String, count: Int)] {
+        guard let result else { return [] }
+        var order: [String] = []
+        var counts: [String: Int] = [:]
+        for s in result.strings where s.text.count >= minLength {
+            if counts[s.section] == nil { order.append(s.section) }
+            counts[s.section, default: 0] += 1
+        }
+        return order.map { ($0, counts[$0] ?? 0) }
+    }
+
+    private var rows: [MachOFile.ExtractedString] {
+        guard let result else { return [] }
+        let m = settings.matcher(filter)
+        return result.strings.filter {
+            (section.isEmpty || $0.section == section) && $0.text.count >= minLength && (m.isEmpty || m.matches($0.text))
+        }
+    }
+
+    private var summary: String {
+        guard let result else { return "" }
+        let shown = rows.count
+        let total = result.strings.count
+        var text = shown == total ? "\(Fmt.count(total)) strings" : "\(Fmt.count(shown)) of \(Fmt.count(total)) strings"
+        if result.truncated { text += " (first \(Fmt.count(total)) only)" }
+        return text
+    }
+
+    static let columns: [TableColumnSpec<MachOFile.ExtractedString>] = [
+        .string("text", "String", width: 460, help: "The text. Line breaks and tabs show as \\n and \\t") {
+            $0.text.replacingOccurrences(of: "\n", with: "\\n").replacingOccurrences(of: "\t", with: "\\t")
+        },
+        .number("length", "Length", width: 60, visible: false, help: "Number of characters", value: { $0.text.count }, text: { "\($0.text.count)" }),
+        .string("section", "Section", width: 170, help: "The segment and section the string is in") { $0.section },
+        .number("addr", "Address", width: 120, help: "The string's address in memory, before the image is slid",
+                value: { $0.address }, text: { Fmt.hexAddress($0.address) }),
+        .number("offset", "File offset", width: 90, visible: false, help: "Where the string is in the file",
+                value: { $0.fileOffset }, text: { Fmt.hex(UInt64($0.fileOffset)) }),
+        .string("encoding", "Encoding", width: 70, visible: false,
+                help: "UTF-8 for C-string sections, UTF-16 for __ustring, and ASCII for text found in other sections") { $0.encoding.rawValue },
+    ]
 }
 
 enum SegmentRow {

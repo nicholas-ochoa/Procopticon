@@ -100,6 +100,16 @@ final class ParserTests: XCTestCase {
         XCTAssertTrue(f.dylibs.contains { $0.path.contains("libSystem") })
         XCTAssertNotNil(f.uuid)
         XCTAssertGreaterThanOrEqual(f.slices.count, 1)
+
+        let strings = try f.strings()
+        XCTAssertFalse(strings.truncated)
+        // ls's usage message is in __TEXT,__cstring.
+        let usage = strings.strings.first { $0.text.contains("usage: ls") }
+        XCTAssertEqual(usage?.section, "__TEXT,__cstring")
+        XCTAssertEqual(usage?.encoding, .utf8)
+        XCTAssertFalse(strings.strings.contains { $0.section.hasPrefix("__LINKEDIT") || $0.section == "__TEXT,__text" })
+        XCTAssertTrue(strings.strings.allSatisfy { $0.text.count >= 4 })
+        XCTAssertEqual(try f.strings(limit: 3).strings.count, 3)
     }
 
     func testSelfDetails() {

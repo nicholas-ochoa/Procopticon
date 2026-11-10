@@ -143,8 +143,12 @@ unless you turn off *Always on Top* in the same menu, and reopens at launch if i
 
 * **Find Files or Libraries.** Searches the open files and mapped images of every process (`lsof`-like).
 * **Inspect Executable.** A Mach-O viewer showing the header and architecture slices, load commands,
-  segments and sections, linked libraries, symbols, code signature, quarantine, entitlements and the
-  embedded Info.plist.
+  segments and sections, linked libraries, symbols, strings, code signature, quarantine, entitlements
+  and the embedded Info.plist. **Strings** lists the text in each section with its address: C-string
+  sections (`__cstring`, `__objc_methname`, `__oslogstring`…) split at their terminators as UTF-8,
+  `__ustring` as UTF-16, and printable ASCII runs elsewhere, as `strings(1)` finds them. Code, stubs,
+  pointer tables and `__LINKEDIT` (whose symbols the Symbols page lists) are skipped. Show one
+  section, set a minimum length, filter, and copy.
 * **Find Process by Window.**
 * **Hidden Process Scan.** Compares the kernel process list against a brute-force probe of every PID.
 * **Crash Reports.** Every crash, exception, hang, resource and jetsam report in the user and system
