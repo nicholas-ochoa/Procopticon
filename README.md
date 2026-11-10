@@ -66,9 +66,9 @@ cut-off value to see all of it.
   from *View ▸ Saved Filters* (⌃⌘1–9). Manage them in *Settings ▸ Filters*: create one from the current
   state, edit, duplicate, reorder or delete.
 * **Customizable toolbar**: *View ▸ Customize Toolbar…*. By default the buttons are right-aligned and
-  arranged in groups: Quick Filters, Updates, Tools, and Privileges & Settings. More groups are available
-  in the palette: Process Actions, Inspection Windows, Files & Programs. So is every individual button,
-  plus Space, Flexible Space and the search field.
+  arranged in groups: Quick Filters, Updates, Tools, and Privileges. More groups are available
+  in the palette: Process Actions, Inspection Windows, Files & Programs. So is every individual button
+  (Refresh and Settings among them), plus Space, Flexible Space and the search field.
 * An optional **fixed-width font** (and font size) for the process list, set in *Settings ▸ Appearance*.
 * **Appearance**: System (follows macOS), Light or Dark, in *Settings ▸ Appearance* or *View ▸ Appearance*.
   You can also hide other users' processes, system processes, Apple-signed processes or zombies, or

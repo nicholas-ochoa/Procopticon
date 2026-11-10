@@ -144,14 +144,16 @@ struct MainView: View {
             ToolbarGroup("Quick Filters", "line.3.horizontal.decrease", processesOnly: true) {
                 AppsToggle()
                 MineToggle()
-                TreeToggle()
+                ToolbarClusterDivider()
+                TreeListSwitch()
+                ToolbarClusterDivider()
                 FiltersMenu()
             }
         }
         ToolbarSpacer(.fixed, placement: .primaryAction)
+        // Refresh (⌘R) and Settings (⌘,) are in the menus and in Customize Toolbar, not here.
         ToolbarItem(id: "group.updates", placement: .primaryAction) {
-            ToolbarGroup("Updates", "arrow.clockwise") {
-                RefreshButton()
+            ToolbarGroup("Updates", "pause.fill") {
                 PauseToggle()
             }
         }
@@ -165,9 +167,8 @@ struct MainView: View {
         }
         ToolbarSpacer(.fixed, placement: .primaryAction)
         ToolbarItem(id: "group.privileges", placement: .primaryAction) {
-            ToolbarGroup("Privileges & Settings", "lock.shield") {
+            ToolbarGroup("Privileges", "shield") {
                 ElevationButton()
-                ToolbarActionButton(.settings)
             }
         }
     }
@@ -206,7 +207,9 @@ struct MainView: View {
     private var individualFilterItems: some CustomizableToolbarContent {
         ToolbarItem(id: "apps", placement: .primaryAction, showsByDefault: false) { ProcessesOnly { AppsToggle() } }
         ToolbarItem(id: "mine", placement: .primaryAction, showsByDefault: false) { ProcessesOnly { MineToggle() } }
-        ToolbarItem(id: "treeList", placement: .primaryAction, showsByDefault: false) { ProcessesOnly { TreeToggle() } }
+        ToolbarItem(id: "treeList", placement: .primaryAction, showsByDefault: false) { 
+            ToolbarGroup("List or Tree", "list.bullet.indent", processesOnly: true) { TreeListSwitch() }
+        }
         ToolbarItem(id: "filters", placement: .primaryAction, showsByDefault: false) { ProcessesOnly { FiltersMenu() } }
     }
 
@@ -384,7 +387,7 @@ struct AppsToggle: View {
     @ObservedObject private var settings = AppSettings.shared
 
     var body: some View {
-        Toggle(isOn: $settings.onlyApplications) { Label("Apps", systemImage: "macwindow.on.rectangle") }
+        Toggle(isOn: $settings.onlyApplications) { Label("Apps", systemImage: "square.grid.2x2") }
             .help("Show only applications with a user interface and the processes they started (⌥⌘A)")
     }
 }
@@ -393,21 +396,31 @@ struct MineToggle: View {
     @ObservedObject private var settings = AppSettings.shared
 
     var body: some View {
-        Toggle(isOn: $settings.hideOtherUsers) { Label("Mine", systemImage: "person.crop.circle") }
+        Toggle(isOn: $settings.hideOtherUsers) { Label("Mine", systemImage: "person") }
             .help("Show only processes running as you, hiding other users and system accounts (⌥⌘U)")
     }
 }
 
-struct TreeToggle: View {
+/// A hairline between the parts of a toolbar group.
+struct ToolbarClusterDivider: View {
+    var body: some View {
+        Divider().frame(height: 16).padding(.horizontal, 3)
+    }
+}
+
+/// List and tree side by side, the one in use highlighted, so both choices are visible.
+struct TreeListSwitch: View {
     @ObservedObject private var settings = AppSettings.shared
 
     var body: some View {
-        Toggle(isOn: $settings.treeView) {
-            Label(settings.treeView ? "Tree" : "List", systemImage: settings.treeView ? "list.bullet.indent" : "list.bullet")
+        Toggle(isOn: Binding(get: { !settings.treeView }, set: { if $0 { settings.treeView = false } })) {
+            Label("List", systemImage: "list.bullet")
         }
-        .help(settings.treeView
-            ? "Processes are shown as a parent/child tree. Click to show a flat list (⌥⌘T)"
-            : "Processes are shown as a flat list. Click to show the parent/child tree (⌥⌘T)")
+        .help("Show processes as a flat list (⌥⌘T)")
+        Toggle(isOn: Binding(get: { settings.treeView }, set: { if $0 { settings.treeView = true } })) {
+            Label("Tree", systemImage: "list.bullet.indent")
+        }
+        .help("Show processes as a parent/child tree (⌥⌘T)")
     }
 }
 
@@ -498,8 +511,8 @@ struct ToolbarActionButton: View {
 
     private var symbol: String {
         switch action {
-        case .sysinfo: return "chart.xyaxis.line"
-        case .history: return "chart.bar.xaxis"
+        case .sysinfo: return "gauge.with.needle"
+        case .history: return "chart.xyaxis.line"
         case .find: return "doc.text.magnifyingglass"
         case .settings: return "gearshape"
         case .properties: return "info.circle"
@@ -550,10 +563,13 @@ struct FiltersMenu: View {
                 Text("Filters")
             } icon: {
                 // The chevron marks it as a menu, as SwiftUI's toolbar menus show.
-                HStack(spacing: 1) {
-                    Image(systemName: active ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+                // A funnel of lines, tinted while one of its filters is on.
+                HStack(spacing: 2) {
+                    Image(systemName: "line.3.horizontal.decrease")
+                        .foregroundStyle(active ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
                     Image(systemName: "chevron.down").font(.system(size: 7, weight: .bold))
                 }
+                .frame(width: 40)
             }
         }
         .help("More filters (hide system, Apple-signed or zombie processes, show hung applications) and your saved filters")
@@ -623,8 +639,13 @@ struct ElevationButton: View {
                                 : "A privileged helper is running for this session. Details for all processes are available and actions will not prompt again until you quit.")
             }
         } label: {
-            Label(mode == .standard ? "Show Details for All Processes" : "Elevated",
-                  systemImage: mode == .standard ? "lock.fill" : "lock.open.fill")
+            // An empty shield without administrator rights; a filled orange one with them.
+            Label {
+                Text(mode == .standard ? "Show Details for All Processes" : "Elevated")
+            } icon: {
+                Image(systemName: mode == .standard ? "shield" : "checkmark.shield.fill")
+                    .foregroundStyle(mode == .standard ? AnyShapeStyle(.primary) : AnyShapeStyle(.orange))
+            }
         }
         .help(mode == .standard ? "Authorize once (administrator password) to see every process in full and act on other users' processes" : "Running with administrator rights (\(mode.rawValue)). Click for details")
         .id(state.elevationRevision)
@@ -806,7 +827,7 @@ struct ToolbarClusterButtonStyle: ButtonStyle {
     }
 }
 
-/// Toggles inside a toolbar group: a cluster button whose icon takes the accent color while on.
+/// Toggles inside a toolbar group: a cluster button that is tinted and filled in while on.
 struct ToolbarClusterToggleStyle: ToggleStyle {
     func makeBody(configuration: Configuration) -> some View {
         Button { configuration.isOn.toggle() } label: { configuration.label }
@@ -826,11 +847,14 @@ private struct ToolbarClusterCell<Label: View>: View {
         let highlight = isEnabled ? (isPressed ? 0.16 : hovering ? 0.09 : 0) : 0
         label
             .foregroundStyle(isOn ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
-            .frame(width: 32, height: 36)
+            // Icons get a 32 pt cell; a wider label (the Filters menu) takes the width it needs.
+            .frame(minWidth: 32)
+            .frame(height: 36)
             .background {
                 // Same size as the native toolbar hover: 28 pt tall, inset within the toolbar capsule.
+                // A toggle that is on keeps a tinted fill, so its state shows without hovering.
                 Capsule()
-                    .fill(.primary.opacity(highlight))
+                    .fill(isOn ? AnyShapeStyle(.tint.opacity(0.2 + highlight)) : AnyShapeStyle(.primary.opacity(highlight)))
                     .padding(.vertical, 4)
                     .padding(.horizontal, 2)
             }
@@ -838,6 +862,7 @@ private struct ToolbarClusterCell<Label: View>: View {
             .opacity(isEnabled ? 1 : 0.45)
             .onHover { hovering = $0 }
             .animation(.easeOut(duration: 0.12), value: highlight)
+            .animation(.easeOut(duration: 0.12), value: isOn)
     }
 }
 
