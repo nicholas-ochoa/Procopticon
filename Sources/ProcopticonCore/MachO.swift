@@ -182,8 +182,10 @@ public struct MachOFile: Sendable {
                 guard base + 20 <= data.count else { break }
                 let type = Int32(bitPattern: data.be32(base))
                 let sub = Int32(bitPattern: data.be32(base + 4))
-                let offset = is64 ? Int(data.be64(base + 8)) : Int(data.be32(base + 8))
-                let size = is64 ? Int(data.be64(base + 16)) : Int(data.be32(base + 12))
+                // Clamped: a damaged or hostile file can say anything here, and what doesn't fit the
+                // file is turned down when the slice is parsed.
+                let offset = is64 ? Int(clamping: data.be64(base + 8)) : Int(data.be32(base + 8))
+                let size = is64 ? Int(clamping: data.be64(base + 16)) : Int(data.be32(base + 12))
                 file.slices.append(Slice(cpuType: type, cpuSubtype: sub, offset: offset, size: size))
             }
         } else {
@@ -207,7 +209,7 @@ public struct MachOFile: Sendable {
 
     private mutating func parseSlice(_ data: Data, _ slice: Slice, maxSymbols: Int) throws {
         let base = slice.offset
-        guard base + 28 <= data.count else { throw ParseError.notMachO }
+        guard base >= 0, base <= data.count - 28 else { throw ParseError.notMachO }
         let magic = data.le32(base)
         let is64 = magic == MH_MAGIC_64
         guard is64 || magic == MH_MAGIC else { throw ParseError.notMachO }
@@ -250,9 +252,10 @@ public struct MachOFile: Sendable {
                     let off = data.le32(sp + (s64 ? 48 : 40))
                     let sflags = data.le32(sp + (s64 ? 64 : 56))
                     sections.append(Section(name: sect, segment: seg, address: addr, size: ssize, offset: off, flags: sflags))
-                    if seg == "__TEXT", sect == "__info_plist", off > 0, Int(off) + base + Int(ssize) <= data.count {
-                        let start = base + Int(off)
-                        embeddedInfoPlist = String(decoding: data[start..<(start + Int(ssize))], as: UTF8.self)
+                    let start = base + Int(off)
+                    let length = Int(clamping: ssize)
+                    if seg == "__TEXT", sect == "__info_plist", off > 0, start <= data.count, length <= data.count - start {
+                        embeddedInfoPlist = String(decoding: data[start..<(start + length)], as: UTF8.self)
                     }
                     sp += s64 ? 80 : 68
                 }
@@ -286,10 +289,12 @@ public struct MachOFile: Sendable {
                 summary = p
             case UInt32(LC_UUID):
                 name = "LC_UUID"
-                let bytes = data[(cursor + 8)..<(cursor + 24)]
-                let u = NSUUID(uuidBytes: Array(bytes)).uuidString
-                uuid = u
-                summary = u
+                if cursor + 24 <= data.count {
+                    let bytes = data[(cursor + 8)..<(cursor + 24)]
+                    let u = NSUUID(uuidBytes: Array(bytes)).uuidString
+                    uuid = u
+                    summary = u
+                }
             case UInt32(LC_BUILD_VERSION):
                 name = "LC_BUILD_VERSION"
                 let p = data.le32(cursor + 8)
@@ -354,7 +359,7 @@ public struct MachOFile: Sendable {
             cursor += Int(size)
         }
         if let main = entryPoint {
-            entryPoint = textVMAddr + main
+            entryPoint = textVMAddr &+ main
         }
         if let st = symtab, is64 {
             let symBase = base + st.symoff
@@ -465,14 +470,14 @@ extension MachOFile {
                     let noText: Set<UInt32> = [0x1, 0x6, 0x7, 0x8, 0x9, 0xa, 0xc, 0x10, 0x12, 0x13, 0x15]
                     guard section.offset > 0, section.size > 0, !instructions, !noText.contains(type) else { continue }
                     let start = base + Int(section.offset)
-                    let end = min(start + Int(clamping: section.size), bytes.count)
-                    guard start < end else { continue }
+                    guard start < bytes.count else { continue }
+                    let end = start + min(Int(clamping: section.size), bytes.count - start)
                     let name = "\(section.segment),\(section.name)"
 
                     func add(_ text: String, at offset: Int, _ encoding: ExtractedString.Encoding) -> Bool {
                         guard out.count < limit else { truncated = true; return false }
                         out.append(ExtractedString(id: out.count, text: text, section: name,
-                                                   address: section.address + UInt64(offset - start),
+                                                   address: section.address &+ UInt64(offset - start),
                                                    fileOffset: offset, encoding: encoding))
                         return true
                     }
@@ -524,22 +529,22 @@ extension MachOFile {
 
 private extension Data {
     func le32(_ o: Int) -> UInt32 {
-        guard o >= 0, o + 4 <= count else { return 0 }
+        guard o >= 0, o <= count - 4 else { return 0 }
         return withUnsafeBytes { UInt32(littleEndian: $0.loadUnaligned(fromByteOffset: o, as: UInt32.self)) }
     }
 
     func le64(_ o: Int) -> UInt64 {
-        guard o >= 0, o + 8 <= count else { return 0 }
+        guard o >= 0, o <= count - 8 else { return 0 }
         return withUnsafeBytes { UInt64(littleEndian: $0.loadUnaligned(fromByteOffset: o, as: UInt64.self)) }
     }
 
     func be32(_ o: Int) -> UInt32 {
-        guard o >= 0, o + 4 <= count else { return 0 }
+        guard o >= 0, o <= count - 4 else { return 0 }
         return withUnsafeBytes { UInt32(bigEndian: $0.loadUnaligned(fromByteOffset: o, as: UInt32.self)) }
     }
 
     func be64(_ o: Int) -> UInt64 {
-        guard o >= 0, o + 8 <= count else { return 0 }
+        guard o >= 0, o <= count - 8 else { return 0 }
         return withUnsafeBytes { UInt64(bigEndian: $0.loadUnaligned(fromByteOffset: o, as: UInt64.self)) }
     }
 
