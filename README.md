@@ -76,6 +76,9 @@ cut-off value to see all of it.
 * Actions:
   * Terminate, Terminate Tree, Force Kill, Suspend/Resume (also for a whole tree), Restart.
   * Send any signal, set the `nice` value, or switch background (throttled) scheduling.
+  * Each of these checks the process's start time just before it acts: if the process has exited and
+    its PID now belongs to another process (a confirmation or password prompt can stay open a while),
+    that process is left alone and the action reports that the process has exited.
   * Bring an app to the front or quit it gracefully.
   * Reveal in Finder, inspect the executable, search online, copy values, go to the parent or the
     responsible process.

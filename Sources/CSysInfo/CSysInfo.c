@@ -100,6 +100,20 @@ int si_list_kinfo(si_kinfo **out) {
     return count;
 }
 
+int si_pid_start_micros(pid_t pid, int64_t *out) {
+    struct kinfo_proc kp;
+    size_t size = sizeof(kp);
+    int mib[4] = {CTL_KERN, KERN_PROC, KERN_PROC_PID, pid};
+    if (sysctl(mib, 4, &kp, &size, NULL, 0) != 0) {
+        return -errno;
+    }
+    if (size < sizeof(kp)) {
+        return -ESRCH;
+    }
+    *out = (int64_t)kp.kp_proc.p_starttime.tv_sec * 1000000 + kp.kp_proc.p_starttime.tv_usec;
+    return 0;
+}
+
 int si_proc_args_raw(pid_t pid, char **out) {
     int argmax = 0;
     int mib[3] = {CTL_KERN, KERN_ARGMAX, 0};

@@ -113,10 +113,20 @@ final class ParserTests: XCTestCase {
     }
 
     func testExecutorSignalPermission() {
-        let r = PrivilegedExecutor(restrictTools: true).handle(.signal(pid: 1, signal: 0))
+        let r = PrivilegedExecutor(restrictTools: true).handle(.signal(pid: 1, signal: 0, startMicros: nil))
         if geteuid() != 0 {
             XCTAssertEqual(r.error?.isPermissionDenied, true)
         }
+        // A PID whose process has been replaced is left alone, whatever the privileges.
+        let me = ProcessKey.current(pid: getpid())
+        XCTAssertNotNil(me)
+        XCTAssertEqual(me?.isRunning, true)
+        let stale = PrivilegedExecutor(restrictTools: true)
+            .handle(.signal(pid: getpid(), signal: 0, startMicros: (me?.startMicros ?? 0) - 1))
+        XCTAssertEqual(stale.error?.code, ESRCH)
+        let same = PrivilegedExecutor(restrictTools: true)
+            .handle(.signal(pid: getpid(), signal: 0, startMicros: me?.startMicros))
+        XCTAssertNil(same.error)
         let denied = PrivilegedExecutor(restrictTools: true).handle(.runTool(tool: "/bin/sh", arguments: []))
         XCTAssertNotNil(denied.error)
     }

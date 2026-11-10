@@ -12,6 +12,16 @@ public struct ProcessKey: Hashable, Codable, Sendable, CustomStringConvertible {
     }
 
     public var description: String { "\(pid)@\(startMicros)" }
+
+    /// The process that has `pid` now, or nil when none does.
+    public static func current(pid: Int32) -> ProcessKey? {
+        var start: Int64 = 0
+        guard si_pid_start_micros(pid, &start) == 0 else { return nil }
+        return ProcessKey(pid: pid, startMicros: start)
+    }
+
+    /// Whether this process is still running: its PID exists and hasn't been reused since.
+    public var isRunning: Bool { ProcessKey.current(pid: pid) == self }
 }
 
 public struct TaskStats: Codable, Sendable {

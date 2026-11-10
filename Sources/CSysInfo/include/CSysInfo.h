@@ -33,6 +33,10 @@ typedef struct {
 /// Returns number of entries written into a malloc'd array (caller frees), or -errno.
 int si_list_kinfo(si_kinfo **out);
 
+/// Start time of one process, as si_list_kinfo reports it (microseconds since the epoch).
+/// Returns 0, or -errno (-ESRCH when no process has the PID).
+int si_pid_start_micros(pid_t pid, int64_t *out);
+
 /// Raw KERN_PROCARGS2 buffer. Returns length (>0) or -errno. Caller frees *out.
 int si_proc_args_raw(pid_t pid, char **out);
 

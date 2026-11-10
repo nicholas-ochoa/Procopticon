@@ -7,9 +7,11 @@ import Foundation
 public enum PrivilegedRequest: Codable, Sendable {
     case ping
     case sampleProcesses
-    case signal(pid: Int32, signal: Int32)
-    case setPriority(pid: Int32, nice: Int32)
-    case setBackground(pid: Int32, enabled: Bool)
+    /// `startMicros` is the start time of the process the caller means (`ProcessKey.startMicros`):
+    /// when given, the request is refused if the PID now belongs to a different process.
+    case signal(pid: Int32, signal: Int32, startMicros: Int64?)
+    case setPriority(pid: Int32, nice: Int32, startMicros: Int64?)
+    case setBackground(pid: Int32, enabled: Bool, startMicros: Int64?)
     case fileDescriptors(pid: Int32)
     case threads(pid: Int32)
     case regions(pid: Int32)
@@ -180,20 +182,23 @@ public final class PrivilegedExecutor: @unchecked Sendable {
             samplerLock.lock()
             defer { samplerLock.unlock() }
             return .processes(sampler.sample())
-        case let .signal(pid, sig):
+        case let .signal(pid, sig, start):
             guard pid > 0 else {
                 return .failure(PrivilegedError(code: EINVAL, message: "Refusing to signal pid \(pid)."))
             }
+            if let error = Self.checkIdentity(pid: pid, startMicros: start) { return .failure(error) }
             if kill(pid, sig) != 0 {
                 return .failure(PrivilegedError(errno: errno, context: "kill(\(pid), \(sig))"))
             }
             return .ok
-        case let .setPriority(pid, nice):
+        case let .setPriority(pid, nice, start):
+            if let error = Self.checkIdentity(pid: pid, startMicros: start) { return .failure(error) }
             if setpriority(PRIO_PROCESS, id_t(pid), nice) != 0 {
                 return .failure(PrivilegedError(errno: errno, context: "setpriority(\(pid), \(nice))"))
             }
             return .ok
-        case let .setBackground(pid, enabled):
+        case let .setBackground(pid, enabled, start):
+            if let error = Self.checkIdentity(pid: pid, startMicros: start) { return .failure(error) }
             if setpriority(PRIO_DARWIN_PROCESS, id_t(pid), enabled ? PRIO_DARWIN_BG : 0) != 0 {
                 return .failure(PrivilegedError(errno: errno, context: "setpriority(PRIO_DARWIN_PROCESS, \(pid))"))
             }
@@ -267,6 +272,21 @@ public final class PrivilegedExecutor: @unchecked Sendable {
             streams.stopAll()
             return .ok
         }
+    }
+
+    /// Refuses to act on `pid` when it no longer belongs to the process started at `startMicros`:
+    /// a process can exit and its PID be reused while a confirmation or password prompt is open.
+    /// Checked immediately before acting, which leaves only a window of microseconds; macOS has no
+    /// process handle to signal instead of a PID.
+    static func checkIdentity(pid: Int32, startMicros: Int64?) -> PrivilegedError? {
+        guard let startMicros else { return nil }
+        guard let current = ProcessKey.current(pid: pid) else {
+            return PrivilegedError(code: ESRCH, message: "The process has exited.")
+        }
+        guard current.startMicros == startMicros else {
+            return PrivilegedError(code: ESRCH, message: "The process has exited, and PID \(pid) now belongs to another process, which was left alone.")
+        }
+        return nil
     }
 
     /// Stops the streaming tools this executor started (see `ToolStreamSessions.stopAll`).

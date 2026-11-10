@@ -30,7 +30,7 @@ enum ProcessActions {
         Task {
             var failures: [String] = []
             for p in targets {
-                let response = await Elevation.shared.performElevated(.signal(pid: p.pid, signal: sig))
+                let response = await Elevation.shared.performElevated(.signal(pid: p.pid, signal: sig, startMicros: p.record.startMicros))
                 if let e = response.error, e != PrivilegedError.cancelled {
                     failures.append("\(p.name) (\(p.pid)): \(e.message)")
                 } else if response.error == nil {
@@ -102,7 +102,7 @@ enum ProcessActions {
         Task {
             var failures: [String] = []
             for p in items {
-                let r = await Elevation.shared.performElevated(.setPriority(pid: p.pid, nice: value))
+                let r = await Elevation.shared.performElevated(.setPriority(pid: p.pid, nice: value, startMicros: p.record.startMicros))
                 if let e = r.error, e != PrivilegedError.cancelled {
                     failures.append("\(p.name): \(e.message)")
                 }
@@ -118,7 +118,7 @@ enum ProcessActions {
         Task {
             var failures: [String] = []
             for p in items {
-                let r = await Elevation.shared.performElevated(.setBackground(pid: p.pid, enabled: enabled))
+                let r = await Elevation.shared.performElevated(.setBackground(pid: p.pid, enabled: enabled, startMicros: p.record.startMicros))
                 if let e = r.error, e != PrivilegedError.cancelled {
                     failures.append("\(p.name): \(e.message)")
                 }
@@ -189,15 +189,15 @@ enum ProcessActions {
         let args = Array((p.record.arguments ?? [path]).dropFirst())
         let isApp = isApplication(p)
         let appPath = BundleInfoCache.outermostApplicationPath(path)
-        let pid = p.pid
+        let key = p.key
         let owner = p.record.uid
         Task {
-            let r = await Elevation.shared.performElevated(.signal(pid: pid, signal: SIGTERM))
+            let r = await Elevation.shared.performElevated(.signal(pid: key.pid, signal: SIGTERM, startMicros: key.startMicros))
             if let e = r.error {
                 Alerts.error("Unable to restart", e.message)
                 return
             }
-            for _ in 0..<50 where kill(pid, 0) == 0 {
+            for _ in 0..<50 where key.isRunning {
                 try? await Task.sleep(nanoseconds: 100_000_000)
             }
             if isApp, let appPath {
