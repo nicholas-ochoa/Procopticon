@@ -207,6 +207,16 @@ enum ServiceActions {
             guard Alerts.confirm("Do you want to \(action.rawValue.lowercased()) \(names)?",
                                  message: "launchctl will be used to \(action.rawValue.lowercased()) the service." + warning,
                                  button: action.rawValue, kind: "\(action.rawValue) Service", critical: apple) else { return }
+        } else if action == .restart {
+            // Interrupts whatever the service is doing, but it comes straight back, so "Don't ask
+            // again" is offered for Apple's services too.
+            let names = items.count == 1 ? items[0].label : "\(items.count) services"
+            let running = items.count == 1 ? "it is" : "they are"
+            let warning = items.contains(where: { $0.isApple })
+                ? "\n\nApple services are part of macOS; restarting one can briefly interrupt system features." : ""
+            guard Alerts.confirm("Do you want to restart \(names)?",
+                                 message: "launchctl will stop the service if \(running) running and start it again. Work in progress in the service is lost." + warning,
+                                 button: "Restart", kind: "Restart Service") else { return }
         }
         Task {
             var failures: [String] = []
