@@ -19,12 +19,43 @@ enum ProcessActions {
         return "\n\nWarning: \(critical.map(\.name).joined(separator: ", ")) is critical to macOS. Ending it may log you out or restart the system."
     }
 
+    /// Procopticon itself or the root helper serving it. A tree action that reaches them (the tree
+    /// of launchd, or of the terminal Procopticon was started from) would end or freeze the app
+    /// partway through its own list.
+    static func isOwnProcess(_ p: ProcessItem) -> Bool {
+        if p.pid == getpid() { return true }
+        guard p.name == "procopticon-helper", let arguments = p.record.arguments else { return false }
+        return arguments.firstIndex(of: "--client-pid").map { $0 + 1 < arguments.count && arguments[$0 + 1] == "\(getpid())" } ?? false
+    }
+
+    /// `items` with their descendants, each process once, parents before their children.
+    private static func withDescendants(_ items: [ProcessItem]) -> [ProcessItem] {
+        var all: [ProcessItem] = []
+        var seen = Set<ProcessKey>()
+        for p in items {
+            for q in [p] + p.descendants where seen.insert(q.key).inserted {
+                all.append(q)
+            }
+        }
+        return all
+    }
+
+    /// What a tree action on `items` acts on, without Procopticon itself, and how to say so.
+    private static func tree(_ items: [ProcessItem]) -> (targets: [ProcessItem], descendants: Int, note: String) {
+        let all = withDescendants(items)
+        let targets = all.filter { !isOwnProcess($0) }
+        let roots = Set(items.map(\.key))
+        let note = targets.count < all.count ? " Procopticon itself is left out." : ""
+        return (targets, targets.filter { !roots.contains($0.key) }.count, note)
+    }
+
     static func signal(_ items: [ProcessItem], _ sig: Int32, verb: String, explanation: String, confirm: Bool = true) {
         let targets = items.filter { !$0.isRemoved }
         guard !targets.isEmpty else { return }
         if confirm {
+            let warning = criticalWarning(targets)
             let ok = Alerts.confirm("Do you want to \(verb.lowercased()) \(describe(targets))?",
-                                    message: explanation + criticalWarning(targets), button: verb)
+                                    message: explanation + warning, button: verb, kind: verb, critical: !warning.isEmpty)
             guard ok else { return }
         }
         Task {
@@ -53,22 +84,20 @@ enum ProcessActions {
     }
 
     static func terminateTree(_ items: [ProcessItem]) {
-        var all: [ProcessItem] = []
-        var seen = Set<ProcessKey>()
-        for p in items {
-            for q in [p] + p.descendants where !seen.contains(q.key) {
-                seen.insert(q.key)
-                all.append(q)
-            }
-        }
+        let tree = tree(items)
         // Children first so parents don't respawn them.
-        all.reverse()
-        signal(all, SIGTERM, verb: "Terminate Tree",
-               explanation: "\(describe(items)) and all \(all.count - items.count) descendant processes will be terminated.")
+        signal(tree.targets.reversed(), SIGTERM, verb: "Terminate Tree",
+               explanation: "\(describe(items)) and all \(tree.descendants) descendant processes will be terminated.\(tree.note)")
     }
 
     static func suspend(_ items: [ProcessItem]) {
-        signal(items, SIGSTOP, verb: "Suspend", explanation: "The process will be stopped (SIGSTOP) until resumed.")
+        // Stopped, Procopticon couldn't be asked to resume itself.
+        let targets = items.filter { !isOwnProcess($0) }
+        guard !targets.isEmpty else {
+            Alerts.error("Procopticon can't suspend itself", "It couldn't resume itself afterwards.")
+            return
+        }
+        signal(targets, SIGSTOP, verb: "Suspend", explanation: "The process will be stopped (SIGSTOP) until resumed.")
     }
 
     static func resume(_ items: [ProcessItem]) {
@@ -76,12 +105,13 @@ enum ProcessActions {
     }
 
     static func suspendTree(_ items: [ProcessItem]) {
-        let all = items.flatMap { [$0] + $0.descendants }
-        signal(all, SIGSTOP, verb: "Suspend Tree", explanation: "\(all.count) processes will be stopped (SIGSTOP).")
+        let tree = tree(items)
+        signal(tree.targets, SIGSTOP, verb: "Suspend Tree",
+               explanation: "\(tree.targets.count) processes will be stopped (SIGSTOP).\(tree.note)")
     }
 
     static func resumeTree(_ items: [ProcessItem]) {
-        let all = items.flatMap { [$0] + $0.descendants }
+        let all = withDescendants(items)
         signal(all, SIGCONT, verb: "Resume", explanation: "", confirm: false)
     }
 
@@ -185,37 +215,86 @@ enum ProcessActions {
     static func restart(_ p: ProcessItem) {
         guard let path = p.record.path else { return }
         guard Alerts.confirm("Do you want to restart \(describe([p]))?",
-                             message: "The process will be terminated and started again with the same command line.", button: "Restart") else { return }
+                             message: "The process will be terminated and started again with the same command line." + criticalWarning([p]),
+                             button: "Restart", kind: "Restart", critical: !criticalWarning([p]).isEmpty) else { return }
         let args = Array((p.record.arguments ?? [path]).dropFirst())
         let isApp = isApplication(p)
         let appPath = BundleInfoCache.outermostApplicationPath(path)
         let key = p.key
         let owner = p.record.uid
+        let name = p.name
         Task {
+            let existing = Set(runningCopies(of: path))
             let r = await Elevation.shared.performElevated(.signal(pid: key.pid, signal: SIGTERM, startMicros: key.startMicros))
             if let e = r.error {
-                Alerts.error("Unable to restart", e.message)
+                if e != .cancelled { Alerts.error("Unable to restart", e.message) }
                 return
             }
             for _ in 0..<50 where key.isRunning {
                 try? await Task.sleep(nanoseconds: 100_000_000)
             }
-            if isApp, let appPath {
-                let config = NSWorkspace.OpenConfiguration()
-                config.arguments = args
-                config.createsNewApplicationInstance = false
-                _ = try? await NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: appPath), configuration: config)
-            } else if owner == 0, Elevation.interactiveUid != 0 {
-                let r = await Elevation.shared.performElevated(.launch(path: path, arguments: args), requiresRoot: true)
-                if let e = r.error { Alerts.error("Unable to restart", e.message) }
-            } else {
-                let task = Process()
-                task.executableURL = URL(fileURLWithPath: path)
-                task.arguments = args
-                do { try task.run() } catch { Alerts.error("Unable to restart", error.localizedDescription) }
+            defer { ProcessStore.shared.refreshNow() }
+            // Starting it now would leave two copies running.
+            guard !key.isRunning else {
+                Alerts.error("Unable to restart \(name)",
+                             "It was asked to quit (SIGTERM) and is still running after 5 seconds, so it wasn't started again. Force Kill ends it at once.")
+                return
             }
-            ProcessStore.shared.refreshNow()
+            // launchd restarts the jobs it keeps alive by itself; give it a moment to.
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            if !Set(runningCopies(of: path)).subtracting(existing).isEmpty {
+                EventLog.shared.add(.action, pid: key.pid, "Restarted \(name) (\(key.pid)): it was started again on its own (by launchd, or whatever watches over it)")
+                return
+            }
+            do {
+                if isApp, let appPath {
+                    if geteuid() == 0, owner != 0 {
+                        // From a root instance the application would open as root.
+                        try launch("/usr/bin/open", ["-a", appPath] + (args.isEmpty ? [] : ["--args"] + args), asUser: owner)
+                    } else {
+                        let config = NSWorkspace.OpenConfiguration()
+                        config.arguments = args
+                        config.createsNewApplicationInstance = false
+                        _ = try await NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: appPath), configuration: config)
+                    }
+                } else if owner == 0, geteuid() != 0 {
+                    let r = await Elevation.shared.performElevated(.launch(path: path, arguments: args), requiresRoot: true)
+                    if let e = r.error, e != .cancelled { Alerts.error("Unable to restart \(name)", e.message) }
+                } else {
+                    try launch(path, args, asUser: owner)
+                }
+            } catch {
+                Alerts.error("Unable to restart \(name)", error.localizedDescription)
+            }
         }
+    }
+
+    /// The running processes whose executable is `path`.
+    private static func runningCopies(of path: String) -> [ProcessKey] {
+        var buffer = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
+        return ProcessSampler.lightweightList().compactMap { pid, _ in
+            guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0, String(cString: buffer) == path else { return nil }
+            return ProcessKey.current(pid: pid)
+        }
+    }
+
+    /// Starts `path` detached, as the user `uid`. Procopticon running as root ("sudo mode") would
+    /// otherwise start everything as root, including what the user meant to run as themselves and
+    /// the processes of theirs it restarts; there it goes through `sudo -u`. Without root it can
+    /// only start things as the user it runs as.
+    static func launch(_ path: String, _ arguments: [String], asUser uid: uid_t) throws {
+        let task = Process()
+        if geteuid() == 0, uid != 0 {
+            task.executableURL = URL(fileURLWithPath: "/usr/bin/sudo")
+            task.arguments = ["-n", "-H", "-u", "#\(uid)", "--", path] + arguments
+        } else {
+            task.executableURL = URL(fileURLWithPath: path)
+            task.arguments = arguments
+        }
+        task.standardInput = FileHandle.nullDevice
+        task.standardOutput = FileHandle.nullDevice
+        task.standardError = FileHandle.nullDevice
+        try task.run()
     }
 
     static func sample(_ p: ProcessItem) {

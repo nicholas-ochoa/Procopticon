@@ -264,7 +264,17 @@ struct RunView: View {
         h.insert(command, at: 0)
         historyText = h.prefix(15).joined(separator: "\n")
         Task {
-            if path.hasSuffix(".app"), !asRoot {
+            // A root instance ("sudo mode") starts what isn't meant to run as root as the user.
+            let asUser = !asRoot && geteuid() == 0 && Elevation.interactiveUid != 0
+            if path.hasSuffix(".app"), asUser {
+                do {
+                    try ProcessActions.launch("/usr/bin/open", ["-a", path] + (args.isEmpty ? [] : ["--args"] + args),
+                                              asUser: Elevation.interactiveUid)
+                } catch {
+                    Alerts.error("Unable to run \(path)", error.localizedDescription)
+                    return
+                }
+            } else if path.hasSuffix(".app"), !asRoot {
                 let config = NSWorkspace.OpenConfiguration()
                 config.arguments = args
                 do {
@@ -286,10 +296,9 @@ struct RunView: View {
                         return
                     }
                 } else {
-                    let p = Process()
-                    p.executableURL = URL(fileURLWithPath: exe)
-                    p.arguments = args
-                    do { try p.run() } catch {
+                    do {
+                        try ProcessActions.launch(exe, args, asUser: asUser ? Elevation.interactiveUid : getuid())
+                    } catch {
                         Alerts.error("Unable to run \(exe)", error.localizedDescription)
                         return
                     }

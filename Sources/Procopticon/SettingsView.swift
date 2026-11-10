@@ -218,6 +218,12 @@ struct GeneralSettings: View {
                 }
                 Toggle("Show processes as a tree", isOn: $settings.treeView)
                 Toggle("Confirm before terminating or changing processes", isOn: $settings.confirmActions)
+                if !settings.suppressedConfirmations.isEmpty {
+                    LabeledContent("\(settings.suppressedConfirmations.count) confirmation\(settings.suppressedConfirmations.count == 1 ? "" : "s") turned off with “Don't ask again”") {
+                        Button("Ask Again") { settings.suppressedConfirmations = [] }
+                            .help("Ask before these actions again: \(settings.suppressedConfirmations.sorted().joined(separator: ", "))")
+                    }
+                }
                 TextField("Online search URL (%s = name)", text: $settings.searchEngineURL)
                 Picker("Search text is", selection: $settings.processSearchMode) {
                     Text("Plain text").tag(SearchMode.text)

@@ -69,10 +69,16 @@ final class WindowManager: NSObject, NSWindowDelegate {
 
 @MainActor
 enum Alerts {
-    /// Returns true if confirmed. Honors the "confirm actions" preference when `suppressible`.
-    static func confirm(_ title: String, message: String, button: String, destructive: Bool = true, suppressible: Bool = true) -> Bool {
-        if suppressible, !AppSettings.shared.confirmActions {
-            return true
+    /// Returns true if confirmed. When `suppressible`, nothing is asked once the "confirm actions"
+    /// preference is off, or once "Don't ask again" was ticked for the same `kind` of action: that
+    /// box covers its own kind only, so ticking it on Suspend doesn't silence Force Kill.
+    /// A `critical` confirmation (ending launchd, say) is always asked, whatever was turned off.
+    static func confirm(_ title: String, message: String, button: String, destructive: Bool = true, suppressible: Bool = true,
+                        kind: String? = nil, critical: Bool = false) -> Bool {
+        let suppressible = suppressible && !critical
+        if suppressible {
+            if !AppSettings.shared.confirmActions { return true }
+            if let kind, AppSettings.shared.suppressedConfirmations.contains(kind) { return true }
         }
         let alert = NSAlert()
         alert.messageText = title
@@ -81,13 +87,13 @@ enum Alerts {
         let ok = alert.addButton(withTitle: button)
         ok.hasDestructiveAction = destructive
         alert.addButton(withTitle: "Cancel")
-        if suppressible {
+        if suppressible, kind != nil {
             alert.showsSuppressionButton = true
-            alert.suppressionButton?.title = "Don't ask again"
+            alert.suppressionButton?.title = "Don't ask again for this action"
         }
         let result = alert.runModal() == .alertFirstButtonReturn
-        if result, suppressible, alert.suppressionButton?.state == .on {
-            AppSettings.shared.confirmActions = false
+        if result, let kind, alert.suppressionButton?.state == .on {
+            AppSettings.shared.suppressedConfirmations.insert(kind)
         }
         return result
     }

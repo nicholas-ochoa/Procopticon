@@ -274,7 +274,7 @@ struct ToolsMenuItems: View {
         Button("Logged-in Users…") { UsersWindow.open() }
         Divider()
         Button("Purge Disk Cache…") {
-            guard Alerts.confirm("Purge the disk cache?", message: "Flushes inactive file-backed memory (runs /usr/sbin/purge as root). The system may be slow briefly.", button: "Purge", destructive: false) else { return }
+            guard Alerts.confirm("Purge the disk cache?", message: "Flushes inactive file-backed memory (runs /usr/sbin/purge as root). The system may be slow briefly.", button: "Purge", destructive: false, kind: "Purge Disk Cache") else { return }
             Task { @MainActor in
                 let out = await Reports.runTool("/usr/sbin/purge", [], requiresRoot: true)
                 if !out.isEmpty { Alerts.info("Purge", out) }

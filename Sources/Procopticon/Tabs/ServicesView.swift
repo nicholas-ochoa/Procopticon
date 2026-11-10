@@ -200,12 +200,13 @@ enum ServiceActions {
         if destructive {
             let names = items.count == 1 ? items[0].label : "\(items.count) services"
             var warning = ""
-            if items.contains(where: { $0.isApple }) {
+            let apple = items.contains(where: { $0.isApple })
+            if apple {
                 warning = "\n\nApple services are part of macOS; stopping or disabling them can break system features."
             }
             guard Alerts.confirm("Do you want to \(action.rawValue.lowercased()) \(names)?",
                                  message: "launchctl will be used to \(action.rawValue.lowercased()) the service." + warning,
-                                 button: action.rawValue) else { return }
+                                 button: action.rawValue, kind: "\(action.rawValue) Service", critical: apple) else { return }
         }
         Task {
             var failures: [String] = []

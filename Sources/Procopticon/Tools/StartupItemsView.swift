@@ -139,7 +139,7 @@ struct StartupItemsView: View {
             let system = targets.filter { if case .launchd(let domain, _)? = $0.toggle { return domain == "system" } else { return false } }
             if !system.isEmpty, !Alerts.confirm("Disable \(Self.names(system))?",
                                                message: "System daemons can be part of other software's normal operation (a VPN, a backup, a driver). Disabling one keeps it from starting at the next restart; Enable undoes it.",
-                                               button: "Disable", destructive: false) {
+                                               button: "Disable", destructive: false, kind: "Disable Startup Item") {
                 return
             }
         }

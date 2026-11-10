@@ -13,6 +13,10 @@ final class AppSettings: ObservableObject {
     @Published var cpuScaleToSystem: Bool { didSet { save("cpuScaleToSystem", cpuScaleToSystem); apply() } }
     @Published var treeView: Bool { didSet { save("treeView", treeView); apply() } }
     @Published var confirmActions: Bool { didSet { save("confirmActions", confirmActions) } }
+    /// The kinds of action whose confirmation was dismissed with "Don't ask again" (see `Alerts.confirm`).
+    @Published var suppressedConfirmations: Set<String> {
+        didSet { save("suppressedConfirmations", suppressedConfirmations.sorted()) }
+    }
     @Published var showMenuBarExtra: Bool { didSet { save("showMenuBarExtra", showMenuBarExtra) } }
     @Published var elevateAtLaunch: Bool { didSet { save("elevateAtLaunch", elevateAtLaunch) } }
     @Published var hideOtherUsers: Bool { didSet { save("hideOtherUsers", hideOtherUsers); apply() } }
@@ -145,6 +149,7 @@ final class AppSettings: ObservableObject {
         cpuScaleToSystem = b("cpuScaleToSystem", true)
         treeView = b("treeView", true)
         confirmActions = b("confirmActions", true)
+        suppressedConfirmations = Set(defaults.stringArray(forKey: "suppressedConfirmations") ?? [])
         showMenuBarExtra = b("showMenuBarExtra", true)
         elevateAtLaunch = b("elevateAtLaunch", false)
         hideOtherUsers = b("hideOtherUsers", false)
