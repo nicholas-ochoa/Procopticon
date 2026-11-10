@@ -189,7 +189,7 @@ enum ProcessMenu {
                 menu.add("Go to Parent (\(parent.name))") { ProcessSelection.shared.reveal(pid: parent.pid) }
             }
             if let r = first.record.responsiblePid, r != first.pid, let rp = ProcessStore.shared.item(pid: r) {
-                menu.add("Go to Responsible Process (\(rp.name))") { ProcessSelection.shared.reveal(pid: r) }
+                menu.add("Go to Responsible (\(rp.name))") { ProcessSelection.shared.reveal(pid: r) }
             }
             // Only the process list scrolls to follow a process, or narrows to one.
             if shortcuts {

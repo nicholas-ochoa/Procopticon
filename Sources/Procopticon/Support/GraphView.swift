@@ -153,11 +153,14 @@ struct InfoRow: View {
     var label: String
     var value: String
     var selectable = true
+    /// Colors a value that reports a status (valid, running...).
+    var color: Color?
 
-    init(_ label: String, _ value: String, selectable: Bool = true) {
+    init(_ label: String, _ value: String, selectable: Bool = true, color: Color? = nil) {
         self.label = label
         self.value = value
         self.selectable = selectable
+        self.color = color
     }
 
     var body: some View {
@@ -168,11 +171,14 @@ struct InfoRow: View {
                 .gridColumnAlignment(.trailing)
             if selectable {
                 Text(value.isEmpty ? "—" : value)
+                    .foregroundStyle(color ?? .primary)
                     .textSelection(.enabled)
                     .gridColumnAlignment(.leading)
                     .lineLimit(4)
             } else {
-                Text(value.isEmpty ? "—" : value).gridColumnAlignment(.leading)
+                Text(value.isEmpty ? "—" : value)
+                    .foregroundStyle(color ?? .primary)
+                    .gridColumnAlignment(.leading)
             }
         }
     }
@@ -180,6 +186,9 @@ struct InfoRow: View {
 
 struct SectionBox<Content: View>: View {
     var title: String
+    /// Drawn in `tint` before the title.
+    var symbol: String?
+    var tint: Color = .accentColor
     @ViewBuilder var content: Content
 
     var body: some View {
@@ -188,7 +197,16 @@ struct SectionBox<Content: View>: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(4)
         } label: {
-            Text(title).font(.headline)
+            if let symbol {
+                Label {
+                    Text(title)
+                } icon: {
+                    Image(systemName: symbol).foregroundStyle(tint)
+                }
+                .font(.headline)
+            } else {
+                Text(title).font(.headline)
+            }
         }
     }
 }

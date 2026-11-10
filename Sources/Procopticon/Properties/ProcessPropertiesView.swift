@@ -15,8 +15,9 @@ struct ProcessPropertiesView: View {
     @State private var window: NSWindow?
     @State private var detailHeight: CGFloat = 0
     @State private var page: PageFit?
-    /// Set when the tab changes; the window fits the new tab while its content settles.
-    @State private var fitUntil: Date?
+    /// Set when the tab changes; the window keeps fitting the tab's content (which can load
+    /// asynchronously) until the user resizes it.
+    @State private var autoFit = true
     /// Height an animated fit is heading to, so fits requested meanwhile don't restart it.
     @State private var fitTarget: CGFloat?
     @State private var fittedOnce = false
@@ -157,26 +158,29 @@ struct ProcessPropertiesView: View {
     // MARK: Fitting the window to the tab
 
     private func startFitting() {
-        // Content that loads asynchronously (signatures, working directory) can grow the page
-        // shortly after the switch; keep fitting until it settles, then leave the size alone.
-        fitUntil = Date().addingTimeInterval(1.5)
+        autoFit = true
         DispatchQueue.main.async { fitWindow() }
-    }
-
-    private var isFitting: Bool {
-        fitUntil.map { Date() < $0 } ?? false
     }
 
     private func contentAreaResized(_ height: CGFloat) {
         detailHeight = height
-        // Remember the size the user picks for tables.
-        if case .table = tab.fit, !isFitting, height > 0 {
-            tableHeight = Double(height)
+        if window?.inLiveResize == true {
+            // The user is sizing the window: leave it alone from now on, and remember the size
+            // they pick for tables.
+            autoFit = false
+            if case .table = tab.fit, height > 0 {
+                tableHeight = Double(height)
+            }
+        } else if fitTarget == nil {
+            // The content area's height can arrive after the page's (it's what a fit is measured
+            // against), so fit again now that it's known. Not while a fit animates: its frames
+            // resize the content area too.
+            fitWindow()
         }
     }
 
     private func fitWindow() {
-        guard let window, isFitting, detailHeight > 0 else { return }
+        guard let window, autoFit, !window.isZoomed, detailHeight > 0 else { return }
         let desired: CGFloat
         switch tab.fit {
         case .content:
@@ -208,6 +212,8 @@ struct ProcessPropertiesView: View {
             window.animator().setFrame(frame, display: true)
         } completionHandler: {
             fitTarget = nil
+            // Content that changed while the window animated.
+            DispatchQueue.main.async { fitWindow() }
         }
     }
 }
@@ -347,7 +353,7 @@ struct GeneralTab: View {
                     }
                     Spacer()
                 }
-                SectionBox(title: "Image") {
+                SectionBox(title: "Image", symbol: "doc.fill", tint: .blue) {
                     Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 6) {
                         InfoRow("Path", r.path ?? "")
                         InfoRow("Command line", (r.commandLine ?? "(unavailable — requires elevation)")
@@ -379,7 +385,7 @@ struct GeneralTab: View {
                     }
                     .padding(.top, 6)
                 }
-                SectionBox(title: "Process") {
+                SectionBox(title: "Process", symbol: "gearshape.2.fill", tint: .purple) {
                     Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 6) {
                         InfoRow("PID", "\(r.pid)")
                         InfoRow("Started", "\(Fmt.date(r.startTime))  (\(Fmt.relative(seconds: Date().timeIntervalSince1970 - r.startTime)) ago)")
@@ -405,18 +411,19 @@ struct GeneralTab: View {
                         }
                         InfoRow("User", "\(UserNames.name(r.uid)) (\(r.uid))\(r.ruid != r.uid ? ", real: \(UserNames.name(r.ruid)) (\(r.ruid))" : "")")
                         InfoRow("Group", "\(UserNames.group(r.rgid)) (\(r.rgid))")
-                        InfoRow("State", r.stateDescription + (r.isTraced ? ", traced" : ""))
+                        InfoRow("State", r.stateDescription + (r.isTraced ? ", traced" : ""), color: stateColor)
                         InfoRow("Process group / TTY", "\(r.pgid)\(r.ttyName.map { " · \($0)" } ?? "")")
-                        InfoRow("Sandbox", r.sandboxed == true ? "Sandboxed" : (r.sandboxed == false ? "Not sandboxed" : "Unknown"))
+                        InfoRow("Sandbox", r.sandboxed == true ? "Sandboxed" : (r.sandboxed == false ? "Not sandboxed" : "Unknown"),
+                                color: r.sandboxed == true ? .green : nil)
                     }
                 }
-                SectionBox(title: "Code Signature") {
+                SectionBox(title: "Code Signature", symbol: signatureSymbol, tint: signatureColor ?? .secondary) {
                     Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 6) {
-                        InfoRow("Status", signing?.verificationSummary ?? "Checking…")
+                        InfoRow("Status", signing?.verificationSummary ?? "Checking…", color: signatureColor)
                         InfoRow("Signer", signing?.signer ?? "")
                         InfoRow("Identifier", signing?.identifier ?? "")
                         InfoRow("Team ID", signing?.teamIdentifier ?? "")
-                        InfoRow("Running code", runtimeValidation)
+                        InfoRow("Running code", runtimeValidation, color: runtimeValidation.isEmpty ? nil : (runtimeValidation == "Valid" ? .green : .red))
                         if let flags = r.csFlags {
                             InfoRow("Runtime flags", CodeSigningFlags.describe(flags).joined(separator: ", "))
                         }
@@ -459,6 +466,29 @@ struct GeneralTab: View {
         return NSWorkspace.shared.icon(forFile: path)
     }
 
+    private var stateColor: Color? {
+        let r = item.record
+        if r.isZombie { return .red }
+        if r.isStopped { return .orange }
+        return r.status == 2 ? .green : nil
+    }
+
+    private var signatureColor: Color? {
+        switch item.signing?.status {
+        case .valid: return .green
+        case .invalid: return .red
+        case .adhoc, .unsigned: return .orange
+        default: return nil
+        }
+    }
+
+    private var signatureSymbol: String {
+        switch item.signing?.status {
+        case .invalid, .unsigned: return "xmark.seal.fill"
+        default: return "checkmark.seal.fill"
+        }
+    }
+
     private var parentDescription: String {
         processName(item.record.ppid)
     }
@@ -488,7 +518,7 @@ struct StatisticsTab: View {
             }
             // Two columns when there's room, one when the window is narrow.
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 300), spacing: 14, alignment: .top)], spacing: 14) {
-                SectionBox(title: "CPU") {
+                SectionBox(title: "CPU", symbol: "cpu", tint: .green) {
                     Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 5) {
                         InfoRow("Usage", Fmt.percent(item.cpu) + "%")
                         InfoRow("Base priority", s.map { "\($0.priority)" } ?? "")
@@ -504,7 +534,7 @@ struct StatisticsTab: View {
                         InfoRow("Threads", s.map { "\($0.threadCount) (\($0.runningThreads) running)" } ?? "")
                     }
                 }
-                SectionBox(title: "Memory") {
+                SectionBox(title: "Memory", symbol: "memorychip", tint: .orange) {
                     Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 5) {
                         InfoRow("Footprint", s.map { Fmt.bytes($0.physFootprint) } ?? "")
                         InfoRow("Peak footprint", s.map { Fmt.bytes($0.lifetimeMaxFootprint) } ?? "")
@@ -521,7 +551,7 @@ struct StatisticsTab: View {
                         InfoRow("Copy-on-write faults", s.map { Fmt.count(Int($0.cowFaults)) } ?? "")
                     }
                 }
-                SectionBox(title: "I/O") {
+                SectionBox(title: "I/O", symbol: "internaldrive", tint: .blue) {
                     Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 5) {
                         InfoRow("Disk read", s.map { Fmt.bytes($0.diskBytesRead) } ?? "")
                         InfoRow("Disk written", s.map { Fmt.bytes($0.diskBytesWritten) } ?? "")
@@ -531,7 +561,7 @@ struct StatisticsTab: View {
                         InfoRow("Open files", item.record.fdCount.map { "\($0)" } ?? "")
                     }
                 }
-                SectionBox(title: "Network") {
+                SectionBox(title: "Network", symbol: "network", tint: .teal) {
                     Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 5) {
                         let n = item.network
                         InfoRow("Received", n.map { Fmt.bytes($0.bytesIn) } ?? "")
@@ -542,13 +572,13 @@ struct StatisticsTab: View {
                         InfoRow("Send rate", Fmt.rate(item.netOutRate))
                     }
                 }
-                SectionBox(title: "GPU") {
+                SectionBox(title: "GPU", symbol: "cube.transparent", tint: .indigo) {
                     Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 5) {
                         InfoRow("Usage", (Fmt.percent(item.gpu).isEmpty ? "0" : Fmt.percent(item.gpu)) + "%")
                         InfoRow("GPU time", Fmt.duration(nanoseconds: item.gpuTimeNs))
                     }
                 }
-                SectionBox(title: "Other") {
+                SectionBox(title: "Other", symbol: "ellipsis.circle", tint: .gray) {
                     Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 5) {
                         InfoRow("Mach messages sent", s.map { Fmt.count(Int($0.messagesSent)) } ?? "")
                         InfoRow("Mach messages received", s.map { Fmt.count(Int($0.messagesReceived)) } ?? "")
