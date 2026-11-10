@@ -135,6 +135,16 @@ struct MachineSummary: View {
 }
 
 struct CPUPanel: View {
+    static let performanceColor = Color.green
+    static let efficiencyColor = Color.cyan
+
+    private func coreLegend(_ name: String, _ color: Color) -> some View {
+        HStack(spacing: 5) {
+            RoundedRectangle(cornerRadius: 2).fill(color).frame(width: 10, height: 10)
+            Text("\(name) cores").font(.callout).foregroundStyle(.secondary)
+        }
+    }
+
     let sys: SystemMonitor
     let store: ProcessStore
     /// Changes every sample so SwiftUI re-evaluates the panel (the monitor is a reference type).
@@ -148,13 +158,24 @@ struct CPUPanel: View {
                       maxValue: 100, title: "CPU usage", valueText: percent(sys.cpuUsage),
                       formatter: { String(format: "%.1f%%", $0) }, tooltips: sys.topCPUProcess, stacked: true)
                 .frame(height: 180)
-            Toggle("Show one graph per CPU", isOn: $perCore).toggleStyle(.checkbox)
+            let m = MachineInfo.current
+            let efficiency = m.coreTypes.map { $0.hasPrefix("E") }
+            HStack(spacing: 14) {
+                Toggle("Show one graph per CPU", isOn: $perCore).toggleStyle(.checkbox)
+                // Only Macs with both kinds of core need telling which graph is which.
+                if perCore, efficiency.contains(true), efficiency.contains(false) {
+                    Spacer()
+                    coreLegend("Performance", Self.performanceColor)
+                    coreLegend("Efficiency", Self.efficiencyColor)
+                }
+            }
             if perCore {
-                let m = MachineInfo.current
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: min(6, max(2, sys.perCore.count / 2))), spacing: 6) {
                     ForEach(Array(sys.perCore.enumerated()), id: \.offset) { i, h in
                         let kind = m.coreTypes.indices.contains(i) ? " (\(m.coreTypes[i].prefix(1)))" : ""
-                        GraphView(series: [GraphSeries(values: h.ordered, color: .green)], maxValue: 100,
+                        let isEfficiency = efficiency.indices.contains(i) && efficiency[i]
+                        GraphView(series: [GraphSeries(values: h.ordered, color: isEfficiency ? Self.efficiencyColor : Self.performanceColor)],
+                                  maxValue: 100,
                                   title: "CPU \(i)\(kind)", valueText: percent(h.last), formatter: { String(format: "%.0f%%", $0) })
                             .frame(height: 70)
                     }
