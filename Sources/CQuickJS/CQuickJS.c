@@ -285,7 +285,6 @@ int32_t qx_compile(qx_engine *e, const char *source, double timeout_seconds, cha
 
     start_clock(e, timeout_seconds);
     JSValue function = JS_Eval(e->ctx, code, length, "<expression>", JS_EVAL_TYPE_GLOBAL);
-    e->deadline = 0;
     free(code);
     if (JS_IsException(function)) {
         if (e->timed_out) {
@@ -294,12 +293,16 @@ int32_t qx_compile(qx_engine *e, const char *source, double timeout_seconds, cha
                 *error = copy_string("The expression took too long to compile");
             }
         } else if (error) {
+            // Before the clock stops: the exception's toString is script too, and an earlier
+            // expression may have replaced it with one that never returns.
             *error = take_compile_error(e->ctx, source);
         } else {
             discard_exception(e->ctx);
         }
+        e->deadline = 0;
         return -1;
     }
+    e->deadline = 0;
     if (!JS_IsFunction(e->ctx, function)) {
         JS_FreeValue(e->ctx, function);
         if (error) {

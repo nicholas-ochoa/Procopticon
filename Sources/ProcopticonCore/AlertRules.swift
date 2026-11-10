@@ -163,7 +163,8 @@ public struct AlertRule: Codable, Identifiable, Hashable, Sendable {
     }
 
     public static func number(_ v: Double) -> String {
-        v == v.rounded() ? String(Int(v)) : String(format: "%.1f", v)
+        // Whole numbers without ".0", as far as an Int goes: a threshold can be typed as anything.
+        v == v.rounded() && abs(v) < 1e15 ? String(Int(v)) : String(format: v.isFinite && abs(v) >= 1e15 ? "%.0f" : "%.1f", v)
     }
 
     public static let durations: [Double] = [0, 5, 10, 30, 60, 120, 300, 600, 1800, 3600]

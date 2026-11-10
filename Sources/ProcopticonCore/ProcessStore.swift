@@ -490,7 +490,11 @@ public final class ProcessStore: ObservableObject {
             let sys = SystemSampler.sample()
             let time = Date().timeIntervalSince1970
             var error: String?
-            if case .processes(let records) = response {
+            if case .processes(let records) = response, records.isEmpty {
+                // The kernel's process list couldn't be read. Not "every process has exited":
+                // keep the last list rather than log, alert on and gray out all of it.
+                error = "The process list couldn't be read."
+            } else if case .processes(let records) = response {
                 self.merge(records, gpuTimes: gpuTimes, network: network, responsiveness: responsiveness, assertions: assertions,
                            sensors: sensors, time: time, options: options)
             } else if case .failure(let e) = response {
@@ -578,6 +582,8 @@ public final class ProcessStore: ObservableObject {
             let state: ProcessState
             if let existing = states[r.key] {
                 state = existing
+                // Back in the list after a sample that missed it: it never exited.
+                existing.removedAt = nil
                 state.update(record: r, time: time, cpuCount: options.cpuCount, scaleToSystem: options.scaleCPUToSystem,
                              gpuTime: gpuTimes[r.pid] ?? 0, network: network.map { $0[r.pid] })
             } else {
