@@ -123,7 +123,7 @@ struct MachineSummary: View {
         SectionBox(title: "System") {
             Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 5) {
                 InfoRow("Host name", m.hostName)
-                InfoRow("Model", m.modelIdentifier)
+                InfoRow("Model", HardwareInfo.current.productName.map { "\($0) (\(m.modelIdentifier))" } ?? m.modelIdentifier)
                 InfoRow("Operating system", m.osVersion)
                 InfoRow("Processor", "\(m.cpuBrand) — \(m.performanceCores)P + \(m.efficiencyCores)E cores (\(m.logicalCores) logical)")
                 InfoRow("Physical memory", Fmt.bytes(m.memoryBytes))
@@ -187,6 +187,7 @@ struct CPUPanel: View {
                     }
                 }
             }
+            ProcessorBox()
         }
         // Frequencies show while powermetrics runs; this starts it only when that needs no password.
         .onAppear { PowerMetricsMonitor.shared.acquire() }
@@ -236,6 +237,10 @@ struct MemoryPanel: View {
                             InfoRow("Swap-ins/s", Fmt.count(Int(sys.swapinsRate)))
                             InfoRow("Swap-outs/s", Fmt.count(Int(sys.swapoutsRate)))
                             InfoRow("Page size", Fmt.bytes(vm.pageSize))
+                            InfoRow("Installed", Fmt.bytes(MachineInfo.current.memoryBytes))
+                            if HardwareInfo.current.usableMemory > 0 {
+                                InfoRow("Usable by macOS", Fmt.bytes(HardwareInfo.current.usableMemory))
+                            }
                         }
                     }
                 }
@@ -286,7 +291,7 @@ struct DiskPanel: View {
                                 Text(v.name).fontWeight(.medium)
                                 Text(v.path).foregroundStyle(.secondary).font(.caption)
                                 Spacer()
-                                Text("\(Fmt.bytes(v.total - v.free)) used of \(Fmt.bytes(v.total)) · \(v.format)")
+                                Text((["\(Fmt.bytes(v.total - v.free)) used of \(Fmt.bytes(v.total))", v.format] + v.traits).filter { !$0.isEmpty }.joined(separator: " · "))
                                     .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
                             }
                             UsageBar(fraction: Double(v.total - v.free) / Double(max(1, v.total)), color: .blue)
@@ -309,17 +314,28 @@ struct DiskPanel: View {
         var total: UInt64
         var free: UInt64
         var format: String
+        /// "Internal", "Encrypted", "Read-only"…
+        var traits: [String]
     }
 
     nonisolated private static func loadVolumes() -> [Volume] {
         let keys: [URLResourceKey] = [.volumeNameKey, .volumeTotalCapacityKey, .volumeAvailableCapacityForImportantUsageKey,
-                                      .volumeAvailableCapacityKey, .volumeLocalizedFormatDescriptionKey]
+                                      .volumeAvailableCapacityKey, .volumeLocalizedFormatDescriptionKey, .volumeIsInternalKey,
+                                      .volumeIsRemovableKey, .volumeIsEncryptedKey, .volumeIsReadOnlyKey, .volumeIsLocalKey]
         let urls = FileManager.default.mountedVolumeURLs(includingResourceValuesForKeys: keys, options: [.skipHiddenVolumes]) ?? []
         return urls.compactMap { url in
             guard let v = try? url.resourceValues(forKeys: Set(keys)), let total = v.volumeTotalCapacity, total > 0 else { return nil }
             let free = v.volumeAvailableCapacityForImportantUsage.map { UInt64($0) } ?? UInt64(v.volumeAvailableCapacity ?? 0)
+            var traits: [String] = []
+            if v.volumeIsLocal == false {
+                traits.append("Network")
+            } else if let isInternal = v.volumeIsInternal {
+                traits.append(isInternal ? "Internal" : (v.volumeIsRemovable == true ? "Removable" : "External"))
+            }
+            if v.volumeIsEncrypted == true { traits.append("Encrypted") }
+            if v.volumeIsReadOnly == true { traits.append("Read-only") }
             return Volume(name: v.volumeName ?? url.lastPathComponent, path: url.path, total: UInt64(total),
-                          free: min(free, UInt64(total)), format: v.volumeLocalizedFormatDescription ?? "")
+                          free: min(free, UInt64(total)), format: v.volumeLocalizedFormatDescription ?? "", traits: traits)
         }
     }
 }
@@ -368,7 +384,55 @@ struct NetworkPanel: View {
                     InfoRow("Sent/s", Fmt.count(Int(sys.netOutPacketsRate)))
                 }
             }
+            SectionBox(title: "Addresses") {
+                Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 5) {
+                    GridRow {
+                        Text("Interface").bold()
+                        Text("IP addresses").bold()
+                        Text("Hardware address").bold()
+                        Text("MTU").bold()
+                        Text("Link speed").bold()
+                    }
+                    ForEach(addressed, id: \.name) { a in
+                        GridRow(alignment: .firstTextBaseline) {
+                            Text(a.name)
+                            Text((a.ipv4 + a.ipv6).joined(separator: "\n")).textSelection(.enabled)
+                            Text(a.hardwareAddress ?? "").monospaced().textSelection(.enabled)
+                            Text(a.mtu.map(String.init) ?? "").monospacedDigit()
+                            Text(a.linkSpeed.map(Self.linkSpeed) ?? "").monospacedDigit()
+                        }
+                    }
+                }
+            }
         }
+        .task {
+            while !Task.isCancelled {
+                addresses = await Task.detached(priority: .utility) { InterfaceAddresses.read() }.value
+                try? await Task.sleep(for: .seconds(10))
+            }
+        }
+    }
+
+    /// Re-read every few seconds: addresses change as networks come and go.
+    @State private var addresses: [String: InterfaceAddresses] = [:]
+
+    /// Interfaces with an IP address, in the order of the traffic table, then the rest by name.
+    private var addressed: [InterfaceAddresses] {
+        let order = interfaces.map(\.name)
+        return addresses.values.filter { !$0.ipv4.isEmpty || !$0.ipv6.isEmpty }.sorted {
+            let a = order.firstIndex(of: $0.name) ?? Int.max, b = order.firstIndex(of: $1.name) ?? Int.max
+            return a != b ? a < b : $0.name.localizedStandardCompare($1.name) == .orderedAscending
+        }
+    }
+
+    static func linkSpeed(_ bitsPerSecond: UInt64) -> String {
+        let units: [(Double, String)] = [(1e9, "Gbit/s"), (1e6, "Mbit/s"), (1e3, "kbit/s")]
+        let v = Double(bitsPerSecond)
+        for (scale, unit) in units where v >= scale {
+            let n = v / scale
+            return (n == n.rounded() ? String(format: "%.0f", n) : String(format: "%.1f", n)) + " " + unit
+        }
+        return "\(bitsPerSecond) bit/s"
     }
 
     private var interfaces: [NetInterfaceStats] {
@@ -404,6 +468,17 @@ struct GPUPanel: View {
                         InfoRow("Tiler utilization", String(format: "%.0f%%", g.tilerUtilization))
                         InfoRow("Memory in use", Fmt.bytes(g.memoryUsed))
                         InfoRow("Memory allocated", Fmt.bytes(g.memoryAllocated))
+                        if let metal = HardwareInfo.current.gpus.first(where: { $0.name == g.name }) {
+                            MetalRows(gpu: metal)
+                        }
+                    }
+                }
+            }
+            let listed = Set((sys.last?.gpus ?? []).map(\.name))
+            ForEach(HardwareInfo.current.gpus.filter { !listed.contains($0.name) }) { metal in
+                SectionBox(title: metal.name) {
+                    Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 5) {
+                        MetalRows(gpu: metal)
                     }
                 }
             }
@@ -449,6 +524,74 @@ struct GPUPanel: View {
             .sorted { ($0.gpu, $0.gpuTimeNs) > ($1.gpu, $1.gpuTimeNs) }
             .prefix(12)
             .map { $0 }
+    }
+}
+
+/// The processor's core types and caches; see `HardwareInfo`.
+struct ProcessorBox: View {
+    var body: some View {
+        let m = MachineInfo.current
+        let hw = HardwareInfo.current
+        SectionBox(title: "Processor") {
+            Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 5) {
+                InfoRow("Name", m.cpuBrand)
+                InfoRow("Architecture", hw.architecture)
+                InfoRow("Cores", m.physicalCores == m.logicalCores
+                    ? "\(m.physicalCores)" : "\(m.physicalCores) (\(m.logicalCores) logical)")
+                ForEach(hw.coreTypes) { t in
+                    InfoRow("\(t.name) cores", describe(t))
+                }
+                if hw.coreTypes.isEmpty {
+                    InfoRow("L1 cache", "\(Self.cacheSize(hw.l1InstructionCache)) instruction, \(Self.cacheSize(hw.l1DataCache)) data")
+                    InfoRow("L2 cache", Self.cacheSize(hw.l2Cache))
+                    if hw.l3Cache > 0 {
+                        InfoRow("L3 cache", Self.cacheSize(hw.l3Cache))
+                    }
+                }
+                InfoRow("Cache line", "\(hw.cacheLineSize) bytes")
+            }
+        }
+    }
+
+    private func describe(_ t: HardwareInfo.CoreType) -> String {
+        var parts = ["\(t.physicalCores)" + (t.logicalCores != t.physicalCores ? " (\(t.logicalCores) logical)" : "")]
+        if t.l1InstructionCache > 0 {
+            parts.append("L1 \(Self.cacheSize(t.l1InstructionCache)) instruction + \(Self.cacheSize(t.l1DataCache)) data per core")
+        }
+        if t.l2Cache > 0 {
+            let shared = t.coresPerL2 > 1 ? " shared by each \(t.coresPerL2) cores" : " per core"
+            parts.append("L2 \(Self.cacheSize(t.l2Cache))\(shared)")
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    /// Cache sizes are powers of two: "192 KB", "16 MB".
+    static func cacheSize(_ bytes: Int) -> String {
+        if bytes >= 1 << 20, bytes % (1 << 20) == 0 { return "\(bytes >> 20) MB" }
+        if bytes >= 1 << 10, bytes % (1 << 10) == 0 { return "\(bytes >> 10) KB" }
+        return Fmt.bytes(UInt64(max(0, bytes)))
+    }
+}
+
+/// What a GPU supports, from Metal; see `HardwareInfo.GPU`.
+struct MetalRows: View {
+    let gpu: HardwareInfo.GPU
+
+    var body: some View {
+        if !gpu.location.isEmpty {
+            InfoRow("Location", gpu.location)
+        }
+        InfoRow("Memory", gpu.unifiedMemory ? "Unified (shared with the CPU)" : "Dedicated")
+        InfoRow("Recommended working set", Fmt.bytes(gpu.recommendedWorkingSet))
+        InfoRow("Largest buffer", Fmt.bytes(UInt64(max(0, gpu.maxBufferLength))))
+        InfoRow("Metal support", gpu.families.joined(separator: ", "))
+        InfoRow("Hardware ray tracing", gpu.raytracing ? "Yes" : "No")
+        InfoRow("Threads per threadgroup", "\(gpu.maxThreadsPerThreadgroup)")
+        InfoRow("Threadgroup memory", Fmt.bytes(UInt64(max(0, gpu.maxThreadgroupMemory))))
+        let traits = [gpu.lowPower ? "Low power" : nil, gpu.headless ? "Headless" : nil, gpu.removable ? "Removable" : nil].compactMap { $0 }
+        if !traits.isEmpty {
+            InfoRow("Type", traits.joined(separator: ", "))
+        }
     }
 }
 

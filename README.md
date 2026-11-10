@@ -119,13 +119,20 @@ well-known service names. New and closed connections are highlighted.
 
 **System Information** has these sections:
 
-* CPU: total plus one graph per core, labeled P or E. Hovering a point shows the busiest process at
-  that moment. When elevated, each cluster's current frequency too.
+* Summary: the Mac's model name ("MacBook Pro (16-inch, Nov 2023)") and identifier, macOS, processor,
+  memory and uptime.
+* CPU: total plus one graph per core, labeled P or E from each core's type in the IORegistry. Hovering
+  a point shows the busiest process at that moment. When elevated, each cluster's current frequency
+  too. The processor's core types with their L1 and L2 caches, and the cache line size.
 * Memory: app, wired, compressed, cached and free memory, plus pressure, swap, page-in/out and
-  compression rates.
-* Disk: throughput and capacity of each volume.
-* Network: throughput of each interface.
-* GPU: utilization, core count and memory use, and the processes using the GPU.
+  compression rates, and the memory installed and usable by macOS.
+* Disk: throughput and capacity of each volume, its format, and whether it's internal, external,
+  removable or on the network, encrypted or read-only.
+* Network: throughput of each interface, and each one's IP addresses, hardware address, MTU and link
+  speed.
+* GPU: utilization, core count and memory use, and the processes using the GPU. From Metal: unified or
+  dedicated memory, recommended working set, largest buffer, Metal support (Apple GPU family, Metal 3
+  or 4), hardware ray tracing and threadgroup limits.
 * Power: battery state, estimated process power, power measured by `powermetrics` when elevated, and
   the processes keeping the Mac or its display awake.
 * Thermal: the thermal state macOS reports (Nominal, Fair, Serious, Critical) with its history and,
