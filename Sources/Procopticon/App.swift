@@ -70,6 +70,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 struct AppCommands: Commands {
     var body: some Commands {
+        CommandGroup(replacing: .appInfo) {
+            Button("About Procopticon") { AboutPanel.show() }
+        }
         CommandGroup(replacing: .appSettings) {
             Button("Settings…") { SettingsWindow.open() }
                 .keyboardShortcut(",")

@@ -51,6 +51,12 @@ if [ ! -f "$ICON_OUT/Assets.car" ] || [ -n "$(find "$ICON_SRC" -newer "$ICON_OUT
 fi
 cp "$ICON_OUT/Assets.car" "$ICON_OUT/AppIcon.icns" "$OUT/Contents/Resources/"
 
+# The licenses of the app and of QuickJS-ng, which is compiled into it. The MIT license asks for
+# them in every copy; About Procopticon shows them from here.
+mkdir -p "$OUT/Contents/Resources/Licenses"
+cp LICENSE "$OUT/Contents/Resources/Licenses/Procopticon.txt"
+cp Sources/CQuickJS/quickjs/LICENSE "$OUT/Contents/Resources/Licenses/QuickJS-ng.txt"
+
 cat > "$OUT/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -72,7 +78,7 @@ cat > "$OUT/Contents/Info.plist" <<PLIST
     <key>NSHighResolutionCapable</key><true/>
     <key>NSSupportsAutomaticTermination</key><false/>
     <key>NSAppleEventsUsageDescription</key><string>Procopticon asks applications to quit when you choose Quit Application.</string>
-    <key>NSHumanReadableCopyright</key><string>Procopticon — a process explorer for macOS.</string>
+    <key>NSHumanReadableCopyright</key><string>Copyright © 2026 Nicholas Ochoa. MIT License.</string>
 </dict>
 </plist>
 PLIST
