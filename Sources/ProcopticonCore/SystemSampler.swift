@@ -265,14 +265,18 @@ public struct MachineInfo: Sendable {
             }
             return size == 4 ? Int(Int32(truncatingIfNeeded: v)) : Int(v)
         }
-        // Logical CPUs are numbered from the least to the most powerful core type, and
-        // perflevel0 is the most powerful.
         let levels = int("hw.nperflevels")
-        let coreTypes = levels > 1
-            ? (0..<levels).reversed().flatMap { level in
-                Array(repeating: str("hw.perflevel\(level).name"), count: int("hw.perflevel\(level).logicalcpu"))
-            }
-            : []
+        let levelNames = (0..<max(levels, 0)).map { str("hw.perflevel\($0).name") }
+        var coreTypes: [String] = []
+        if levels > 1 {
+            // Each CPU's cluster type from the device tree ("E", "P"), named after the perflevel with
+            // the same initial. Failing that, logical CPUs are numbered from the least to the most
+            // powerful core type, and perflevel0 is the most powerful.
+            coreTypes = MachineInfo.deviceTreeCoreTypes(count: int("hw.logicalcpu"), levelNames: levelNames)
+                ?? (0..<levels).reversed().flatMap { level in
+                    Array(repeating: levelNames[level], count: int("hw.perflevel\(level).logicalcpu"))
+                }
+        }
         let pv = ProcessInfo.processInfo.operatingSystemVersion
         return MachineInfo(
             modelIdentifier: str("hw.model"),
@@ -288,4 +292,34 @@ public struct MachineInfo: Sendable {
             hostName: ProcessInfo.processInfo.hostName,
             pageSize: Int(getpagesize()))
     }()
+
+    /// The core type of each logical CPU, from the `cluster-type` ("E", "P") and `logical-cpu-id`
+    /// of the CPU nodes in the IORegistry's device tree; nil unless every CPU has both.
+    static func deviceTreeCoreTypes(count: Int, levelNames: [String]) -> [String]? {
+        guard count > 0 else { return nil }
+        let cpus = IORegistryEntryFromPath(kIOMainPortDefault, "IODeviceTree:/cpus")
+        guard cpus != 0 else { return nil }
+        defer { IOObjectRelease(cpus) }
+        var iterator: io_iterator_t = 0
+        guard IORegistryEntryGetChildIterator(cpus, kIODeviceTreePlane, &iterator) == KERN_SUCCESS else { return nil }
+        defer { IOObjectRelease(iterator) }
+        var types = [String?](repeating: nil, count: count)
+        while case let cpu = IOIteratorNext(iterator), cpu != 0 {
+            defer { IOObjectRelease(cpu) }
+            let idValue = IORegistryEntryCreateCFProperty(cpu, "logical-cpu-id" as CFString, kCFAllocatorDefault, 0)?.takeRetainedValue()
+            let typeValue = IORegistryEntryCreateCFProperty(cpu, "cluster-type" as CFString, kCFAllocatorDefault, 0)?.takeRetainedValue()
+            var id: Int?
+            if let number = idValue as? NSNumber {
+                id = number.intValue
+            } else if let data = idValue as? Data, data.count >= 4 {
+                id = Int(data.withUnsafeBytes { $0.loadUnaligned(as: UInt32.self) })
+            }
+            guard let id, types.indices.contains(id), let data = typeValue as? Data,
+                  let letter = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .controlCharacters).first
+            else { return nil }
+            types[id] = levelNames.first { $0.first == letter } ?? String(letter)
+        }
+        let all = types.compactMap { $0 }
+        return all.count == count ? all : nil
+    }
 }

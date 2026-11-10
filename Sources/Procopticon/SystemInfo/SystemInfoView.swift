@@ -153,9 +153,9 @@ struct CPUPanel: View {
                 let m = MachineInfo.current
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: min(6, max(2, sys.perCore.count / 2))), spacing: 6) {
                     ForEach(Array(sys.perCore.enumerated()), id: \.offset) { i, h in
-                        let kind = i < m.efficiencyCores && m.efficiencyCores > 0 ? "E" : "P"
+                        let kind = m.coreTypes.indices.contains(i) ? " (\(m.coreTypes[i].prefix(1)))" : ""
                         GraphView(series: [GraphSeries(values: h.ordered, color: .green)], maxValue: 100,
-                                  title: "CPU \(i) (\(kind))", valueText: percent(h.last), formatter: { String(format: "%.0f%%", $0) })
+                                  title: "CPU \(i)\(kind)", valueText: percent(h.last), formatter: { String(format: "%.0f%%", $0) })
                             .frame(height: 70)
                     }
                 }

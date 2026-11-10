@@ -27,4 +27,19 @@ final class SystemMonitorTests: XCTestCase {
             XCTAssertFalse(machine.coreTypes.contains(""))
         }
     }
+
+    func testCoreTypes() throws {
+        var levels: Int32 = 0
+        var size = MemoryLayout<Int32>.size
+        guard sysctlbyname("hw.nperflevels", &levels, &size, nil, 0) == 0, levels > 1 else {
+            throw XCTSkip("One core type")
+        }
+        let m = MachineInfo.current
+        XCTAssertEqual(m.coreTypes.count, m.logicalCores)
+        // The device tree names every core, with the perflevels' names.
+        let fromTree = MachineInfo.deviceTreeCoreTypes(count: m.logicalCores, levelNames: ["Performance", "Efficiency"])
+        XCTAssertEqual(fromTree, m.coreTypes)
+        XCTAssertEqual(fromTree?.filter { $0 == "Performance" }.count, m.performanceCores)
+        XCTAssertNil(MachineInfo.deviceTreeCoreTypes(count: m.logicalCores + 1, levelNames: []))
+    }
 }
