@@ -1,7 +1,10 @@
 #!/bin/bash
 # Builds "Procopticon.app" into ./build.
 #   CONFIG=debug|release (default release)
-#   SIGN_IDENTITY="Apple Development: …" to sign with a certificate (default: ad-hoc)
+#   SIGN_IDENTITY="Apple Development: …" picks the signing certificate. The default is this Mac's
+#     "Developer ID Application" certificate, or an ad-hoc signature when there is none.
+#     SIGN_IDENTITY=- asks for ad-hoc.
+#   TIMESTAMP=1 adds Apple's secure timestamp, which notarization needs (default: none)
 #   UNIVERSAL=1 builds for Apple silicon and Intel (default: this Mac's architecture)
 #   VERSION=1.2.3 sets the version shown in About (default 1.0.0)
 # scripts/release.sh builds, signs and notarizes a copy to hand to other people.
@@ -104,11 +107,16 @@ cat > "$ENTITLEMENTS" <<PLIST
 </plist>
 PLIST
 
-IDENTITY="${SIGN_IDENTITY:--}"
-# Notarization wants Apple's timestamp on a Developer ID signature; other builds do without the
-# round trip to Apple's server.
-TIMESTAMP="--timestamp=none"
-case "$IDENTITY" in "Developer ID"*) TIMESTAMP="--timestamp" ;; esac
+IDENTITY="${SIGN_IDENTITY:-}"
+if [ -z "$IDENTITY" ]; then
+    IDENTITY="$(security find-identity -v -p codesigning 2>/dev/null \
+        | /usr/bin/sed -n 's/.*"\(Developer ID Application: [^"]*\)".*/\1/p' | head -1)"
+    IDENTITY="${IDENTITY:--}"
+fi
+if [ "$IDENTITY" = "-" ]; then echo "Signing: ad-hoc"; else echo "Signing as: $IDENTITY"; fi
+# Notarization wants Apple's timestamp on the signature; other builds do without the round trip
+# to Apple's server, so they also work offline.
+if [ "${TIMESTAMP:-0}" = "1" ]; then TIMESTAMP="--timestamp"; else TIMESTAMP="--timestamp=none"; fi
 codesign --force --sign "$IDENTITY" "$TIMESTAMP" --options runtime --identifier "${BUNDLE_ID}.helper" \
     "$OUT/Contents/MacOS/procopticon-helper"
 codesign --force --sign "$IDENTITY" "$TIMESTAMP" --options runtime --entitlements "$ENTITLEMENTS" "$OUT"

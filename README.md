@@ -286,8 +286,9 @@ but `sample`, `vmmap` and libproc data remain available for them when you run as
 You need Xcode 26 or later and macOS 26 or later (the project was developed with Xcode 27 on macOS 27).
 
 ```sh
-./scripts/build-app.sh               # release build → build/Procopticon.app (ad-hoc signed)
-SIGN_IDENTITY="Apple Development: …" ./scripts/build-app.sh   # sign with a certificate
+./scripts/build-app.sh               # release build → build/Procopticon.app, signed with your
+                                     # Developer ID certificate if you have one, otherwise ad-hoc
+SIGN_IDENTITY="Apple Development: …" ./scripts/build-app.sh   # sign with another certificate (- for ad-hoc)
 swift test                           # unit tests for the samplers and parsers
 VERSION=1.0.0 ./scripts/release.sh   # universal, Developer ID-signed and notarized → build/Procopticon-1.0.0.dmg
 ```

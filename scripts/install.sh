@@ -1,6 +1,7 @@
 #!/bin/bash
 # Builds Procopticon and installs it into /Applications (or $INSTALL_DIR).
-#   SIGN_IDENTITY="Apple Development: …"  sign with a certificate (default: ad-hoc)
+#   SIGN_IDENTITY="Apple Development: …"  sign with that certificate (default: your Developer ID
+#                                         certificate if there is one, otherwise ad-hoc)
 #   INSTALL_DIR=~/Applications            install somewhere else
 #   --no-open                             don't launch after installing
 set -euo pipefail

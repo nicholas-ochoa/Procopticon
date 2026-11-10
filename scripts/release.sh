@@ -35,7 +35,7 @@ APP="build/Procopticon.app"
 DMG="build/Procopticon-$VERSION.dmg"
 ZIP="build/Procopticon-$VERSION.zip"
 
-VERSION="$VERSION" SIGN_IDENTITY="$SIGN_IDENTITY" UNIVERSAL=1 CONFIG=release VARIANT=release ./scripts/build-app.sh
+VERSION="$VERSION" SIGN_IDENTITY="$SIGN_IDENTITY" TIMESTAMP=1 UNIVERSAL=1 CONFIG=release VARIANT=release ./scripts/build-app.sh
 codesign --verify --strict --deep "$APP"
 
 notarize() {

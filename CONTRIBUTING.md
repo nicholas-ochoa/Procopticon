@@ -21,7 +21,7 @@ You need Xcode 26 or later on macOS 26 or later.
 ```sh
 swift build                    # debug build of everything
 swift test                     # unit tests
-./scripts/build-app.sh         # build/Procopticon.app, ad-hoc signed
+./scripts/build-app.sh         # build/Procopticon.app (ad-hoc signed without a Developer ID certificate)
 VARIANT=dev ./scripts/build-app.sh   # "Procopticon Dev.app", with its own settings
 ```
 
