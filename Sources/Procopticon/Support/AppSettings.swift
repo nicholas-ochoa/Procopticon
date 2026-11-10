@@ -166,16 +166,8 @@ final class AppSettings: ObservableObject {
         appearance = AppearanceMode(rawValue: defaults.string(forKey: "appearance") ?? "") ?? .system
         accent = AccentChoice(rawValue: defaults.string(forKey: "accent") ?? "") ?? .system
         accentCustom = defaults.string(forKey: "accentCustom").flatMap(NSColor.init(hex:)) ?? .systemTeal
-        if let data = defaults.data(forKey: "savedFilters"), let list = try? JSONDecoder().decode([SavedFilter].self, from: data) {
-            savedFilters = list.map { $0.migrated() }
-        } else {
-            savedFilters = SavedFilter.defaults
-        }
-        if let data = defaults.data(forKey: "alertRules"), let list = try? JSONDecoder().decode([AlertRule].self, from: data) {
-            alertRules = list
-        } else {
-            alertRules = AlertRule.examples
-        }
+        savedFilters = Self.savedList("savedFilters", in: defaults, otherwise: SavedFilter.defaults).map { $0.migrated() }
+        alertRules = Self.savedList("alertRules", in: defaults, otherwise: AlertRule.examples)
         alertNotifications = b("alertNotifications", true)
         alertSound = b("alertSound", false)
         var h: [HighlightRule: HighlightSetting] = [:]
@@ -191,11 +183,18 @@ final class AppSettings: ObservableObject {
             h[rule] = setting
         }
         highlights = h
-        if let data = defaults.data(forKey: "customHighlights"), let list = try? JSONDecoder().decode([CustomHighlight].self, from: data) {
-            customHighlights = list
-        } else {
-            customHighlights = CustomHighlight.examples
-        }
+        customHighlights = Self.savedList("customHighlights", in: defaults, otherwise: CustomHighlight.examples)
+    }
+
+    /// The list saved under `key`, or `fallback` when nothing was saved. When the list as a whole
+    /// can't be read (one rule written by a newer version, say), every entry that can be is kept,
+    /// rather than all of them being replaced by the examples. What couldn't be read is copied to
+    /// `<key>.unreadable` first, since the next edit saves the list without it.
+    static func savedList<T: Decodable>(_ key: String, in defaults: UserDefaults, otherwise fallback: [T]) -> [T] {
+        guard let data = defaults.data(forKey: key) else { return fallback }
+        if let list = try? JSONDecoder().decode([T].self, from: data) { return list }
+        defaults.set(data, forKey: key + ".unreadable")
+        return LenientList.decode(T.self, from: data) ?? fallback
     }
 
     private func save(_ key: String, _ value: Any) {
