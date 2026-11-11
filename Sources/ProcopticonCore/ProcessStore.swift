@@ -569,6 +569,27 @@ public final class ProcessStore: ObservableObject {
 
     public func item(_ key: ProcessKey) -> ProcessItem? { items[key] }
 
+    /// Every running process below `root` in the tree, parents before their children. Unlike
+    /// `ProcessItem.descendants`, this doesn't depend on what the list shows: List view, a search
+    /// and the quick filters leave children out of it that an action on "the tree" still means.
+    public func descendants(of root: ProcessItem) -> [ProcessItem] {
+        var children: [ProcessKey: [ProcessItem]] = [:]
+        for item in items.values where !item.isRemoved {
+            if let parent = Self.treeParent(of: item, in: itemsByPid) {
+                children[parent.key, default: []].append(item)
+            }
+        }
+        var result: [ProcessItem] = []
+        var seen: Set<ProcessKey> = [root.key]
+        var pending = [root.key]
+        while let key = pending.popLast() {
+            let below = (children[key] ?? []).filter { seen.insert($0.key).inserted }.sorted { $0.pid < $1.pid }
+            result.append(contentsOf: below)
+            pending.append(contentsOf: below.map(\.key))
+        }
+        return result
+    }
+
     // MARK: Background queue
 
     /// `network` is nil when nettop couldn't be sampled; processes then keep their last counters.

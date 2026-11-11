@@ -33,7 +33,7 @@ enum ProcessActions {
         var all: [ProcessItem] = []
         var seen = Set<ProcessKey>()
         for p in items {
-            for q in [p] + p.descendants where seen.insert(q.key).inserted {
+            for q in [p] + ProcessStore.shared.descendants(of: p) where seen.insert(q.key).inserted {
                 all.append(q)
             }
         }
