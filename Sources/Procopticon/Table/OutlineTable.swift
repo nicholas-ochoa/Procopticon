@@ -132,7 +132,7 @@ struct OutlineTable<Item>: NSViewRepresentable {
     }
 
     func makeNSView(context: Context) -> NSScrollView {
-        let scroll = NSScrollView()
+        let scroll = AxisLockingScrollView()
         scroll.hasVerticalScroller = true
         scroll.hasHorizontalScroller = true
         scroll.autohidesScrollers = true
@@ -1156,6 +1156,45 @@ final class OutlineTableCoordinator<Item>: NSObject, NSOutlineViewDataSource, NS
             break
         }
         return false
+    }
+}
+
+/// A table's scroll view. It holds each scroll gesture to one axis itself (see `ScrollAxisLock`)
+/// instead of leaving that to AppKit, whose own choice of axis could outlast the gesture.
+final class AxisLockingScrollView: NSScrollView {
+    private var axisLock = ScrollAxisLock()
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        usesPredominantAxisScrolling = false
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        usesPredominantAxisScrolling = false
+    }
+
+    override func scrollWheel(with event: NSEvent) {
+        let axis = axisLock.axis(deltaX: Double(event.scrollingDeltaX), deltaY: Double(event.scrollingDeltaY),
+                                 inGesture: !event.phase.isEmpty || !event.momentumPhase.isEmpty,
+                                 begins: event.phase.contains(.began) || event.phase.contains(.mayBegin),
+                                 timestamp: event.timestamp)
+        super.scrollWheel(with: axis.map { Self.restricted(event, to: $0) } ?? event)
+    }
+
+    /// The event without its movement across `axis`. An event can't be changed, so this is a copy.
+    private static func restricted(_ event: NSEvent, to axis: ScrollAxisLock.Axis) -> NSEvent {
+        let dropsHorizontal = axis == .vertical
+        guard (dropsHorizontal ? event.scrollingDeltaX : event.scrollingDeltaY) != 0,
+              let copy = event.cgEvent?.copy() else { return event }
+        // Axis 1 is vertical and axis 2 horizontal, each as lines, fixed-point lines and points.
+        let fields: [CGEventField] = dropsHorizontal
+            ? [.scrollWheelEventDeltaAxis2, .scrollWheelEventFixedPtDeltaAxis2, .scrollWheelEventPointDeltaAxis2]
+            : [.scrollWheelEventDeltaAxis1, .scrollWheelEventFixedPtDeltaAxis1, .scrollWheelEventPointDeltaAxis1]
+        for field in fields {
+            copy.setIntegerValueField(field, value: 0)
+        }
+        return NSEvent(cgEvent: copy) ?? event
     }
 }
 
