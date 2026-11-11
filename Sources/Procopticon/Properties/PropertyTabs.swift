@@ -5,6 +5,8 @@ import SwiftUI
 /// Periodically (or once) loads a privileged list and renders it in an `OutlineTable`.
 struct PrivilegedListView<Row>: View {
     let request: PrivilegedRequest
+    /// The process the request is about, when it names one by PID; see `PrivilegedLoader.load`.
+    var process: ProcessKey?
     let extract: (PrivilegedResponse) -> [Row]?
     let columns: [TableColumnSpec<Row>]
     let autosave: String
@@ -83,7 +85,7 @@ struct PrivilegedListView<Row>: View {
     }
 
     private func reload() {
-        loader.load(request, extract: extract)
+        loader.load(request, for: process, extract: extract)
     }
 }
 
@@ -97,6 +99,7 @@ struct ThreadsTab: View {
         VStack(spacing: 0) {
             PrivilegedListView<ThreadInfo>(
                 request: .threads(pid: item.pid),
+                process: item.key,
                 extract: { if case .threads(let t) = $0 { return t } else { return nil } },
                 columns: Self.columns,
                 autosave: "ThreadsTable",
@@ -197,6 +200,7 @@ struct ModulesTab: View {
         let pid = item.pid
         PrivilegedListView<ModuleInfo>(
             request: .runTool(tool: "/usr/bin/vmmap", arguments: ["-interleaved", "-wide", "\(pid)"]),
+            process: item.key,
             extract: { response in
                 if case .tool(let out) = response {
                     let mods = ProcessDetails.parseVmmapModules(out.stdout)
@@ -270,6 +274,7 @@ struct MemoryTab: View {
             .padding(.top, 6)
             PrivilegedListView<MemoryRegion>(
                 request: .regions(pid: item.pid),
+                process: item.key,
                 extract: { [hideReserved] in
                     if case .regions(let r) = $0 {
                         return hideReserved ? r.filter { $0.protection != 0 || $0.residentBytes > 0 } : r
@@ -411,7 +416,7 @@ struct ArgumentsTab: View {
     }
 
     private func load() {
-        loader.load(.arguments(pid: item.pid)) { if case .arguments(let a) = $0 { return a } else { return nil } }
+        loader.load(.arguments(pid: item.pid), for: item.key) { if case .arguments(let a) = $0 { return a } else { return nil } }
     }
 
     static let columns: [TableColumnSpec<Argument>] = {
@@ -482,7 +487,7 @@ struct EnvironmentTab: View {
     }
 
     private func load() {
-        loader.load(.arguments(pid: item.pid)) { if case .arguments(let a) = $0 { return a } else { return nil } }
+        loader.load(.arguments(pid: item.pid), for: item.key) { if case .arguments(let a) = $0 { return a } else { return nil } }
     }
 
     private func variables(_ args: ProcessArguments) -> [Variable] {
@@ -511,6 +516,7 @@ struct FilesTab: View {
     var body: some View {
         PrivilegedListView<FileDescriptorInfo>(
             request: .fileDescriptors(pid: item.pid),
+            process: item.key,
             extract: { if case .fileDescriptors(let f) = $0 { return f } else { return nil } },
             columns: Self.columns,
             autosave: "FilesTable",
@@ -561,6 +567,7 @@ struct ProcessNetworkTab: View {
     var body: some View {
         PrivilegedListView<FileDescriptorInfo>(
             request: .fileDescriptors(pid: item.pid),
+            process: item.key,
             extract: { if case .fileDescriptors(let f) = $0 { return f.filter { $0.socket != nil } } else { return nil } },
             columns: Self.columns,
             autosave: "ProcessSocketsTable",

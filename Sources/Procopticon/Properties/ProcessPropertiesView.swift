@@ -113,6 +113,11 @@ struct ProcessPropertiesView: View {
                     snapshot = item
                     startFitting()
                 }
+                // What is shown once the process has exited is what it last was, not what it
+                // was when the window opened.
+                .onChange(of: store.revision) {
+                    if let live = store.item(key) { snapshot = live }
+                }
             } else {
                 ContentUnavailableView("Process not found", systemImage: "questionmark.app", description: Text("PID \(key.pid) is no longer running."))
             }
@@ -304,12 +309,18 @@ final class PrivilegedLoader<T>: ObservableObject {
     @Published var error: PrivilegedError?
     @Published var loading = false
 
-    func load(_ request: PrivilegedRequest, extract: @escaping (PrivilegedResponse) -> T?) {
+    /// `process` is the process a request by PID is about. Its window stays open after it exits,
+    /// and the PID can then pass to another process: the answer is only taken while the PID is
+    /// still that process's, so the window keeps what it last showed instead of someone else's.
+    func load(_ request: PrivilegedRequest, for process: ProcessKey? = nil, extract: @escaping (PrivilegedResponse) -> T?) {
         loading = true
         Task {
             // Both the request and the parsing (which can be heavy, e.g. vmmap output) run off-main.
             let (response, extracted) = await Task.detached { () -> (PrivilegedResponse, T?) in
+                let exited = PrivilegedResponse.failure(PrivilegedError(code: ESRCH, message: "The process has exited."))
+                if let process, !process.isRunning { return (exited, nil) }
                 let r = Elevation.shared.perform(request)
+                if let process, !process.isRunning { return (exited, nil) }
                 return (r, r.error == nil ? extract(r) : nil)
             }.value
             if let e = response.error {
