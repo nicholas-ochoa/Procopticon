@@ -690,6 +690,11 @@ struct StatusBarView: View {
                 }
             }
             Spacer()
+            // Without this the list just stops changing, and looks current.
+            if let error = store.lastError {
+                Label("Not updating", systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                    .help("The process list couldn't be refreshed, so it shows what was last read. \(error)")
+            }
             if showFilterSummary, store.filter.isFiltering {
                 if let saved = AppSettings.shared.activeSavedFilter {
                     Label(saved.name, systemImage: "line.3.horizontal.decrease.circle.fill").foregroundStyle(.secondary)
