@@ -113,7 +113,10 @@ public enum IsolatedScanner {
             data = stdout.fileHandleForReading.readDataToEndOfFile()
             group.leave()
         }
-        stdin.fileHandleForWriting.write(Data(pids.map { "\($0)" }.joined(separator: "\n").utf8))
+        // A child that died before reading its input must not take this process with it: no
+        // SIGPIPE for this pipe, and a write that throws instead of raising an exception.
+        _ = fcntl(stdin.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1)
+        try? stdin.fileHandleForWriting.write(contentsOf: Data(pids.map { "\($0)" }.joined(separator: "\n").utf8))
         try? stdin.fileHandleForWriting.close()
         group.wait()
         process.waitUntilExit()
