@@ -21,6 +21,17 @@ struct FindView: View {
     @State private var searching = false
     @State private var revision = 0
     @State private var message = ""
+    /// When `results` were found. They are a snapshot: a PID in them may since have passed to a
+    /// process started later, which is not the one that had the file open.
+    @State private var searchedAt = Date()
+
+    /// The process a result is about, if it is still running.
+    private func process(of result: OpenFileMatch) -> ProcessItem? {
+        guard let p = ProcessStore.shared.item(pid: result.pid), p.record.startTime <= searchedAt.timeIntervalSince1970 else {
+            return nil
+        }
+        return p
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -59,7 +70,7 @@ struct FindView: View {
                     let m = NSMenu()
                     guard let r = rows.first else { return m }
                     m.add("Go to Process") { ProcessSelection.shared.reveal(pid: r.pid) }
-                    if let p = ProcessStore.shared.item(pid: r.pid) {
+                    if let p = process(of: r) {
                         m.add("Process Properties") { PropertiesWindow.open(p) }
                         m.add("Terminate Process") { ProcessActions.terminate([p]) }
                     }
@@ -90,6 +101,7 @@ struct FindView: View {
             let response = await Task.detached { Elevation.shared.perform(.searchOpenFiles(query: q, includeLibraries: libs, regex: regex)) }.value
             if case .openFiles(let h) = response {
                 results = h
+                searchedAt = Date()
                 message = "\(h.count) results in \(Set(h.map(\.pid)).count) processes"
             } else {
                 results = []
