@@ -33,8 +33,11 @@ final class NetworkUsageTests: XCTestCase {
 
     func testSampleRunsNettop() throws {
         let sample = try XCTUnwrap(NetworkUsage.sample())
-        // The kernel always reports itself.
-        XCTAssertNotNil(sample[0])
         print("processes with network counters:", sample.count)
+        // The kernel always reports itself on a Mac. On GitHub's runners, which are virtual
+        // machines, nettop runs and leaves it out.
+        try XCTSkipIf(sample[0] == nil && ProcessInfo.processInfo.environment["GITHUB_ACTIONS"] != nil,
+                      "nettop lists no kernel_task on this runner")
+        XCTAssertNotNil(sample[0])
     }
 }
