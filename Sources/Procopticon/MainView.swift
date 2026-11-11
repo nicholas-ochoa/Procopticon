@@ -570,6 +570,35 @@ final class RegexSearchField: NSSearchField {
         let width = RegexSearchFieldCell.accessoryWidth
         regexButton.frame = NSRect(x: bounds.maxX - width - 6, y: bounds.minY, width: width, height: bounds.height)
         javaScriptButton.frame = regexButton.frame.offsetBy(dx: -width, dy: 0)
+        fitEditor()
+    }
+
+    override func textDidChange(_ notification: Notification) {
+        super.textDidChange(notification)
+        editorChanged()
+    }
+
+    /// The text being edited or its font changed, or editing has just begun.
+    func editorChanged() {
+        fitEditor()
+    }
+
+    /// Keeps the end of a long line from being cut off while it is edited.
+    ///
+    /// The field editor is given the width of the text area and keeps it; what is typed past that
+    /// width lies beyond the editor's edge and isn't drawn, however far the visible part scrolls.
+    /// (The cell's narrower text area, which makes room for the toggles, made that happen sooner.)
+    /// So the editor is kept as wide as its text, and the visible part scrolls to the insertion point.
+    func fitEditor() {
+        guard let editor = currentEditor() as? NSTextView, let visible = editor.superview, visible.superview === self else { return }
+        let font = editor.font ?? self.font ?? .systemFont(ofSize: NSFont.systemFontSize)
+        let text = (editor.string as NSString).size(withAttributes: [.font: font]).width
+        let padding = 2 * ((editor.textContainer?.lineFragmentPadding ?? 5) + editor.textContainerInset.width)
+        // A little more than the text, for the insertion point after its last character.
+        let wanted = max(visible.frame.width, (text + padding).rounded(.up) + 2)
+        guard abs(editor.frame.width - wanted) > 0.5 else { return }
+        editor.setFrameSize(NSSize(width: wanted, height: editor.frame.height))
+        editor.scrollRangeToVisible(editor.selectedRange())
     }
 
     private func updateButtons() {
@@ -593,6 +622,7 @@ final class RegexSearchField: NSSearchField {
             self.font = font
             (currentEditor() as? NSTextView)?.font = font
         }
+        editorChanged()
     }
 }
 
@@ -613,6 +643,17 @@ final class RegexSearchFieldCell: NSSearchFieldCell {
         var r = super.cancelButtonRect(forBounds: rect)
         r.origin.x -= accessoriesWidth
         return r
+    }
+
+    // Editing starts through one of these two; see `RegexSearchField.editorChanged`.
+    override func select(withFrame rect: NSRect, in controlView: NSView, editor textObj: NSText, delegate: Any?, start selStart: Int, length selLength: Int) {
+        super.select(withFrame: rect, in: controlView, editor: textObj, delegate: delegate, start: selStart, length: selLength)
+        (controlView as? RegexSearchField)?.editorChanged()
+    }
+
+    override func edit(withFrame rect: NSRect, in controlView: NSView, editor textObj: NSText, delegate: Any?, event: NSEvent?) {
+        super.edit(withFrame: rect, in: controlView, editor: textObj, delegate: delegate, event: event)
+        (controlView as? RegexSearchField)?.editorChanged()
     }
 
     // The field's accessibility element is this cell, which lists only the search and clear buttons;
