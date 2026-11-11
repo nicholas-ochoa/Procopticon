@@ -26,8 +26,9 @@ VARIANT=dev ./scripts/build-app.sh   # "Procopticon Dev.app", with its own setti
 ```
 
 `swift run Procopticon` works for most things. Notifications, the app icon and the About panel's
-license texts need the bundle from `build-app.sh`. The README's *Building* section lists launch
-arguments that open a particular window, which helps when testing one.
+license texts need the bundle from `build-app.sh`. The reference lists
+[launch arguments](docs/REFERENCE.md#launch-arguments) that open a particular window, which helps
+when testing one.
 
 Releases are built with `scripts/release.sh`, which needs the maintainer's Developer ID certificate.
 The *Release* workflow (`.github/workflows/release.yml`) runs it on GitHub and publishes the disk
@@ -35,7 +36,7 @@ image. You don't need either to contribute.
 
 ## Where things go
 
-The README's *Layout* section describes each target. The rules that matter most:
+`Package.swift` lists the targets. The rules that matter most:
 
 - **`ProcopticonCore`** has the samplers, parsers and the privileged request protocol, and no UI.
   Anything that parses a tool's output or a file belongs here, as a function that takes text or
@@ -58,7 +59,8 @@ The README's *Layout* section describes each target. The rules that matter most:
 - Fixes and parsers come with a unit test in `Tests/ProcopticonCoreTests`.
 - User-facing text follows the Mac's conventions (title-case menu items, sentence-case labels,
   `▸` for menu paths), and every control has a tooltip.
-- Update the README when you add or change something a user can see.
+- Update `docs/REFERENCE.md` when you add or change something a user can see, and the README when
+  its summary no longer fits.
 
 ## Commits and pull requests
 
