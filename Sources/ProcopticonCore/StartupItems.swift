@@ -338,7 +338,7 @@ public enum StartupItems {
                 path = URL(string: p)?.path
             }
             let disposition = f["Disposition"].map { d -> [String] in
-                guard let open = d.firstIndex(of: "["), let close = d.firstIndex(of: "]") else { return [] }
+                guard let open = d.firstIndex(of: "["), let close = d.firstIndex(of: "]"), open < close else { return [] }
                 return d[d.index(after: open)..<close].split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
             } ?? []
             var status = disposition.contains("enabled") ? "Enabled" : (disposition.contains("disabled") ? "Disabled" : "")
@@ -347,7 +347,7 @@ public enum StartupItems {
             }
             var details: [String] = []
             if let plist = null(f["URL"]), plist.hasSuffix(".plist") { details.append(plist) }
-            if let flags = f["Flags"], let open = flags.firstIndex(of: "["), let close = flags.firstIndex(of: "]") {
+            if let flags = f["Flags"], let open = flags.firstIndex(of: "["), let close = flags.firstIndex(of: "]"), open < close {
                 let words = flags[flags.index(after: open)..<close].trimmingCharacters(in: .whitespaces)
                 if !words.isEmpty { details.append(words) }
             }

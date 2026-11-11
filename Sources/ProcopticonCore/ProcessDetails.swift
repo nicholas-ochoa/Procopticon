@@ -439,7 +439,8 @@ public enum ProcessDetails {
             let parts = line.split(separator: " ", omittingEmptySubsequences: true)
             guard parts.count >= 2 else { continue }
             let range = parts[1].split(separator: "-")
-            guard range.count == 2, let start = UInt64(range[0], radix: 16), let end = UInt64(range[1], radix: 16) else { continue }
+            guard range.count == 2, let start = UInt64(range[0], radix: 16), let end = UInt64(range[1], radix: 16),
+                  end >= start else { continue }
             guard let slash = line.range(of: " /") else { continue }
             let path = String(line[line.index(after: slash.lowerBound)...]).trimmingCharacters(in: .whitespaces)
             if modules[path] == nil {
