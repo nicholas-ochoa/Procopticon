@@ -49,13 +49,15 @@ enum ProcessActions {
         return (targets, targets.filter { !roots.contains($0.key) }.count, note)
     }
 
-    static func signal(_ items: [ProcessItem], _ sig: Int32, verb: String, explanation: String, confirm: Bool = true) {
+    /// `kind` is what "Don't ask again" covers (see `Alerts.confirm`); the verb unless given.
+    static func signal(_ items: [ProcessItem], _ sig: Int32, verb: String, explanation: String, confirm: Bool = true,
+                       kind: String? = nil) {
         let targets = items.filter { !$0.isRemoved }
         guard !targets.isEmpty else { return }
         if confirm {
             let warning = criticalWarning(targets)
             let ok = Alerts.confirm("Do you want to \(verb.lowercased()) \(describe(targets))?",
-                                    message: explanation + warning, button: verb, kind: verb, critical: !warning.isEmpty)
+                                    message: explanation + warning, button: verb, kind: kind ?? verb, critical: !warning.isEmpty)
             guard ok else { return }
         }
         Task {
@@ -171,7 +173,14 @@ enum ProcessActions {
             Alerts.error("Unknown signal", "\"\(text)\" is not a valid signal.")
             return
         }
-        signal(items, sig, verb: "Send Signal", explanation: "Signal \(sig) will be sent.")
+        signal(items, sig, verb: "Send Signal", explanation: "Signal \(sig) will be sent.", kind: signalKind(sig))
+    }
+
+    /// Each signal is its own kind of action: not being asked again about SIGUSR1 mustn't also
+    /// mean not being asked about SIGKILL.
+    static func signalKind(_ sig: Int32) -> String {
+        let name = signals.first { $0.0 == sig }?.1.components(separatedBy: " ").first
+        return "Send \(name ?? "Signal \(sig)")"
     }
 
     static func revealInFinder(_ p: ProcessItem) {

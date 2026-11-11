@@ -132,7 +132,8 @@ enum ProcessMenu {
         }
         menu.submenu("Send Signal", image: "antenna.radiowaves.left.and.right") { sub in
             for (sig, title) in ProcessActions.signals {
-                sub.add(title) { ProcessActions.signal(live, sig, verb: "Send Signal", explanation: "\(title) will be sent.") }
+                sub.add(title) { ProcessActions.signal(live, sig, verb: "Send Signal", explanation: "\(title) will be sent.",
+                                                        kind: ProcessActions.signalKind(sig)) }
             }
             sub.addItem(.separator())
             sub.add("Other Signal…") { ProcessActions.customSignal(live) }
