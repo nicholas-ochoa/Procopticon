@@ -167,6 +167,16 @@ struct FileActivityTab: View {
         VStack(spacing: 0) {
             toolbar
             Divider()
+            if let error = model.error, !model.events.isEmpty {
+                Label("Tracing stopped: \(error)", systemImage: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+                    .lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 5)
+                    .help(error)
+                Divider()
+            }
             content
         }
         .onAppear {
@@ -178,7 +188,8 @@ struct FileActivityTab: View {
 
     @ViewBuilder
     private var content: some View {
-        if let error = model.error {
+        // What was collected before tracing stopped stays on screen, under a line saying why it ended.
+        if let error = model.error, model.events.isEmpty {
             ContentUnavailableView("Tracing stopped", systemImage: "exclamationmark.triangle", description: Text(error))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if !model.running, !model.starting, model.events.isEmpty {
