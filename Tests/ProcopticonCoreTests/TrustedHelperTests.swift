@@ -22,11 +22,14 @@ final class TrustedHelperTests: XCTestCase {
         let copy = "/var/run/procopticon/helper-4321"
         let steps = script.components(separatedBy: "; ")
         // The bundled helper is only ever copied.
-        XCTAssertTrue(script.contains("/bin/cp -X '\(helper)' \(copy)"))
+        XCTAssertTrue(script.contains("/usr/bin/head -c 67108864 '\(helper)' > \(copy) && /bin/chmod 700 \(copy)"))
+        // Nobody but root may read the copy at any point: it may not be the helper at all.
+        XCTAssertTrue(script.hasPrefix("umask 077; "))
+        XCTAssertFalse(script.contains("chmod 755 \(copy)"))
         XCTAssertEqual(steps.last, "\(copy) --serve --client-pid 4321 --client-uid 501 >/dev/null 2>&1 &")
         XCTAssertFalse(steps.contains { $0.hasPrefix("'\(helper)'") })
         // The signature check comes after the copy and before the copy runs.
-        let copied = try? XCTUnwrap(steps.firstIndex { $0.hasPrefix("/bin/cp") })
+        let copied = try? XCTUnwrap(steps.firstIndex { $0.hasPrefix("/usr/bin/head") })
         let checked = try? XCTUnwrap(steps.firstIndex { $0.contains("/usr/bin/codesign --verify --strict '-R=anchor apple generic' \(copy)") })
         XCTAssertNotNil(copied)
         XCTAssertNotNil(checked)
@@ -39,7 +42,7 @@ final class TrustedHelperTests: XCTestCase {
     func testStartScriptWithoutATeamSkipsOnlyTheSignatureCheck() {
         let script = TrustedHelper.startScript(helper: "/tmp/helper", clientPid: 7, clientUid: 501, requirement: nil)
         XCTAssertFalse(script.contains("codesign"))
-        XCTAssertTrue(script.contains("/bin/cp -X /tmp/helper /var/run/procopticon/helper-7"))
+        XCTAssertTrue(script.contains("/usr/bin/head -c 67108864 /tmp/helper > /var/run/procopticon/helper-7"))
         XCTAssertTrue(script.hasSuffix("/var/run/procopticon/helper-7 --serve --client-pid 7 --client-uid 501 >/dev/null 2>&1 &"))
     }
 

@@ -47,7 +47,8 @@ unsigned libraries, no debugger attach).
 - **A replaced helper.** A program running as you that swaps the helper in the bundle for its own
   doesn't get it run as root: the copy root makes fails the signature check, and nothing is
   started. The team is read from the kernel's record of the running app, not from the files on
-  disk. Once running, the helper only ever re-runs root's copy of itself.
+  disk. Only root can read the copy, so a link swapped in for the helper doesn't hand over a file
+  only root may read either. Once running, the helper only ever re-runs root's copy of itself.
 - **Reports written as root.** Tools that write a report to a file (`sample`, `spindump`) write it
   into a new directory only root can open, and the text is passed back to the app, so there is no
   file in a shared place for another program to redirect.

@@ -44,19 +44,27 @@ public enum TrustedHelper {
         ownIdentity().flatMap { requirement(team: $0.team, appIdentifier: $0.identifier) }
     }
 
+    /// The most of the bundle's helper that root copies: several times its size. What stands in
+    /// its place when root reads it could be anything, of any length.
+    static let copyLimit = 64 * 1024 * 1024
+
     /// The commands root runs to start the helper: copy it, check the copy, run the copy. The
     /// check is on the copy, which nobody else can change, so there is nothing to swap in between.
+    ///
+    /// The file in the bundle can be swapped for a link to something only root may read between
+    /// any test of it and the copy, so the copy never depends on such a test: only root can read
+    /// the copy (umask 077, mode 0700), before the check and after it, and it has a size limit.
     public static func startScript(helper: String, clientPid: pid_t, clientUid: uid_t, requirement: String?) -> String {
         let directory = HelperSocket.directory
         let copy = path(clientPid: clientPid).shellQuoted
         let source = helper.shellQuoted
         var steps = [
-            "umask 022",
+            "umask 077",
             // /var/run is root's, so this directory can only be one root made.
             "/bin/mkdir -p \(directory) && /usr/sbin/chown 0:0 \(directory) && /bin/chmod 755 \(directory) || exit 1",
             "/bin/rm -f \(copy)",
             "if [ -L \(source) ] || [ ! -f \(source) ]; then echo 'The privileged helper is missing.' >&2; exit 1; fi",
-            "/bin/cp -X \(source) \(copy) && /bin/chmod 755 \(copy) || exit 1",
+            "/usr/bin/head -c \(copyLimit) \(source) > \(copy) && /bin/chmod 700 \(copy) || exit 1",
         ]
         if let requirement {
             steps.append("if ! /usr/bin/codesign --verify --strict \(("-R=" + requirement).shellQuoted) \(copy) >/dev/null 2>&1; then "
@@ -64,6 +72,8 @@ public enum TrustedHelper {
                 + "echo 'The privileged helper is not signed by the developer of this copy of Procopticon, so it was not started.' >&2; "
                 + "exit 1; fi")
         }
+        // The helper and what it starts get the usual umask back.
+        steps.append("umask 022")
         steps.append("\(copy) --serve --client-pid \(clientPid) --client-uid \(clientUid) >/dev/null 2>&1 &")
         return steps.joined(separator: "; ")
     }
