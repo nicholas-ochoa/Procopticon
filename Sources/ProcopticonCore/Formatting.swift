@@ -61,14 +61,16 @@ public enum Fmt {
 
     /// h:mm:ss.ms style used for CPU time columns.
     public static func duration(seconds: Double) -> String {
-        let total = max(0, seconds)
-        let hours = Int(total) / 3600
-        let minutes = (Int(total) % 3600) / 60
-        let secs = total.truncatingRemainder(dividingBy: 60)
+        // In whole milliseconds, so that rounding carries: 59.9996 s is 1:00.000, not 0:60.000.
+        let clamped = seconds.isFinite ? min(max(0, seconds), 1e15) : 0
+        let milliseconds = Int64((clamped * 1000).rounded())
+        let hours = milliseconds / 3_600_000
+        let minutes = milliseconds / 60_000 % 60
+        let secs = Double(milliseconds % 60_000) / 1000
         if hours > 0 {
-            return String(format: "%d:%02d:%06.3f", hours, minutes, secs)
+            return String(format: "%lld:%02lld:%06.3f", hours, minutes, secs)
         }
-        return String(format: "%d:%06.3f", minutes, secs)
+        return String(format: "%lld:%06.3f", minutes, secs)
     }
 
     /// "3 days, 4 hours" style.

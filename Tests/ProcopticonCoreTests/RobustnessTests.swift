@@ -87,6 +87,16 @@ final class RobustnessTests: XCTestCase {
         XCTAssertLessThanOrEqual(result.strings.count, 5)
     }
 
+    func testCPUTimeRoundsIntoTheNextMinute() {
+        XCTAssertEqual(Fmt.duration(seconds: 59.9996), "1:00.000")
+        XCTAssertEqual(Fmt.duration(seconds: 59.9994), "0:59.999")
+        XCTAssertEqual(Fmt.duration(seconds: 3599.9999), "1:00:00.000")
+        XCTAssertEqual(Fmt.duration(seconds: 3725.5), "1:02:05.500")
+        XCTAssertEqual(Fmt.duration(seconds: 0), "0:00.000")
+        XCTAssertEqual(Fmt.duration(seconds: -.infinity), "0:00.000")
+        XCTAssertFalse(Fmt.duration(seconds: .greatestFiniteMagnitude).isEmpty)
+    }
+
     func testAlertThresholdsOfAnySize() {
         XCTAssertEqual(AlertRule.number(40), "40")
         XCTAssertEqual(AlertRule.number(2.5), "2.5")
