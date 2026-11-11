@@ -217,13 +217,38 @@ enum ProcessActions {
         guard Alerts.confirm("Do you want to restart \(describe([p]))?",
                              message: "The process will be terminated and started again with the same command line." + criticalWarning([p]),
                              button: "Restart", kind: "Restart", critical: !criticalWarning([p]).isEmpty) else { return }
-        let args = Array((p.record.arguments ?? [path]).dropFirst())
+        // A process that replaced its arguments with a title before it was first seen can't be
+        // started the way it was: what it was started with is gone.
+        guard !p.record.argumentsOverwritten else {
+            Alerts.error("Unable to restart \(p.name)",
+                         "It replaced its arguments with its title, so the command line it was started with isn't known. It was left running.")
+            return
+        }
+        let known = p.record.commandLineArguments
         let isApp = isApplication(p)
         let appPath = BundleInfoCache.outermostApplicationPath(path)
         let key = p.key
         let owner = p.record.uid
         let name = p.name
         Task {
+            // The arguments of another user's process can't be read without root. Starting it
+            // again without them would run something else under the same name, so they are read
+            // through the helper first, and without them the process is left running.
+            var all = known
+            if all == nil {
+                let reply = await Elevation.shared.performElevated(.arguments(pid: key.pid), requiresRoot: true)
+                if case .arguments(let read) = reply, key.isRunning {
+                    all = read.arguments
+                } else {
+                    if reply.error != .cancelled {
+                        Alerts.error("Unable to restart \(name)",
+                                     "Its arguments couldn't be read, so it couldn't be started again the same way. It was left running."
+                                        + (reply.error.map { "\n\n\($0.message)" } ?? ""))
+                    }
+                    return
+                }
+            }
+            let args = Array((all ?? []).dropFirst())
             let existing = Set(runningCopies(of: path))
             let r = await Elevation.shared.performElevated(.signal(pid: key.pid, signal: SIGTERM, startMicros: key.startMicros))
             if let e = r.error {
@@ -248,20 +273,17 @@ enum ProcessActions {
             }
             do {
                 if isApp, let appPath {
-                    if geteuid() == 0, owner != 0 {
-                        // From a root instance the application would open as root.
-                        try launch("/usr/bin/open", ["-a", appPath] + (args.isEmpty ? [] : ["--args"] + args), asUser: owner)
+                    if owner != geteuid() {
+                        // Opened from here, the application would belong to the user Procopticon runs as.
+                        try await launch("/usr/bin/open", ["-a", appPath] + (args.isEmpty ? [] : ["--args"] + args), asOwner: owner)
                     } else {
                         let config = NSWorkspace.OpenConfiguration()
                         config.arguments = args
                         config.createsNewApplicationInstance = false
                         _ = try await NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: appPath), configuration: config)
                     }
-                } else if owner == 0, geteuid() != 0 {
-                    let r = await Elevation.shared.performElevated(.launch(path: path, arguments: args), requiresRoot: true)
-                    if let e = r.error, e != .cancelled { Alerts.error("Unable to restart \(name)", e.message) }
                 } else {
-                    try launch(path, args, asUser: owner)
+                    try await launch(path, args, asOwner: owner)
                 }
             } catch {
                 Alerts.error("Unable to restart \(name)", error.localizedDescription)
@@ -276,6 +298,21 @@ enum ProcessActions {
             guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0, String(cString: buffer) == path else { return nil }
             return ProcessKey.current(pid: pid)
         }
+    }
+
+    /// Starts `path` as the user who owned the process being restarted. Without root that is only
+    /// possible for the user's own processes; the rest goes through the helper, which starts
+    /// root's directly and anyone else's through `sudo -u`.
+    private static func launch(_ path: String, _ arguments: [String], asOwner uid: uid_t) async throws {
+        if geteuid() == 0 || uid == geteuid() {
+            try launch(path, arguments, asUser: uid)
+            return
+        }
+        let request: PrivilegedRequest = uid == 0
+            ? .launch(path: path, arguments: arguments)
+            : .launch(path: "/usr/bin/sudo", arguments: ["-n", "-H", "-u", "#\(uid)", "--", path] + arguments)
+        let reply = await Elevation.shared.performElevated(request, requiresRoot: true)
+        if let error = reply.error, error != .cancelled { throw error }
     }
 
     /// Starts `path` detached, as the user `uid`. Procopticon running as root ("sudo mode") would
