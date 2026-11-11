@@ -9,6 +9,13 @@ struct ProcopticonApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     @ObservedObject private var settings = AppSettings.shared
 
+    init() {
+        // Ahead of the window, not after it: the first sample takes a few hundred milliseconds,
+        // and started from applicationDidFinishLaunching it only began once the window had been
+        // built, which then stood empty for that long.
+        AppDelegate.startSampling()
+    }
+
     var body: some Scene {
         Window("Procopticon", id: "main") {
             MainView()
@@ -29,6 +36,22 @@ struct ProcopticonApp: App {
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    /// Gives the process store what it needs from the app and its settings, and starts it. Called
+    /// as the app starts (see `ProcopticonApp.init`); calling it again does nothing more.
+    static func startSampling() {
+        let store = ProcessStore.shared
+        guard store.expressionEngine == nil else { return }
+        store.expressionEngine = ProcessExpressionEngine()
+        store.applicationPids = ApplicationPids.current
+        store.applicationResponsiveness = ApplicationResponsiveness.current
+        // Mach ports are only counted while their column is showing; see OutlineTable's visibility keys.
+        store.wantsPortCounts = {
+            UserDefaults.standard.stringArray(forKey: "ProcessTree.shownColumns")?.contains("ports") == true
+        }
+        AppSettings.shared.apply()
+        store.start()
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate()
@@ -36,17 +59,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         IsolatedScanner.executablePath = geteuid() == 0
             ? TrustedHelper.installCopy(of: Elevation.helperURL.path)
             : Elevation.helperURL.path
-        ProcessStore.shared.expressionEngine = ProcessExpressionEngine()
-        ProcessStore.shared.applicationPids = ApplicationPids.current
-        ProcessStore.shared.applicationResponsiveness = ApplicationResponsiveness.current
-        // Mach ports are only counted while their column is showing; see OutlineTable's visibility keys.
-        ProcessStore.shared.wantsPortCounts = {
-            UserDefaults.standard.stringArray(forKey: "ProcessTree.shownColumns")?.contains("ports") == true
-        }
-        AppSettings.shared.apply()
         AppSettings.shared.applyAppearance()
         AppSettings.shared.applyAccentColor()
-        ProcessStore.shared.start()
+        Self.startSampling()
         AlertMonitor.shared.start()
         SensorMonitor.shared.start()
         // Prefetch launchd jobs in the background so the Services tab opens instantly.

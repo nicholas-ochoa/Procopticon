@@ -596,6 +596,9 @@ public final class ProcessStore: ObservableObject {
     private func merge(_ records: [ProcessRecord], gpuTimes: [Int32: UInt64], network: [Int32: NetworkCounters]?,
                        responsiveness: (checked: Set<Int32>, unresponsive: Set<Int32>), assertions: [Int32: [PowerAssertion]],
                        sensors: SensorSnapshot, time: Double, options: BuildOptions) {
+        // Every process is new to the first sample, and reading each one's bundle in turn as its
+        // state was created was the longest part of it.
+        BundleInfoCache.shared.preload(records.lazy.filter { self.states[$0.key] == nil }.compactMap(\.path))
         var seen = Set<ProcessKey>()
         seen.reserveCapacity(records.count)
         for r in records {

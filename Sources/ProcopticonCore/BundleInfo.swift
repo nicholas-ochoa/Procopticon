@@ -48,6 +48,23 @@ public final class BundleInfoCache: @unchecked Sendable {
         return info
     }
 
+    /// Reads the information for the executables among `executablePaths` not read before, several
+    /// at once, so that `info(for:)` then answers from the cache. For many at a time (every process,
+    /// at launch): each one is a few file reads, which add up to a few hundred milliseconds in turn.
+    public func preload(_ executablePaths: some Sequence<String>) {
+        lock.lock()
+        let missing = Array(Set(executablePaths).filter { cache[$0] == nil })
+        lock.unlock()
+        // A few new processes aren't worth the threads; `info(for:)` reads those as they come.
+        guard missing.count >= 8 else { return }
+        DispatchQueue.concurrentPerform(iterations: missing.count) { i in
+            let info = Self.load(missing[i])
+            lock.lock()
+            cache[missing[i]] = info
+            lock.unlock()
+        }
+    }
+
     static let bundleExtensions: Set<String> = ["app", "appex", "xpc", "framework", "bundle", "plugin", "kext", "systemextension", "dext", "prefPane", "saver", "qlgenerator", "mdimporter"]
 
     /// Walks up from an executable to the innermost enclosing bundle directory.
