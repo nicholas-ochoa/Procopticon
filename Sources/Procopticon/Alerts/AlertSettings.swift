@@ -14,8 +14,17 @@ struct AlertSettings: View {
             HStack(alignment: .top, spacing: 0) {
                 ruleList
                 Group {
-                    if let index = settings.alertRules.firstIndex(where: { $0.id == selection }) {
-                        AlertRuleEditor(rule: $settings.alertRules[index])
+                    if let current = settings.alertRules.first(where: { $0.id == selection }) {
+                        // Bound by the rule's id, not its place in the list: a field that commits
+                        // its text as the rule is removed would write past the end of the list,
+                        // or into the rule that moved into its place.
+                        AlertRuleEditor(rule: Binding(
+                            get: { settings.alertRules.first { $0.id == current.id } ?? current },
+                            set: { edited in
+                                if let index = settings.alertRules.firstIndex(where: { $0.id == current.id }) {
+                                    settings.alertRules[index] = edited
+                                }
+                            }))
                     } else {
                         VStack(spacing: 8) {
                             Text("Select a rule to edit it, or click + to add one.").foregroundStyle(.secondary)
