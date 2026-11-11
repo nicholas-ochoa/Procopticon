@@ -7,7 +7,7 @@ so small, focused changes are the ones most likely to be reviewed quickly.
 
 - **Bugs:** open an issue with your macOS version, Mac model (Apple silicon or Intel), the mode
   Procopticon was in (Standard, Elevated helper or Root) and the steps that show the problem. For a
-  crash, attach the report from *Tools ▸ Crash Reports*.
+  crash, attach the report from *Tools ▸ Crash Reports…*.
 - **Security problems:** don't open an issue. See [SECURITY.md](SECURITY.md).
 - **Larger changes** (a new tab or tool, anything touching the privileged helper): open an issue
   first so the approach can be agreed on before you write it.
