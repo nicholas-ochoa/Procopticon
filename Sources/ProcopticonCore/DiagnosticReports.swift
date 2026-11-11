@@ -309,7 +309,7 @@ public enum DiagnosticReports {
                 let size = (image["size"] as? NSNumber)?.uint64Value ?? 0
                 let name = image["name"] as? String ?? "???"
                 let version = image["CFBundleShortVersionString"].map { " (\($0))" } ?? ""
-                out.append(String(format: "0x%llx - 0x%llx ", base, base + max(size, 1) - 1)
+                out.append(String(format: "0x%llx - 0x%llx ", base, base &+ max(size, 1) &- 1)
                            + "\(name)\(version) <\(image["uuid"] ?? "")> \(image["path"] ?? "")")
             }
         }
