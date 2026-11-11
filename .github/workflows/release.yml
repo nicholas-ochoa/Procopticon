@@ -6,9 +6,10 @@
 #   DEVELOPER_ID_P12_BASE64    the "Developer ID Application" certificate with its private key,
 #                              exported from Keychain Access as a .p12 and base64-encoded
 #   DEVELOPER_ID_P12_PASSWORD  the password given to that export
-#   NOTARY_APPLE_ID            the Apple ID that notarizes
-#   NOTARY_PASSWORD            an app-specific password for it (account.apple.com ▸ Sign-In and Security)
-# The notarization team is the certificate's.
+#   NOTARY_KEY                 an App Store Connect API key that notarizes: the text of its .p8 file
+#                              (appstoreconnect.apple.com ▸ Users and Access ▸ Integrations)
+#   NOTARY_KEY_ID              the key's ID
+#   NOTARY_ISSUER_ID           the issuer ID shown above the list of keys
 name: Release
 
 on:
@@ -42,8 +43,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           P12: ${{ secrets.DEVELOPER_ID_P12_BASE64 }}
           P12_PASSWORD: ${{ secrets.DEVELOPER_ID_P12_PASSWORD }}
-          APPLE_ID: ${{ secrets.NOTARY_APPLE_ID }}
-          NOTARY_PASSWORD: ${{ secrets.NOTARY_PASSWORD }}
+          NOTARY_KEY: ${{ secrets.NOTARY_KEY }}
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
         run: |
           if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "::error::The version must look like 1.2.3, not '$VERSION'."
@@ -54,7 +56,7 @@ jobs:
             exit 1
           fi
           missing=0
-          for name in P12 P12_PASSWORD APPLE_ID NOTARY_PASSWORD; do
+          for name in P12 P12_PASSWORD NOTARY_KEY NOTARY_KEY_ID NOTARY_ISSUER_ID; do
             if [ -z "${!name}" ]; then
               missing=1
             fi
@@ -103,14 +105,15 @@ jobs:
 
       - name: Save the notarization credentials
         env:
-          APPLE_ID: ${{ secrets.NOTARY_APPLE_ID }}
-          NOTARY_PASSWORD: ${{ secrets.NOTARY_PASSWORD }}
+          NOTARY_KEY: ${{ secrets.NOTARY_KEY }}
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
         run: |
-          # "Developer ID Application: Name (TEAMID)"
-          TEAM_ID="$(security find-identity -v -p codesigning "$KEYCHAIN" \
-            | sed -n 's/.*"Developer ID Application: .*(\([A-Z0-9]*\))".*/\1/p' | head -1)"
-          xcrun notarytool store-credentials procopticon-notary --apple-id "$APPLE_ID" --team-id "$TEAM_ID" \
-            --password "$NOTARY_PASSWORD" --keychain "$KEYCHAIN" >/dev/null
+          # notarytool wants the key as a file; the keychain keeps its own copy.
+          (umask 077; printf '%s\n' "$NOTARY_KEY" > "$RUNNER_TEMP/notary-key.p8")
+          xcrun notarytool store-credentials procopticon-notary --key "$RUNNER_TEMP/notary-key.p8" \
+            --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER_ID" --keychain "$KEYCHAIN" >/dev/null
+          rm -f "$RUNNER_TEMP/notary-key.p8"
 
       - name: Build, sign and notarize
         env:
