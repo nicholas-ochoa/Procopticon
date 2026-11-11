@@ -15,6 +15,12 @@ final class FileActivityModel: ObservableObject {
     @Published var paused = false
 
     static let capacity = 20_000
+    /// The most files summarized. A process that touches new paths all day (a build, a cache)
+    /// would otherwise grow the summary without end; past this, the files not touched for the
+    /// longest are forgotten.
+    static let fileCapacity = 50_000
+    /// When each summarized file was last touched, as the id of the event.
+    private var fileSeen: [String: Int] = [:]
     private let pid: Int32
     private let name: String
     private var stream: ToolStream?
@@ -67,6 +73,7 @@ final class FileActivityModel: ObservableObject {
     func clear() {
         events = []
         files = [:]
+        fileSeen = [:]
         batch = []
         droppedBytes = 0
         revision &+= 1
@@ -107,9 +114,21 @@ final class FileActivityModel: ObservableObject {
             if batch.count > Self.capacity { batch.removeFirst(batch.count - Self.capacity) }
             return
         }
+        // One assignment to `files`, so its observers hear of the batch once.
+        var summary = files
         for e in batch where !e.path.isEmpty {
-            files[e.path, default: FileActivitySummary(path: e.path)].add(e)
+            summary[e.path, default: FileActivitySummary(path: e.path)].add(e)
+            fileSeen[e.path] = e.id
         }
+        if summary.count > Self.fileCapacity {
+            // A tenth at a time, so this sort isn't repeated for every new path.
+            let oldest = fileSeen.sorted { $0.value < $1.value }.prefix(summary.count - Self.fileCapacity * 9 / 10)
+            for (path, _) in oldest {
+                summary.removeValue(forKey: path)
+                fileSeen.removeValue(forKey: path)
+            }
+        }
+        files = summary
         events.append(contentsOf: batch)
         batch = []
         if events.count > Self.capacity {
