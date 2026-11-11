@@ -78,6 +78,9 @@ final class PowerMetricsMonitor: ObservableObject {
         case .finished(let status, let errorOutput):
             stream = nil
             running = false
+            // The last sample would otherwise stay on screen as if it were current, with nothing
+            // to start measuring again; without it the view offers to.
+            latest = nil
             if status != 0, !errorOutput.isEmpty {
                 error = errorOutput.trimmingCharacters(in: .whitespacesAndNewlines)
             }
