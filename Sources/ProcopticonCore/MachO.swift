@@ -565,7 +565,9 @@ private extension Data {
         guard o >= 0, o < count, max > 0 else { return "" }
         let end = Swift.min(count, o + max)
         var e = o
-        withUnsafeBytes { raw in
+        // The type is spelled out for Xcode 26's compiler, which otherwise can't choose between
+        // this and Data's deprecated typed-pointer closure.
+        withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
             while e < end, raw[e] != 0 { e += 1 }
         }
         return String(decoding: self[o..<e], as: UTF8.self)
