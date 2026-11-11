@@ -279,6 +279,9 @@ int si_pid_cwd(pid_t pid, char *buf, int size) {
 }
 
 int si_fd_count(pid_t pid) {
+    // Cleared first: a process with no descriptors answers 0 without touching errno, and an
+    // error left by an earlier call would be reported as this one's.
+    errno = 0;
     int size = proc_pidinfo(pid, PROC_PIDLISTFDS, 0, NULL, 0);
     if (size <= 0) {
         return errno ? -errno : 0;
@@ -339,6 +342,9 @@ static void si_fill_socket(si_fd_info *info, struct socket_fdinfo *si) {
 }
 
 int si_pid_fds(pid_t pid, si_fd_info *out, int max, int socketsOnly) {
+    // Cleared first: a process with no descriptors answers 0 without touching errno, and an
+    // error left by an earlier call would be reported as this one's.
+    errno = 0;
     int size = proc_pidinfo(pid, PROC_PIDLISTFDS, 0, NULL, 0);
     if (size <= 0) {
         return errno ? -errno : 0;
