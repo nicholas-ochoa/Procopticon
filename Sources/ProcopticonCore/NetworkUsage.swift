@@ -66,7 +66,9 @@ public enum NetworkUsage {
             if fields.last == "" {
                 fields.removeLast()
             }
-            if fields.first == "" || fields.first == "time" {
+            // A header ends in a column name and a row in a number, which tells them apart when
+            // a process's name starts with a comma (",x.1234,1,2,…" has an empty first field too).
+            if fields.first == "" || fields.first == "time", fields.last.map({ UInt64($0) == nil }) ?? true {
                 header = fields
                 continue
             }

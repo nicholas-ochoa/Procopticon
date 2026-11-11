@@ -9,6 +9,8 @@ final class NetworkUsageTests: XCTestCase {
         launchd.1,0,0,0,0,
         Google Chrome Helper (Renderer).11453,10,2000,5,300,
         odd, name.v2.42,1,2,3,4,
+        ,comma first.77,5,6,7,8,
+        after.78,1,1,1,1,
 
         """
         let parsed = NetworkUsage.parse(text)
@@ -16,6 +18,9 @@ final class NetworkUsageTests: XCTestCase {
         XCTAssertEqual(parsed[1], NetworkCounters())
         XCTAssertEqual(parsed[11453], NetworkCounters(bytesIn: 2000, bytesOut: 300, packetsIn: 10, packetsOut: 5))
         XCTAssertEqual(parsed[42], NetworkCounters(bytesIn: 2, bytesOut: 4, packetsIn: 1, packetsOut: 3))
+        // A name starting with a comma is a row, not a new header that hides the rows after it.
+        XCTAssertEqual(parsed[77], NetworkCounters(bytesIn: 6, bytesOut: 8, packetsIn: 5, packetsOut: 7))
+        XCTAssertEqual(parsed[78], NetworkCounters(bytesIn: 1, bytesOut: 1, packetsIn: 1, packetsOut: 1))
     }
 
     func testParsesTimeColumnHeader() {
