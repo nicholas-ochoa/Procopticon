@@ -9,6 +9,8 @@ It's written in Swift and SwiftUI, with a small C layer over `libproc`, `sysctl`
 and IOKit. The large lists are AppKit `NSOutlineView`s so that thousands of rows can refresh every
 second.
 
+![The process tree in Procopticon's main window](docs/screenshots/processes.png)
+
 ## Features
 
 ### Process list
@@ -122,6 +124,8 @@ list.
 
 A process's properties open in their own window, with a sidebar of sections:
 
+![The General section of a process's properties](docs/screenshots/process-properties.png)
+
 | Tab | Contents |
 | --- | --- |
 | General | Image, command line, process title, working directory, parent and responsible process, user and code signature. For downloaded software, its quarantine flag: which app downloaded it and when, whether you approved opening it, and the download URL and page when recorded |
@@ -155,6 +159,8 @@ The Disk tab shows per-process disk throughput and totals, with history graphs.
 
 ### System Information
 
+![The Summary section of System Information](docs/screenshots/system-information.png)
+
 * Summary: the Mac's model name ("MacBook Pro (16-inch, Nov 2023)") and identifier, macOS, processor,
   memory and uptime.
 * CPU: total plus one graph per core, labeled P or E from each core's type in the IORegistry. Hovering
@@ -183,6 +189,8 @@ GPU and memory (wired, compressed and app memory). Total CPU, network and disk g
 the graphs from the ⋯ button in the title bar or by right-clicking. The graphs rearrange into columns
 as you resize the window. It stays above other windows unless you turn off *Always on Top* in the same
 menu, and it reopens at launch if it was open when you quit.
+
+<img src="docs/screenshots/resource-history.png" alt="The Resource History window" width="340">
 
 ### Tools
 
@@ -399,6 +407,7 @@ Resources/AppIcon.icon      App icon (Icon Composer; open it there to edit). mac
                             Dark, Clear and Tinted styles; build-app.sh compiles it with actool.
 Resources/AppIcon-artwork.png  The flat artwork. scripts/split-icon.py splits it into the icon's layers (waveform,
                             blips, bezel, sweep, screen) and regenerates AppIcon.icon.
+docs/screenshots            The screenshots in this README
 ```
 
 ## Contributing
