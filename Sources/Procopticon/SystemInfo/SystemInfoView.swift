@@ -782,7 +782,13 @@ struct PowerPanel: View {
                     Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 5) {
                         InfoRow("Charge", String(format: "%.0f%%", b.percent))
                         InfoRow("Power source", b.onAC ? (b.charging ? "Power adapter (charging)" : "Power adapter") : "Battery")
-                        InfoRow("Time remaining", b.timeRemainingMinutes > 0 && b.timeRemainingMinutes < 65535 ? "\(b.timeRemainingMinutes / 60)h \(b.timeRemainingMinutes % 60)m" : "Calculating…")
+                        // While charging the estimate is the time until full. On the adapter and
+                        // not charging (full, or held by charge limiting) there is none to wait for.
+                        let estimated = b.timeRemainingMinutes > 0 && b.timeRemainingMinutes < 65535
+                        if estimated || !b.onAC || b.charging {
+                            InfoRow(b.charging ? "Time until full" : "Time remaining",
+                                    estimated ? "\(b.timeRemainingMinutes / 60)h \(b.timeRemainingMinutes % 60)m" : "Calculating…")
+                        }
                         InfoRow("Battery power", String(format: "%.2f W", b.watts))
                         InfoRow("Cycle count", "\(b.cycleCount)")
                         InfoRow("Health", b.designCapacity > 0 ? String(format: "%.0f%% (%d / %d mAh)", Double(b.maxCapacity) / Double(b.designCapacity) * 100, b.maxCapacity, b.designCapacity) : "")
