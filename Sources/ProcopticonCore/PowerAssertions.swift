@@ -97,6 +97,9 @@ public enum PowerAssertions {
 
     static func parse(_ d: [String: Any], owner: Int32) -> PowerAssertion {
         func number(_ key: String) -> Double? { (d[key] as? NSNumber)?.doubleValue }
+        // Whoever takes the assertion supplies these, and powerd passes them on unchecked: a
+        // value no PID or identifier can have is dropped, not converted (which would trap).
+        func integer<T: FixedWidthInteger>(_ key: String) -> T? { number(key).flatMap { T(exactly: $0.rounded()) } }
         func string(_ key: String) -> String? {
             guard let s = d[key] as? String, !s.isEmpty else { return nil }
             return s
@@ -105,7 +108,7 @@ public enum PowerAssertions {
         let type = string("AssertionTrueType") ?? requested
         let timeout = number("TimeoutSeconds").flatMap { $0 > 0 ? $0 : nil }
         return PowerAssertion(
-            id: Int(number("AssertionId") ?? 0),
+            id: integer("AssertionId") ?? 0,
             type: type,
             requestedType: requested != type && !requested.isEmpty ? requested : nil,
             name: string("AssertName") ?? "",
@@ -115,8 +118,8 @@ public enum PowerAssertions {
             timeout: timeout,
             timeLeft: timeout == nil ? nil : number("AssertTimeoutTimeLeft"),
             isOn: (number("AssertLevel") ?? 255) > 0,
-            ownerPid: Int32(number("AssertPID") ?? Double(owner)),
-            beneficiaryPid: number("AssertionOnBehalfOfPID").map { Int32($0) })
+            ownerPid: integer("AssertPID") ?? owner,
+            beneficiaryPid: integer("AssertionOnBehalfOfPID"))
     }
 }
 

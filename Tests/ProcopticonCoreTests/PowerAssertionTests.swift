@@ -15,6 +15,17 @@ final class PowerAssertionTests: XCTestCase {
         XCTAssertEqual(a.started, Date(timeIntervalSince1970: 100))
     }
 
+    /// A process can put any number in these; powerd reports them as given.
+    func testImpossiblePidsAreDropped() {
+        let a = PowerAssertions.parse([
+            "AssertType": "PreventUserIdleSystemSleep", "AssertLevel": 255, "AssertPID": -1e300,
+            "AssertionOnBehalfOfPID": 5_000_000_000 as Int64, "AssertionId": Double.nan,
+        ], owner: 42)
+        XCTAssertEqual(a.ownerPid, 42)
+        XCTAssertNil(a.beneficiaryPid)
+        XCTAssertEqual(a.id, 0)
+    }
+
     func testStrongestPreventionWins() {
         let system = PowerAssertions.parse(["AssertType": "PreventUserIdleSystemSleep", "AssertLevel": 255], owner: 1)
         let display = PowerAssertions.parse(["AssertType": "PreventUserIdleDisplaySleep", "AssertLevel": 255, "TimeoutSeconds": 300,
