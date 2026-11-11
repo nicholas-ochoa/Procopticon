@@ -112,8 +112,9 @@ public enum ExportFormatting {
         return out + "\""
     }
 
+    /// Compared by scalar: to Swift a CR LF pair is one character, equal to neither.
     private static func csvField(_ s: String) -> String {
-        guard s.contains(where: { $0 == "," || $0 == "\"" || $0 == "\n" || $0 == "\r" }) else { return s }
+        guard s.unicodeScalars.contains(where: { $0 == "," || $0 == "\"" || $0 == "\n" || $0 == "\r" }) else { return s }
         return "\"" + s.replacingOccurrences(of: "\"", with: "\"\"") + "\""
     }
 }
