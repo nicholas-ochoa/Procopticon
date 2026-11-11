@@ -1,5 +1,7 @@
 # Procopticon
 
+**Every process, in plain sight.**
+
 A native macOS process explorer built around macOS and Unix concepts:
 launchd, Mach-O, code signing, sandboxing, Rosetta, BSD signals and `nice` priorities.
 

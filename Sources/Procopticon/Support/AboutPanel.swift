@@ -26,7 +26,7 @@ enum AboutPanel {
             if let link { attributes[.link] = link }
             text.append(NSAttributedString(string: string, attributes: attributes))
         }
-        add("A process explorer for macOS.\n")
+        add("Every process, in plain sight.\n")
         add(repository, link: URL(string: repository))
         add("\n\nReleased under the MIT License.\nIncludes QuickJS-ng (MIT License).\n")
         let bundled = Bundle.main.resourceURL?.appendingPathComponent("Licenses", isDirectory: true)
