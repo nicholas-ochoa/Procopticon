@@ -531,7 +531,7 @@ struct StatisticsTab: View {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 300), spacing: 14, alignment: .top)], spacing: 14) {
                 SectionBox(title: "CPU", symbol: "cpu", tint: .green) {
                     Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 5) {
-                        InfoRow("Usage", Fmt.percent(item.cpu) + "%")
+                        InfoRow("Usage", Fmt.percent(item.cpu).ifEmpty("0") + "%")
                         InfoRow("Base priority", s.map { "\($0.priority)" } ?? "")
                         InfoRow("Nice", "\(item.record.nice)")
                         InfoRow("User time", s.map { Fmt.duration(nanoseconds: $0.userTimeNs) } ?? "")
@@ -585,7 +585,7 @@ struct StatisticsTab: View {
                 }
                 SectionBox(title: "GPU", symbol: "cube.transparent", tint: .indigo) {
                     Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 5) {
-                        InfoRow("Usage", (Fmt.percent(item.gpu).isEmpty ? "0" : Fmt.percent(item.gpu)) + "%")
+                        InfoRow("Usage", Fmt.percent(item.gpu).ifEmpty("0") + "%")
                         InfoRow("GPU time", Fmt.duration(nanoseconds: item.gpuTimeNs))
                     }
                 }
@@ -625,7 +625,7 @@ struct PerformanceTab: View {
         VStack(spacing: 10) {
             GraphView(series: [GraphSeries(values: item.cpuHistory.ordered, color: .green, label: "CPU")],
                       maxValue: 100, capacity: item.cpuHistory.capacity, title: "CPU",
-                      valueText: Fmt.percent(item.cpu) + "% (user \(Fmt.percent(item.cpuUser)), kernel \(Fmt.percent(item.cpuKernel)))",
+                      valueText: Fmt.percent(item.cpu).ifEmpty("0") + "% (user \(Fmt.percent(item.cpuUser).ifEmpty("0")), kernel \(Fmt.percent(item.cpuKernel).ifEmpty("0")))",
                       formatter: { String(format: "%.2f%%", $0) })
             GraphView(series: [GraphSeries(values: item.memoryHistory.ordered, color: .orange, label: "Footprint")],
                       capacity: item.memoryHistory.capacity, title: "Memory",
