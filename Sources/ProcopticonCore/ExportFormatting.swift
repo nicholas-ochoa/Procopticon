@@ -67,7 +67,7 @@ public enum ExportFormatting {
                 case .null: return ""
                 case .integer(let v): return String(v)
                 case .number(let v): return number(v)
-                case .string(let s): return csvField(s)
+                case .string(let s): return csvText(s)
                 }
             }.joined(separator: ","))
         }
@@ -116,5 +116,14 @@ public enum ExportFormatting {
     private static func csvField(_ s: String) -> String {
         guard s.unicodeScalars.contains(where: { $0 == "," || $0 == "\"" || $0 == "\n" || $0 == "\r" }) else { return s }
         return "\"" + s.replacingOccurrences(of: "\"", with: "\"\"") + "\""
+    }
+
+    /// Text as a spreadsheet will take it for text. Names and command lines are whatever a process
+    /// chose, and a cell that starts with one of these is a formula to Excel, Numbers and Sheets
+    /// (`=HYPERLINK(…)`, or `-zsh`, which they show as an error). The usual remedy is a leading
+    /// apostrophe, which they don't display.
+    static func csvText(_ s: String) -> String {
+        guard let first = s.unicodeScalars.first, "=+-@\t\r".unicodeScalars.contains(first) else { return csvField(s) }
+        return csvField("'" + s)
     }
 }

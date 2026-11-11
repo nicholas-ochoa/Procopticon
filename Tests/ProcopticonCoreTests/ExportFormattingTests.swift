@@ -37,6 +37,23 @@ final class ExportFormattingTests: XCTestCase {
         XCTAssertEqual(lines[2], "kernel_task,0,0,,")
     }
 
+    func testCSVLineBreaksAndFormulas() {
+        func cell(_ s: String) -> String {
+            let csv = ExportFormatting.csv(ExportTable(columns: [.init(title: "A", unit: nil)], rows: [[.string(s)]]))
+            // By scalar: the header "A", CR LF, the cell, CR LF.
+            return String(String.UnicodeScalarView(csv.unicodeScalars.dropFirst(3).dropLast(2)))
+        }
+        // CR LF is a single Character in Swift; it still has to be quoted.
+        XCTAssertEqual(cell("a\r\nb"), "\"a\r\nb\"")
+        XCTAssertEqual(cell("a\rb"), "\"a\rb\"")
+        // What a spreadsheet would run or misread is marked as text.
+        XCTAssertEqual(cell("=HYPERLINK(\"http://x\",\"y\")"), "\"'=HYPERLINK(\"\"http://x\"\",\"\"y\"\")\"")
+        XCTAssertEqual(cell("-zsh"), "'-zsh")
+        XCTAssertEqual(cell("+1"), "'+1")
+        XCTAssertEqual(cell("@SUM(A1)"), "'@SUM(A1)")
+        XCTAssertEqual(cell("zsh -l"), "zsh -l")
+    }
+
     func testValuesFromCells() {
         XCTAssertEqual(ExportValue(UInt64(5), text: "5 B"), .integer(5))
         XCTAssertEqual(ExportValue(Int32(-1), text: ""), .integer(-1))
