@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import ProcopticonCore
+import ProcopticonExpressions
 import SwiftUI
 
 enum MainTab: String, CaseIterable, Identifiable {
@@ -578,9 +579,56 @@ final class RegexSearchField: NSSearchField {
         editorChanged()
     }
 
-    /// The text being edited or its font changed, or editing has just begun.
+    /// The text being edited, its font or the mode changed, or editing has just begun.
     func editorChanged() {
         fitEditor()
+        highlight()
+    }
+
+    /// How the text is matched, which is also how it is colored.
+    private var mode: SearchMode {
+        showsJavaScript && isJavaScript ? .javascript : isRegex ? .regex : .text
+    }
+
+    /// Colors the text being edited for its mode: the parts of a regular expression, JavaScript's
+    /// keywords, strings and the process's values, or a `/pattern/` in plain text.
+    ///
+    /// The colors are laid over the editor's text for display only, so the search text stays plain
+    /// and its width stays that of one font. Nothing is colored once editing ends.
+    func highlight() {
+        guard let editor = currentEditor() as? NSTextView, editor.superview?.superview === self else { return }
+        let length = (editor.string as NSString).length
+        let tokens = SyntaxHighlighting.tokens(editor.string, mode: mode, fields: ProcessExpressions.fieldNames,
+                                               constants: ProcessExpressions.constantNames)
+            .filter { NSMaxRange($0.range) <= length }
+        let keys: [NSAttributedString.Key] = [.foregroundColor, .backgroundColor]
+        if let layout = editor.textLayoutManager, let content = layout.textContentManager {
+            let document = content.documentRange
+            for key in keys {
+                layout.removeRenderingAttribute(key, for: document)
+            }
+            for token in tokens {
+                guard let start = content.location(document.location, offsetBy: token.range.location),
+                      let end = content.location(start, offsetBy: token.range.length),
+                      let range = NSTextRange(location: start, end: end) else { continue }
+                let style = SyntaxStyle.attributes(token.kind)
+                for key in keys {
+                    if let value = style[key] { layout.addRenderingAttribute(key, value: value, for: range) }
+                }
+            }
+        } else if let layout = editor.layoutManager {
+            // An editor already laid out the older way; asking a newer one for this would switch it.
+            for key in keys {
+                layout.removeTemporaryAttribute(key, forCharacterRange: NSRange(location: 0, length: length))
+            }
+            for token in tokens {
+                let style = SyntaxStyle.attributes(token.kind)
+                for key in keys {
+                    if let value = style[key] { layout.addTemporaryAttribute(key, value: value, forCharacterRange: token.range) }
+                }
+            }
+        }
+        editor.needsDisplay = true
     }
 
     /// Keeps the end of a long line from being cut off while it is edited.

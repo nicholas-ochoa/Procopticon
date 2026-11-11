@@ -58,6 +58,8 @@ Search processes by name, PID, path, command line, user, or bundle ID. The searc
 | Regular expression | Click `.*`, choose *View ▸ Use Regular Expressions in Search* (⌥⌘R), or enter `/pattern/` | Ignores case by default; `/pattern/c` is case-sensitive. An invalid pattern produces an error in the status bar |
 | JavaScript | Click `{}` or choose *View ▸ Use JavaScript in Process Search* (⌥⌘J) | An [expression](#expressions) such as `cpu > 10 && user == "root"` or `memory > 1 * GB && !appleSigned` |
 
+While it has the keyboard focus, the field colors what you type the way the [filter editor](#filters) does: the parts of a regular expression, JavaScript's values, strings and numbers, and a `/pattern/` in plain text.
+
 ### Quick filters and Focus
 
 The toolbar narrows the list:
