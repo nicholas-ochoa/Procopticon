@@ -15,6 +15,8 @@
 #     Connect API key works too: --key, --key-id, --issuer.)
 #
 #   NOTARIZE=0 stops after signing, for trying the rest of the script out.
+#   NOTARY_KEYCHAIN=/path/to.keychain-db is where the credentials are, when not in the login keychain
+#     (the Release workflow, .github/workflows/release.yml, keeps them in a keychain of its own).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -39,7 +41,8 @@ VERSION="$VERSION" SIGN_IDENTITY="$SIGN_IDENTITY" TIMESTAMP=1 UNIVERSAL=1 CONFIG
 codesign --verify --strict --deep "$APP"
 
 notarize() {
-    xcrun notarytool submit "$1" --keychain-profile "$NOTARY_PROFILE" --wait
+    xcrun notarytool submit "$1" --keychain-profile "$NOTARY_PROFILE" \
+        ${NOTARY_KEYCHAIN:+--keychain "$NOTARY_KEYCHAIN"} --wait
 }
 
 # The app first, so that the ticket stapled to it also covers a copy taken out of the disk image

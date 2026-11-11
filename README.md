@@ -1,13 +1,6 @@
 # Procopticon
 
-*Every process, in plain sight.*
-
-A native process explorer for macOS, built around the system's own concepts: launchd, Mach-O, code
-signing, sandboxing, Rosetta, BSD signals and `nice` priorities.
-
-It's written in Swift and SwiftUI, with a small C layer over `libproc`, `sysctl`, Mach host statistics
-and IOKit. The large lists are AppKit `NSOutlineView`s so that thousands of rows can refresh every
-second.
+A native process explorer for macOS written in Swift and SwiftUI.
 
 ![The process tree in Procopticon's main window](docs/screenshots/processes.png)
 

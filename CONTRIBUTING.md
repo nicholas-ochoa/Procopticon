@@ -30,7 +30,8 @@ license texts need the bundle from `build-app.sh`. The README's *Building* secti
 arguments that open a particular window, which helps when testing one.
 
 Releases are built with `scripts/release.sh`, which needs the maintainer's Developer ID certificate.
-You don't need it to contribute.
+The *Release* workflow (`.github/workflows/release.yml`) runs it on GitHub and publishes the disk
+image. You don't need either to contribute.
 
 ## Where things go
 
