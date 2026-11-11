@@ -51,6 +51,42 @@ final class RobustnessTests: XCTestCase {
         XCTAssertNoThrow(try file.strings())
     }
 
+    /// Lines a name with a line break in it could put into a tool's output.
+    func testReversedRangesInToolOutput() {
+        XCTAssertTrue(ProcessDetails.parseVmmapModules("__TEXT 2000-1000 [ 4K] r-x/r-x SM=COW /usr/lib/x.dylib").isEmpty)
+        let dump = """
+         #1:
+                         UUID: A
+                         Name: odd
+                         Type: legacy daemon (0x10010)
+                        Flags: ] [ (0x0)
+                  Disposition: ] enabled [ (0xb)
+                   Identifier: 16.com.example.odd
+                          URL: /Library/LaunchDaemons/com.example.odd.plist
+        """
+        _ = StartupItems.parseBTM(dump)
+    }
+
+    /// Thousands of sections that each claim the same megabyte of text.
+    func testOverlappingStringSectionsAreBounded() throws {
+        let text = [UInt8](repeating: 0x41, count: 1 << 20)
+        let count = 200
+        // LC_SEGMENT_64 with `count` S_REGULAR sections, all over the text that follows.
+        let commandSize = 72 + 80 * count
+        let textOffset = 32 + commandSize
+        func name(_ s: String) -> [UInt8] { Array(s.utf8) + [UInt8](repeating: 0, count: 16 - s.utf8.count) }
+        var command = le32(0x19) + le32(UInt32(commandSize)) + name("__DATA") + le64(0) + le64(UInt64(text.count))
+            + le64(UInt64(textOffset)) + le64(UInt64(text.count)) + le32(3) + le32(3) + le32(UInt32(count)) + le32(0)
+        for _ in 0..<count {
+            command += name("__const") + name("__DATA") + le64(0) + le64(UInt64(text.count)) + le32(UInt32(textOffset))
+                + le32(0) + le32(0) + le32(0) + le32(0) + le32(0) + le32(0) + le32(0)
+        }
+        let file = try MachOFile.load(path: temporaryFile(machO(commands: 1, command) + text))
+        let result = try file.strings()
+        XCTAssertTrue(result.truncated)
+        XCTAssertLessThanOrEqual(result.strings.count, 5)
+    }
+
     func testAlertThresholdsOfAnySize() {
         XCTAssertEqual(AlertRule.number(40), "40")
         XCTAssertEqual(AlertRule.number(2.5), "2.5")

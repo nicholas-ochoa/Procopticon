@@ -254,7 +254,10 @@ public struct MachOFile: Sendable {
                     sections.append(Section(name: sect, segment: seg, address: addr, size: ssize, offset: off, flags: sflags))
                     let start = base + Int(off)
                     let length = Int(clamping: ssize)
-                    if seg == "__TEXT", sect == "__info_plist", off > 0, start <= data.count, length <= data.count - start {
+                    // The first one, and of a size an Info.plist has: a crafted file can carry
+                    // thousands of these sections, each claiming the whole file.
+                    if seg == "__TEXT", sect == "__info_plist", embeddedInfoPlist == nil, off > 0, length <= 4 << 20,
+                       start <= data.count, length <= data.count - start {
                         embeddedInfoPlist = String(decoding: data[start..<(start + length)], as: UTF8.self)
                     }
                     sp += s64 ? 80 : 68
@@ -460,6 +463,13 @@ extension MachOFile {
         let minLength = max(1, minLength)
         var out: [ExtractedString] = []
         var truncated = false
+        // Sections of a crafted file can overlap, each claiming the same large run of text. The
+        // work and the memory are bounded by the file's size, not by what its sections claim.
+        var scanned = 0
+        var kept = 0
+        let scanLimit = 4 * max(data.count, 1)
+        let keepLimit = 256 << 20
+        let longest = 1 << 20
 
         data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
             let bytes = raw.bindMemory(to: UInt8.self)
@@ -473,9 +483,12 @@ extension MachOFile {
                     guard start < bytes.count else { continue }
                     let end = start + min(Int(clamping: section.size), bytes.count - start)
                     let name = "\(section.segment),\(section.name)"
+                    scanned += end - start
+                    guard scanned <= scanLimit else { truncated = true; break sectionLoop }
 
                     func add(_ text: String, at offset: Int, _ encoding: ExtractedString.Encoding) -> Bool {
-                        guard out.count < limit else { truncated = true; return false }
+                        kept += text.utf8.count
+                        guard out.count < limit, kept <= keepLimit else { truncated = true; return false }
                         out.append(ExtractedString(id: out.count, text: text, section: name,
                                                    address: section.address &+ UInt64(offset - start),
                                                    fileOffset: offset, encoding: encoding))
@@ -489,7 +502,7 @@ extension MachOFile {
                             var j = i
                             while j < end, bytes[j] != 0 { j += 1 }
                             if j - i >= minLength,
-                               let text = String(bytes: UnsafeBufferPointer(rebasing: bytes[i..<j]), encoding: .utf8),
+                               let text = String(bytes: UnsafeBufferPointer(rebasing: bytes[i..<min(j, i + longest)]), encoding: .utf8),
                                text.count >= minLength {
                                 guard add(text, at: i, .utf8) else { break sectionLoop }
                             }
@@ -502,7 +515,7 @@ extension MachOFile {
                             var j = i
                             while j + 1 < end, bytes[j] != 0 || bytes[j + 1] != 0 { j += 2 }
                             if (j - i) / 2 >= minLength,
-                               let text = String(bytes: UnsafeBufferPointer(rebasing: bytes[i..<j]), encoding: .utf16LittleEndian) {
+                               let text = String(bytes: UnsafeBufferPointer(rebasing: bytes[i..<min(j, i + longest)]), encoding: .utf16LittleEndian) {
                                 guard add(text, at: i, .utf16) else { break sectionLoop }
                             }
                             i = j + 2
@@ -514,7 +527,7 @@ extension MachOFile {
                             var j = i
                             while j < end, bytes[j] == 0x09 || (0x20...0x7e).contains(bytes[j]) { j += 1 }
                             if j - i >= minLength {
-                                let text = String(decoding: UnsafeBufferPointer(rebasing: bytes[i..<j]), as: UTF8.self)
+                                let text = String(decoding: UnsafeBufferPointer(rebasing: bytes[i..<min(j, i + longest)]), as: UTF8.self)
                                 guard add(text, at: i, .ascii) else { break sectionLoop }
                             }
                             i = j + 1
