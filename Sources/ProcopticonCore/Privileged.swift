@@ -37,6 +37,20 @@ public enum PrivilegedRequest: Codable, Sendable {
     case startupAction(StartupAction)
     case shutdown
 
+    /// Whether the request only reads. When the helper is gone, these are answered with the
+    /// user's own privileges instead; anything that acts (signals, running a program, changing a
+    /// startup item) fails, so that nothing meant to happen as root happens as the user.
+    var isReadOnly: Bool {
+        switch self {
+        case .ping, .sampleProcesses, .fileDescriptors, .threads, .regions, .arguments, .workingDirectory,
+             .connections, .searchOpenFiles, .startupItems, .machPortCounts, .machPortCount:
+            return true
+        case .signal, .setPriority, .setBackground, .runTool, .runToolReport, .launch, .startStream,
+             .readStream, .stopStream, .startupAction, .shutdown:
+            return false
+        }
+    }
+
     /// How long the helper may take to answer before the client gives up on it; generous enough
     /// for the slowest work each request does.
     var replyTimeout: TimeInterval {

@@ -68,8 +68,13 @@ public final class Elevation: @unchecked Sendable {
             do {
                 return try c.send(request)
             } catch {
-                disconnect()
-                return local.handle(request)
+                let failure = error as? PrivilegedError ?? PrivilegedError(code: EIO, message: error.localizedDescription)
+                // One request that took too long doesn't mean the helper is gone: it stays, and
+                // stays stoppable. The request is not repeated without privileges either, which
+                // for "run this as root" would quietly run it as the user.
+                if c.ping() { return .failure(failure) }
+                abandon(c)
+                return request.isReadOnly ? local.handle(request) : .failure(failure)
             }
         }
         return local.handle(request)
@@ -205,15 +210,21 @@ public final class Elevation: @unchecked Sendable {
         }
     }
 
-    private func disconnect() {
+    /// Gives up on a helper that no longer answers. It is told to shut down all the same: one that
+    /// was only suspended (from the process list, say) reads that when it's resumed, and exits
+    /// instead of running on as root with nothing in the app left to stop it.
+    private func abandon(_ c: HelperClient) {
         lock.lock()
-        let had = client != nil
-        client = nil
+        let had = client === c
+        if had { client = nil }
         lock.unlock()
-        if had {
-            DispatchQueue.main.async {
-                NotificationCenter.default.post(name: Self.didChangeNotification, object: nil)
-            }
+        guard had else { return }
+        DispatchQueue.global(qos: .utility).async {
+            _ = try? c.send(.shutdown)
+        }
+        DispatchQueue.main.async {
+            EventLog.shared.add(.elevation, "The privileged helper stopped answering; Procopticon is back in Standard mode")
+            NotificationCenter.default.post(name: Self.didChangeNotification, object: nil)
         }
     }
 
