@@ -60,9 +60,16 @@ public struct ExpressionField<Row> {
 /// How long one evaluation may run. An expression that takes longer is stopped and not run again.
 let timeoutSeconds = 0.25
 
+/// How long an expression may run in all within `budgetWindow`. One evaluation's limit doesn't
+/// bound a pass over a list: 100 ms a row is within it, and is minutes over a thousand rows.
+let budgetSeconds = 0.5
+let budgetWindow = 1.0
+
 extension ExpressionError {
     public static let timeout = ExpressionError(
         message: "The expression took more than \(Int(timeoutSeconds * 1000)) ms and was stopped", timedOut: true)
+    public static let overBudget = ExpressionError(
+        message: "The expression took more than \(Int(budgetSeconds * 1000)) ms over the list and was stopped", timedOut: true)
 }
 
 /// Reads a field for the C bridge, which knows rows only as pointers.
@@ -199,6 +206,10 @@ public final class CompiledExpression<Row: AnyObject> {
     private weak var engine: ExpressionEngine<Row>?
     /// Set once an evaluation ran out of time; the expression isn't run again.
     public private(set) var timedOut = false
+    /// Set once the evaluations together ran out of time (see `budgetSeconds`).
+    private var overBudget = false
+    private var windowStart: UInt64 = 0
+    private var windowSpent: UInt64 = 0
 
     fileprivate init(source: String, id: Int32, error: String?, engine: ExpressionEngine<Row>) {
         self.source = source
@@ -219,14 +230,27 @@ public final class CompiledExpression<Row: AnyObject> {
             return .failure(ExpressionError(message: error))
         }
         if timedOut {
-            return .failure(.timeout)
+            return .failure(overBudget ? .overBudget : .timeout)
         }
         guard let engine else {
             return .failure(ExpressionError(message: "The expression's engine is gone"))
         }
+        let start = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
         let result = engine.evaluate(id, row)
         if case .failure(let e) = result, e.timedOut {
             timedOut = true
+            return result
+        }
+        let end = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
+        if start &- windowStart > UInt64(budgetWindow * 1e9) {
+            windowStart = start
+            windowSpent = 0
+        }
+        windowSpent &+= end &- start
+        if windowSpent > UInt64(budgetSeconds * 1e9) {
+            timedOut = true
+            overBudget = true
+            return .failure(.overBudget)
         }
         return result
     }

@@ -42,7 +42,10 @@ unsigned libraries, no debugger attach).
 - **Other processes of yours** can't connect to the helper either: it serves one process, the app.
 - **JavaScript expressions** (filters, highlight rules, alerts) run in an embedded QuickJS-ng
   engine with no access to files, the network, timers or the app's objects, with a time limit and
-  a memory limit.
+  a memory limit. Its global scope is frozen, so one expression can't change what another sees.
+  The time limit is checked between JavaScript operations: a single built-in call on a very large
+  string (searching megabytes of text for megabytes of text) can run past it and hold up the
+  list, so treat an expression someone else gives you like any other code you paste.
 - **Files you open in the inspector** (Mach-O files, crash reports) are treated as untrusted input.
 - **A replaced helper.** A program running as you that swaps the helper in the bundle for its own
   doesn't get it run as root: the copy root makes fails the signature check, and nothing is

@@ -44,18 +44,43 @@ final class ExpressionTests: XCTestCase {
         XCTAssertEqual(Set(ProcessExpressions.fields.map(\.name)).count, ProcessExpressions.fields.count, "unique names")
     }
 
-    func testKeptRowsAreBlankOutsideEvaluations() {
+    /// Every expression of an engine shares its global scope, which is frozen.
+    func testExpressionsCannotKeepOrChangeAnything() {
         let engine = ProcessExpressionEngine()
         let a = item(1, "first")
         let b = item(2, "second")
-        // An expression can keep the object whose fields it reads...
+        // Nothing can be kept from one evaluation to the next, the row least of all,
         XCTAssertEqual(value(engine, "(globalThis.kept = row, name == 'first')", a), .success(true))
-        // ...which then reads whichever process is being evaluated,
-        XCTAssertEqual(value(engine, "kept.name === 'second'", b), .success(true))
-        // and nothing at all between evaluations (here, in code smuggled into a compilation).
-        let smuggled = engine.compile("0) }); globalThis.leak = String(kept.name); (function (row) { return (0")
+        XCTAssertEqual(value(engine, "typeof kept === 'undefined'", b), .success(true))
+        // not even by code smuggled into a compilation.
+        let smuggled = engine.compile("0) }); globalThis.leak = 1; (function (row) { return (0")
         XCTAssertNil(smuggled.error)
-        XCTAssertEqual(value(engine, "leak === 'undefined'", a), .success(true))
+        XCTAssertEqual(value(engine, "typeof leak === 'undefined'", a), .success(true))
+        // One expression can't change what the others see: not the built-ins, not a field.
+        _ = value(engine, "(RegExp.prototype.test = function () { return true }, String.prototype.includes = () => true, 1)", a)
+        XCTAssertEqual(value(engine, "/zzz/.test(name) || name.includes('zzz')", a), .success(false))
+        _ = value(engine, "(Object.defineProperty(row, 'pid', { value: 99 }), 1)", a)
+        _ = value(engine, "(row.extra = 1, MB = 5, 1)", a)
+        XCTAssertEqual(value(engine, "pid === 2 && typeof extra === 'undefined' && MB === 1024 * 1024", b), .success(true))
+    }
+
+    /// Each row within the limit of one evaluation, and far too long over a list.
+    func testSlowExpressionsAreStoppedOverAList() {
+        let engine = ProcessExpressionEngine()
+        let slow = engine.compile("(() => { const t = Date.now(); while (Date.now() - t < 30); return true })()")
+        let p = item(1, "first")
+        var evaluated = 0
+        var failure: ExpressionError?
+        while evaluated < 100, failure == nil {
+            if case .failure(let e) = slow.evaluate(p) { failure = e }
+            evaluated += 1
+        }
+        XCTAssertEqual(failure?.timedOut, true)
+        XCTAssertLessThan(evaluated, 40)
+        XCTAssertTrue(slow.timedOut)
+        // A quick one is never stopped, however many rows.
+        let quick = engine.compile("pid > 0")
+        for _ in 0..<20_000 { XCTAssertEqual(quick.evaluate(p), .success(true)) }
     }
 
     func testSyntaxAndRuntimeErrors() {
