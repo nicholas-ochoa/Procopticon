@@ -92,6 +92,9 @@ choose *Tools ▸ Stop Privileged Helper*) when you no longer need it elevated.
   of remote addresses while a network view is open, and *Search Online*, which opens your browser
   with the process's executable name in a search URL (DuckDuckGo unless you change it in Settings).
 - It has no analytics, crash reporting or update checks.
+- When an Objective-C exception is thrown inside the app, it writes the exception's name, reason and
+  call stack to `~/Library/Logs/Procopticon/exceptions.log` and the system log, so a crash can be
+  explained. That file stays on your Mac; delete it whenever you like.
 - It reads, and never sends anywhere: the process list and what the system reports about each
   process (arguments and environment variables can contain secrets, and they are shown on screen and
   included in exports you make), the unified log, crash reports, launchd and startup configuration,

@@ -10,6 +10,7 @@ struct ProcopticonApp: App {
     @ObservedObject private var settings = AppSettings.shared
 
     init() {
+        ExceptionNotes.install()
         // Ahead of the window, not after it: the first sample takes a few hundred milliseconds,
         // and started from applicationDidFinishLaunching it only began once the window had been
         // built, which then stood empty for that long.
