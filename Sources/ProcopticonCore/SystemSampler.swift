@@ -181,6 +181,11 @@ public enum SystemSampler {
             }
             let perf = dict["PerformanceStatistics"] as? [String: Any] ?? [:]
             func num(_ key: String) -> Double { (perf[key] as? NSNumber)?.doubleValue ?? 0 }
+            // The driver's numbers, whatever they are: a negative or absurd one must not trap.
+            func bytes(_ key: String) -> UInt64 {
+                let value = num(key)
+                return value.isFinite && value > 0 ? UInt64(min(value, 1e18)) : 0
+            }
             var name = dict["model"] as? String ?? ""
             if name.isEmpty, let data = dict["model"] as? Data {
                 name = String(decoding: data.prefix { $0 != 0 }, as: UTF8.self)
@@ -193,8 +198,8 @@ public enum SystemSampler {
                 utilization: num("Device Utilization %"),
                 rendererUtilization: num("Renderer Utilization %"),
                 tilerUtilization: num("Tiler Utilization %"),
-                memoryUsed: UInt64(num("In use system memory")),
-                memoryAllocated: UInt64(num("Alloc system memory")),
+                memoryUsed: bytes("In use system memory"),
+                memoryAllocated: bytes("Alloc system memory"),
                 coreCount: (dict["gpu-core-count"] as? NSNumber)?.intValue))
         }
         return result
