@@ -143,7 +143,7 @@ well-known service names. New and closed connections are highlighted.
 
 **Resource History** (*View ▸ Resource History*, ⌥⌘G, or the Tools toolbar group) is a floating,
 resizable window of Activity Monitor–style history graphs in one place: one graph per CPU core (user time
-in green over system time in red), the GPU, and memory (wired, compressed and app memory), with optional
+over system time in red; user time is green on performance cores and cyan on efficiency cores), the GPU, and memory (wired, compressed and app memory), with optional
 total CPU, network and disk graphs. Choose the graphs from the ⋯ button in its title bar or by
 right-clicking. The graphs rearrange into columns as you resize the window. It stays above other windows
 unless you turn off *Always on Top* in the same menu, and reopens at launch if it was open when you quit.

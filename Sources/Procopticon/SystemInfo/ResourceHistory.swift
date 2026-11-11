@@ -259,14 +259,20 @@ struct ResourceHistoryView: View {
         var cores: [HistoryTile] = []
         if shown.contains(.cores) {
             let types = MachineInfo.current.coreTypes
+            // User time takes the core type's colour, as in System Information, on Macs with both
+            // kinds of core. System time stays red on every core.
+            let efficiency = types.map { $0.hasPrefix("E") }
+            let mixed = efficiency.contains(true) && efficiency.contains(false)
             for (i, history) in sys.perCore.enumerated() {
                 let kernel = sys.perCoreKernel.indices.contains(i) ? sys.perCoreKernel[i].ordered : []
                 let total = history.ordered
                 let user = zip(total, kernel).map { max(0, $0 - $1) }
                 let name = "Core \(i + 1)"
+                let isEfficiency = mixed && efficiency.indices.contains(i) && efficiency[i]
                 cores.append(HistoryTile(
                     titles: types.indices.contains(i) ? ["\(name) — \(types[i])", name] : [name], value: percent(history.last),
-                    graph: .stacked([kernel, user], colors: [HistoryTile.system, HistoryTile.user], max: 100)))
+                    graph: .stacked([kernel, user], colors: [HistoryTile.system, isEfficiency ? HistoryTile.efficiency : HistoryTile.user],
+                                    max: 100)))
             }
         }
         return [whole, cores]
@@ -349,12 +355,14 @@ struct HistoryTile {
     var graph: Graph
 
     static let user = Color(red: 0.30, green: 0.85, blue: 0.25)
+    /// User time on an efficiency core.
+    static let efficiency = Color(red: 0.20, green: 0.80, blue: 0.95)
     static let system = Color(red: 0.95, green: 0.22, blue: 0.17)
     static let gpu = Color(red: 0.17, green: 0.56, blue: 1.0)
     static let app = Color(red: 1.0, green: 0.72, blue: 0.15)
     static let wired = system
     static let compressed = Color(red: 0.72, green: 0.42, blue: 1.0)
-    static let received = Color(red: 0.20, green: 0.80, blue: 0.95)
+    static let received = efficiency
     static let sent = system
 
     /// Each sample is a column 3 points wide; each block is 2 points tall. Both have 1-point gaps.
