@@ -202,7 +202,8 @@ unless you turn off *Always on Top* in the same menu, and reopens at launch if i
   and rows, filtered and sorted) as JSON, the default, or CSV, chosen in the save panel. Values are
   raw rather than formatted: bytes, bytes per second, percentages, seconds and ISO 8601 dates, with
   the units in the JSON's `units` object and in the CSV's column headers. Values that couldn't be read
-  are null (empty in CSV).
+  are null (empty in CSV). In CSV, text that a spreadsheet would take for a formula (it starts with
+  `=`, `+`, `-` or `@`, as `-zsh` does) starts with an apostrophe instead.
 
 A **menu bar graph** (CPU, memory, network or disk) opens a popover showing the top processes.
 
@@ -253,7 +254,8 @@ unmodified), not in the system's JavaScriptCore. QuickJS can stop a script that 
 memory. JavaScriptCore has no public API for either, and a saved highlight rule with an endless loop
 would hang the app every time it launched. Each engine (the process store, the alerts and Settings have
 one each) is a separate context with no access to files, the network or timers, limited to 32 MB. An
-expression that runs for more than 250 ms is stopped and not run again until it changes. Fields are read
+expression that runs for more than 250 ms on one row, or 500 ms within a second over the whole list,
+is stopped and not run again until it changes. Fields are read
 only when an expression uses them. Over 800 processes, `cpu > 5` takes about 0.1 ms and an expression
 testing names, users and paths under 1 ms, on the background queue that builds each update.
 
