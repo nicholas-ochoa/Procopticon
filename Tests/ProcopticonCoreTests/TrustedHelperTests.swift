@@ -16,6 +16,18 @@ final class TrustedHelperTests: XCTestCase {
         XCTAssertNil(TrustedHelper.requirement(team: "ABCDE12345", appIdentifier: ""))
     }
 
+    func testOnlyABuildWithoutATeamSkipsTheCheck() {
+        let ok = TrustedHelper.check(teamStatus: 0, team: "ABCDE12345", identifierStatus: 0, identifier: "com.example.App")
+        XCTAssertEqual(ok, .requirement(TrustedHelper.requirement(team: "ABCDE12345", appIdentifier: "com.example.App") ?? ""))
+        XCTAssertEqual(TrustedHelper.check(teamStatus: -ENOENT, team: "", identifierStatus: 0, identifier: "App"), .noTeam)
+        // Anything else that goes wrong must not look like "no team".
+        XCTAssertEqual(TrustedHelper.check(teamStatus: -EINVAL, team: "", identifierStatus: 0, identifier: "App"), .unknown)
+        XCTAssertEqual(TrustedHelper.check(teamStatus: 0, team: "ABCDE12345", identifierStatus: -EINVAL, identifier: ""), .unknown)
+        XCTAssertEqual(TrustedHelper.check(teamStatus: 0, team: "ABCDE12345", identifierStatus: 0, identifier: "a b"), .unknown)
+        // The test runner is ad-hoc signed or signed by a team, never unreadable.
+        XCTAssertNotEqual(TrustedHelper.ownCheck(), .unknown)
+    }
+
     func testStartScriptRunsTheCheckedCopyNotTheBundledHelper() {
         let helper = "/Applications/Some App.app/Contents/MacOS/procopticon-helper"
         let script = TrustedHelper.startScript(helper: helper, clientPid: 4321, clientUid: 501, requirement: "anchor apple generic")

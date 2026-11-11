@@ -150,8 +150,14 @@ public final class Elevation: @unchecked Sendable {
         let socket = HelperSocket.path(clientPid: getpid())
         // Root doesn't run the helper in the bundle, which other software running as the user could
         // have replaced: it copies it, checks the copy's signature against this app's, and runs that.
-        let script = TrustedHelper.startScript(helper: helper, clientPid: getpid(), clientUid: getuid(),
-                                               requirement: TrustedHelper.ownRequirement())
+        let requirement: String?
+        switch TrustedHelper.ownCheck() {
+        case .requirement(let text): requirement = text
+        case .noTeam: requirement = nil
+        case .unknown:
+            throw PrivilegedError(code: EPERM, message: "Procopticon couldn't read its own code signature, so it can't check the privileged helper and didn't start it.")
+        }
+        let script = TrustedHelper.startScript(helper: helper, clientPid: getpid(), clientUid: getuid(), requirement: requirement)
         // Passwordless sudo (NOPASSWD) avoids the dialog entirely; otherwise use the system prompt.
         let viaSudo = await Task.detached { Self.runWithPasswordlessSudo(script) }.value
         if let viaSudo {

@@ -14,16 +14,36 @@ public enum TrustedHelper {
         "\(HelperSocket.directory)/helper-\(clientPid)"
     }
 
-    /// The team and signing identifier of this process, from the kernel: what is running, not
-    /// what is now on disk. Nil for an ad-hoc or unsigned build.
-    public static func ownIdentity() -> (team: String, identifier: String)? {
-        func read(team: Bool) -> String? {
-            var buf = [CChar](repeating: 0, count: 512)
-            guard si_cs_identity(getpid(), team ? 1 : 0, &buf, Int32(buf.count)) == 0 else { return nil }
-            return String(cString: buf)
-        }
-        guard let team = read(team: true), let identifier = read(team: false) else { return nil }
-        return (team, identifier)
+    /// What the helper is checked against before root runs it.
+    public enum Check: Equatable, Sendable {
+        /// The code requirement the copy must meet.
+        case requirement(String)
+        /// This build has no developer team (ad-hoc signed), so there is nothing to check against.
+        case noTeam
+        /// This build has a team, or may have, and the requirement couldn't be worked out. The
+        /// helper is not started: skipping the check here would run an unchecked helper as root
+        /// in exactly the builds that promise the check.
+        case unknown
+    }
+
+    /// The check for the helper of this process, from the kernel's record of what is running, not
+    /// from what is now on disk.
+    public static func ownCheck() -> Check {
+        var team = [CChar](repeating: 0, count: 512)
+        var identifier = [CChar](repeating: 0, count: 512)
+        let teamStatus = si_cs_identity(getpid(), 1, &team, Int32(team.count))
+        let identifierStatus = si_cs_identity(getpid(), 0, &identifier, Int32(identifier.count))
+        return check(teamStatus: teamStatus, team: String(cString: team),
+                     identifierStatus: identifierStatus, identifier: String(cString: identifier))
+    }
+
+    /// The kernel answers ENOENT for the team of an ad-hoc signed process; any other failure, or
+    /// values no requirement can be written for, leave the check unknown.
+    static func check(teamStatus: Int32, team: String, identifierStatus: Int32, identifier: String) -> Check {
+        if teamStatus == -ENOENT { return .noTeam }
+        guard teamStatus == 0, identifierStatus == 0,
+              let requirement = requirement(team: team, appIdentifier: identifier) else { return .unknown }
+        return .requirement(requirement)
     }
 
     /// The code requirement the helper must meet: Apple-issued certificate of the same team, and
@@ -39,10 +59,7 @@ public enum TrustedHelper {
         return "anchor apple generic and identifier \"\(appIdentifier).helper\" and certificate leaf[subject.OU] = \"\(team)\""
     }
 
-    /// The requirement for the helper of this process, or nil for a build without a team.
-    public static func ownRequirement() -> String? {
-        ownIdentity().flatMap { requirement(team: $0.team, appIdentifier: $0.identifier) }
-    }
+
 
     /// The most of the bundle's helper that root copies: several times its size. What stands in
     /// its place when root reads it could be anything, of any length.
