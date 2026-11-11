@@ -109,10 +109,7 @@ public final class HelperServer {
         // Exit when the owning app goes away.
         let source = DispatchSource.makeProcessSource(identifier: clientPid, eventMask: .exit, queue: .global())
         source.setEventHandler { [socketPath, executor, ownCopy] in
-            executor.stopAllStreams()
-            unlink(socketPath)
-            if let ownCopy { unlink(ownCopy) }
-            exit(0)
+            Self.leave(executor: executor, socketPath: socketPath, ownCopy: ownCopy)
         }
         source.resume()
         exitSource = source
@@ -199,12 +196,21 @@ public final class HelperServer {
                 return
             }
             if shutdown {
-                // The client can't remove it: the directory is root's.
-                unlink(socketPath)
-                if let ownCopy { unlink(ownCopy) }
-                exit(0)
+                leave(executor: executor, socketPath: socketPath, ownCopy: ownCopy)
             }
         }
+    }
+
+    /// Exits, leaving nothing of the helper's behind: no tool still running as root, no report
+    /// half written, and not the socket or the copy of the executable, which the client can't
+    /// remove (the directory is root's).
+    private static func leave(executor: PrivilegedExecutor, socketPath: String, ownCopy: String?) -> Never {
+        executor.stopAllStreams()
+        ToolRunner.terminateRunning()
+        ToolReport.removeDirectories()
+        unlink(socketPath)
+        if let ownCopy { unlink(ownCopy) }
+        exit(0)
     }
 
     private func fatal(_ message: String) -> Never {

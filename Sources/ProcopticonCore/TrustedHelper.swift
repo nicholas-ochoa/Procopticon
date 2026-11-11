@@ -145,7 +145,7 @@ public enum ToolReport {
         guard let directory = makePrivateDirectory() else {
             return ToolOutput(status: -1, stdout: "", stderr: "Couldn't make a private directory for the report.")
         }
-        defer { try? FileManager.default.removeItem(atPath: directory) }
+        defer { remove(directory) }
         let file = directory + "/report.txt"
         let output = ToolRunner.run(tool, arguments.map { $0 == placeholder ? file : $0 })
         let fd = open(file, O_RDONLY | O_NOFOLLOW)
@@ -166,6 +166,29 @@ public enum ToolReport {
         }
         var template = Array((base + "/report.XXXXXX").utf8CString)
         guard mkdtemp(&template) != nil else { return nil }
-        return String(cString: template)
+        let directory = String(cString: template)
+        lock.lock()
+        directories.insert(directory)
+        lock.unlock()
+        return directory
+    }
+
+    private static let lock = NSLock()
+    private static var directories = Set<String>()
+
+    private static func remove(_ directory: String) {
+        try? FileManager.default.removeItem(atPath: directory)
+        lock.lock()
+        directories.remove(directory)
+        lock.unlock()
+    }
+
+    /// Removes the directories of reports still being written. For the helper as it exits, when
+    /// the `defer` in `run` doesn't get to.
+    public static func removeDirectories() {
+        lock.lock()
+        let all = directories
+        lock.unlock()
+        all.forEach(remove)
     }
 }
