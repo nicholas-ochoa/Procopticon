@@ -176,6 +176,9 @@ struct StartupItemsView: View {
     /// Runs the actions one by one: as the user when they're the user's own, otherwise through the
     /// helper (asking to elevate once if needed). Reloads the list afterwards.
     private func run(_ actions: [(StartupItem, StartupAction)], verb: String) {
+        // The menu is disabled meanwhile; the Delete key isn't. Two batches at once could each
+        // rewrite the crontab from the same starting point, and one edit would be lost.
+        guard !working else { return }
         working = true
         Task { @MainActor in
             var failures: [String] = []
