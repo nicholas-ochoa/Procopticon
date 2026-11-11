@@ -97,6 +97,18 @@ final class RobustnessTests: XCTestCase {
         XCTAssertFalse(Fmt.duration(seconds: .greatestFiniteMagnitude).isEmpty)
     }
 
+    /// A tool that ignores SIGTERM, and leaves a child holding its output open.
+    func testAToolThatWontStopDoesNotHoldTheCaller() {
+        let started = Date()
+        let output = ToolRunner.run("/bin/sh", ["-c", "trap '' TERM; echo started; sleep 60"], timeout: 0.5)
+        XCTAssertLessThan(Date().timeIntervalSince(started), 15)
+        XCTAssertEqual(output.stdout, "started\n")
+        XCTAssertNotEqual(output.status, 0)
+        // And an ordinary one is unchanged.
+        let plain = ToolRunner.run("/bin/sh", ["-c", "echo out; echo err >&2; exit 3"])
+        XCTAssertEqual([plain.stdout, plain.stderr, "\(plain.status)"], ["out\n", "err\n", "3"])
+    }
+
     func testAlertThresholdsOfAnySize() {
         XCTAssertEqual(AlertRule.number(40), "40")
         XCTAssertEqual(AlertRule.number(2.5), "2.5")

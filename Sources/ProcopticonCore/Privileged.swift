@@ -137,8 +137,59 @@ public enum AllowedTools {
 
 public enum ToolRunner {
     public static let defaultTimeout: TimeInterval = 120
+    /// The most output kept from each of a tool's streams. More is read and dropped, so the tool
+    /// isn't held up; it is far below what a reply to the app may carry (`Framing`).
+    static let outputLimit = 128 << 20
 
-    /// Runs a tool and captures output. Blocks the calling thread.
+    private static let lock = NSLock()
+    private static var running = Set<pid_t>()
+
+    /// Ends the tools still running. For the helper as it exits: a `sample` or `spindump` it
+    /// started would otherwise run on as root with nobody left to read what it writes.
+    public static func terminateRunning() {
+        lock.lock()
+        let pids = running
+        lock.unlock()
+        for pid in pids {
+            kill(pid, SIGTERM)
+        }
+    }
+
+    /// What a tool wrote to one of its streams, up to `outputLimit`.
+    private final class Output: @unchecked Sendable {
+        private let lock = NSLock()
+        private var data = Data()
+        private var dropped = false
+
+        /// read(2) itself, which returns what there is: what was written before a tool was
+        /// stopped is kept. (FileHandle's reads wait for a full buffer or the end.)
+        func read(from handle: FileHandle) {
+            let fd = handle.fileDescriptor
+            var buffer = [UInt8](repeating: 0, count: 1 << 16)
+            while true {
+                let count = Darwin.read(fd, &buffer, buffer.count)
+                if count < 0, errno == EINTR { continue }
+                guard count > 0 else { return }
+                lock.lock()
+                if data.count + count <= ToolRunner.outputLimit {
+                    data.append(buffer, count: count)
+                } else {
+                    dropped = true
+                }
+                lock.unlock()
+            }
+        }
+
+        var text: String {
+            lock.lock()
+            defer { lock.unlock() }
+            return String(decoding: data, as: UTF8.self) + (dropped ? "\n[The rest of the output was too long and was dropped.]\n" : "")
+        }
+    }
+
+    /// Runs a tool and captures output. Blocks the calling thread, for a little longer than
+    /// `timeout` at most: a tool that ignores being asked to stop is killed, and one that left
+    /// something else holding its output open is not waited for.
     public static func run(_ path: String, _ arguments: [String], timeout: TimeInterval = defaultTimeout) -> ToolOutput {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: path)
@@ -148,34 +199,52 @@ public enum ToolRunner {
         process.standardOutput = outPipe
         process.standardError = errPipe
         process.standardInput = FileHandle.nullDevice
-        var outData = Data()
-        var errData = Data()
+        let out = Output()
+        let err = Output()
         let group = DispatchGroup()
         do {
             try process.run()
         } catch {
             return ToolOutput(status: -1, stdout: "", stderr: "Failed to launch \(path): \(error.localizedDescription)")
         }
-        group.enter()
-        DispatchQueue.global().async {
-            outData = outPipe.fileHandleForReading.readDataToEndOfFile()
-            group.leave()
+        let pid = process.processIdentifier
+        lock.lock()
+        running.insert(pid)
+        lock.unlock()
+        defer {
+            lock.lock()
+            running.remove(pid)
+            lock.unlock()
         }
-        group.enter()
-        DispatchQueue.global().async {
-            errData = errPipe.fileHandleForReading.readDataToEndOfFile()
-            group.leave()
+        for (pipe, output) in [(outPipe, out), (errPipe, err)] {
+            group.enter()
+            DispatchQueue.global().async {
+                output.read(from: pipe.fileHandleForReading)
+                group.leave()
+            }
         }
-        let deadline = DispatchTime.now() + timeout
-        if group.wait(timeout: deadline) == .timedOut {
+        func exited(within seconds: TimeInterval) -> Bool {
+            let deadline = Date().addingTimeInterval(seconds)
+            while process.isRunning, Date() < deadline {
+                usleep(2_000)
+            }
+            return !process.isRunning
+        }
+        var timedOut = group.wait(timeout: .now() + timeout) == .timedOut
+        // Its output ended; the tool itself normally ends with it.
+        if !timedOut, !exited(within: 10) {
+            timedOut = true
+        }
+        if timedOut {
             process.terminate()
-            group.wait()
+            if !exited(within: 3) {
+                kill(pid, SIGKILL)
+                _ = exited(within: 2)
+            }
+            // Whatever it started may still hold the pipes open.
+            _ = group.wait(timeout: .now() + 1)
         }
-        process.waitUntilExit()
-        return ToolOutput(
-            status: process.terminationStatus,
-            stdout: String(decoding: outData, as: UTF8.self),
-            stderr: String(decoding: errData, as: UTF8.self))
+        return ToolOutput(status: process.isRunning ? -1 : process.terminationStatus, stdout: out.text, stderr: err.text)
     }
 }
 
