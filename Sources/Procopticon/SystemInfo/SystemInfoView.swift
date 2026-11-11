@@ -420,7 +420,10 @@ struct NetworkPanel: View {
                             Text((a.ipv4 + a.ipv6).joined(separator: "\n")).textSelection(.enabled)
                             Text(a.hardwareAddress ?? "").monospaced().textSelection(.enabled)
                             Text(a.mtu.map(String.init) ?? "").monospacedDigit()
-                            Text(a.linkSpeed.map(Self.linkSpeed) ?? "").monospacedDigit()
+                            // The counters carry the speed as 64 bits; getifaddrs has 32, which
+                            // tops out near 4.3 Gbit/s (10GbE, Thunderbolt bridges).
+                            let counted = sys.last?.interfaces.first { $0.name == a.name }.flatMap { $0.baudrate > 0 ? $0.baudrate : nil }
+                            Text((counted ?? a.linkSpeed).map(Self.linkSpeed) ?? "").monospacedDigit()
                         }
                     }
                 }
