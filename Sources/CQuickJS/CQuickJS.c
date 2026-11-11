@@ -238,6 +238,41 @@ qx_engine *qx_engine_new(const char *const *field_names, int32_t field_count, qx
         }
         JS_FreeValue(e->ctx, result);
     }
+    // Every expression of an engine runs in the same global scope. Freezing all of it (the global
+    // object and everything reachable from it) keeps one expression from changing what the
+    // others see, by replacing RegExp.prototype.test, say, and from keeping memory between runs.
+    static const char lockdown[] =
+        "(function () {\n"
+        "  const seen = new Set();\n"
+        "  const pending = [globalThis];\n"
+        "  while (pending.length) {\n"
+        "    const o = pending.pop();\n"
+        "    if ((typeof o !== 'object' && typeof o !== 'function') || o === null || seen.has(o)) continue;\n"
+        "    seen.add(o);\n"
+        "    for (const key of Reflect.ownKeys(o)) {\n"
+        "      const d = Object.getOwnPropertyDescriptor(o, key);\n"
+        "      if (!d) continue;\n"
+        "      if ('value' in d) pending.push(d.value); else pending.push(d.get, d.set);\n"
+        "    }\n"
+        "    pending.push(Object.getPrototypeOf(o));\n"
+        "    Object.freeze(o);\n"
+        "  }\n"
+        "})()";
+    start_clock(e, 5);
+    JSValue locked = JS_Eval(e->ctx, lockdown, sizeof(lockdown) - 1, "<lockdown>", JS_EVAL_TYPE_GLOBAL);
+    e->deadline = 0;
+    if (JS_IsException(locked)) {
+        if (error) {
+            *error = take_exception(e->ctx);
+        } else {
+            discard_exception(e->ctx);
+        }
+        qx_engine_free(e);
+        return NULL;
+    }
+    JS_FreeValue(e->ctx, locked);
+    JS_PreventExtensions(e->ctx, proto);
+    JS_PreventExtensions(e->ctx, e->row);
     return e;
 
 fail:
