@@ -199,16 +199,26 @@ struct UsersView: View {
 
 @MainActor
 enum RunWindow {
+    /// The window is reused while it's open, so the command that opens it sets the checkbox each
+    /// time: "Run Program…" on a window opened by "Run Program as Root…" must not run as root.
     static func open(asRoot: Bool) {
+        RunOptions.shared.asRoot = asRoot
         WindowManager.shared.show(id: "run", title: "Run Program", size: NSSize(width: 560, height: 220)) {
-            RunView(asRoot: asRoot)
+            RunView()
         }
     }
 }
 
+@MainActor
+final class RunOptions: ObservableObject {
+    static let shared = RunOptions()
+    @Published var asRoot = false
+}
+
 struct RunView: View {
-    @State var asRoot: Bool
+    @ObservedObject private var options = RunOptions.shared
     @State private var command = ""
+    private var asRoot: Bool { options.asRoot }
     @AppStorage("runHistory") private var historyText = ""
 
     var body: some View {
@@ -235,7 +245,7 @@ struct RunView: View {
                 }
                 .help("Pick a program or application in a file browser")
             }
-            Toggle("Run as root", isOn: $asRoot).toggleStyle(.checkbox)
+            Toggle("Run as root", isOn: $options.asRoot).toggleStyle(.checkbox)
             if asRoot, Elevation.shared.mode == .standard {
                 Text("You will be asked for administrator credentials.").font(.caption).foregroundStyle(.secondary)
             }
