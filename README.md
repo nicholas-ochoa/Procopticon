@@ -4,6 +4,14 @@ Procopticon is a native process explorer for macOS, built with Swift and SwiftUI
 
 ![Procopticon process tree](docs/screenshots/processes.png)
 
+## Why?
+
+On Windows I used [Sysinternals Process Explorer](https://learn.microsoft.com/en-us/sysinternals/downloads/process-explorer) for years, and then [System Informer](https://github.com/winsiderss/systeminformer/) (formerly Process Hacker), which I still use on every Windows machine I work on. Activity Monitor on macOS isn't bad, but it has never had the power-user features I got used to in those tools. Procopticon is my attempt at a process manager for the Mac that does everything I could need or want from one.
+
+## How?
+
+Nearly all of Procopticon was written with AI. If that's something you'd rather avoid, this project probably isn't for you. [AI-POLICY.md](AI-POLICY.md) covers how AI is used here and what's expected of AI-assisted contributions.
+
 ## What it does
 
 - **Process monitoring:** A live process tree with roughly 95 available columns for CPU, memory, disk, network, GPU, power, scheduling, and more. Helper processes are grouped under the applications responsible for them.
