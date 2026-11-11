@@ -628,6 +628,7 @@ final class OutlineTableCoordinator<Item>: NSObject, NSOutlineViewDataSource, NS
         }
         rootNodes = link(p.rootKeys, parentNode: nil)
         nodes = newNodes
+        pruneExpansionState()
 
         if force || reparented || p.flat != flatKeys {
             let selectedKeys = selectedNodes().map(\.key)
@@ -689,6 +690,7 @@ final class OutlineTableCoordinator<Item>: NSObject, NSOutlineViewDataSource, NS
         }
         outline.endUpdates()
         nodes = newNodes
+        pruneExpansionState()
         flatKeys = p.flat
         refreshVisibleRows()
         let rows = IndexSet(p.rootKeys.enumerated().compactMap { selectedKeys.contains($0.element) ? $0.offset : nil })
@@ -859,6 +861,15 @@ final class OutlineTableCoordinator<Item>: NSObject, NSOutlineViewDataSource, NS
     }
 
     private var expandedExplicitly = Set<AnyHashable>()
+
+    /// Forgets the expansion state of rows long gone. Every process ever expanded or collapsed
+    /// stayed in these sets for as long as the window lived. Rows only filtered out for now keep
+    /// their state, so this waits until the sets have clearly outgrown the list.
+    private func pruneExpansionState() {
+        guard collapsed.count + expandedExplicitly.count > 2 * nodes.count + 1024 else { return }
+        collapsed = collapsed.filter { nodes[$0] != nil }
+        expandedExplicitly = expandedExplicitly.filter { nodes[$0] != nil }
+    }
 
     func refreshVisibleRows() {
         guard let outline else { return }
