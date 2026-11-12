@@ -26,6 +26,16 @@ Nearly all of Procopticon was written with AI. If that's something you'd rather 
 
 For details on individual views, filters, expressions, privileges, and tools, see the [feature reference](docs/REFERENCE.md).
 
+## Installing
+
+Requires **macOS 26+**. With [Homebrew](https://brew.sh):
+
+```sh
+brew install --cask nicholas-ochoa/tap/procopticon
+```
+
+Or download the disk image from the [latest release](https://github.com/nicholas-ochoa/Procopticon/releases/latest).
+
 ## Building
 
 Requires **macOS 26+** and **Xcode 26+**.
