@@ -187,6 +187,7 @@ struct DiskView: View {
                 onDoubleClick: { PropertiesWindow.open($0) },
                 defaultSort: (column: "total", ascending: false),
                 font: settings.processListFont,
+                iconSize: settings.processListIconSize,
                 isActive: active,
                 topInset: topInset)
         }

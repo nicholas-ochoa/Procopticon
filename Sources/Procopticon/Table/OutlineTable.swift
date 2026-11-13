@@ -120,6 +120,8 @@ struct OutlineTable<Item>: NSViewRepresentable {
     var controller: OutlineTableController?
     /// Font for text cells; nil uses the standard list font.
     var font: NSFont?
+    /// Side of the icons that columns with an `image` draw, in points. Rows grow to fit larger ones.
+    var iconSize: CGFloat = TextCellView.defaultIconSize
     /// Inactive tables (e.g. a hidden tab) are hidden and defer updates until shown again, so
     /// switching tabs never rebuilds a table from scratch.
     var isActive = true
@@ -296,18 +298,24 @@ final class OutlineTableCoordinator<Item>: NSObject, NSOutlineViewDataSource, NS
     }
 
     private var appliedFont: NSFont?
+    private var appliedIconSize: CGFloat?
 
-    /// Applies a font change: adjusts row height and restyles existing cells.
+    /// Applies a change of font or icon size: adjusts row height and restyles existing cells.
     func applyFont() {
         guard let outline else { return }
         let font = parent.font ?? TextCellView.defaultFont
-        guard font != appliedFont else { return }
+        let iconSize = parent.iconSize
+        guard font != appliedFont || iconSize != appliedIconSize else { return }
         appliedFont = font
+        appliedIconSize = iconSize
         let line = ceil(font.ascender - font.descender + font.leading)
-        outline.rowHeight = max(parent.rowHeight, line + 5)
+        // Larger icons keep the two points above and below that the standard ones have in a standard row.
+        outline.rowHeight = max(parent.rowHeight, line + 5, iconSize + 4)
         outline.enumerateAvailableRowViews { rowView, _ in
             for i in 0..<rowView.numberOfColumns {
-                (rowView.view(atColumn: i) as? TextCellView)?.setFont(font)
+                guard let cell = rowView.view(atColumn: i) as? TextCellView else { continue }
+                cell.setFont(font)
+                cell.iconSize = iconSize
             }
         }
         outline.noteHeightOfRows(withIndexesChanged: IndexSet(integersIn: 0..<outline.numberOfRows))
@@ -962,6 +970,7 @@ final class OutlineTableCoordinator<Item>: NSObject, NSOutlineViewDataSource, NS
             let id = NSUserInterfaceItemIdentifier(withImage ? "textImage" : "text")
             view = outlineView.makeView(withIdentifier: id, owner: nil) ?? TextCellView.make(identifier: id, withImage: withImage)
             (view as? TextCellView)?.setFont(appliedFont ?? TextCellView.defaultFont)
+            (view as? TextCellView)?.iconSize = appliedIconSize ?? TextCellView.defaultIconSize
         }
         configure(view, column: tableColumn, node: node)
         return view
@@ -1420,6 +1429,7 @@ final class ResizeCursorHeaderView: NSTableHeaderView {
 /// out and committing them dominated the main thread on refreshes and scrolling.
 final class TextCellView: NSTableCellView, NSViewToolTipOwner {
     static let defaultFont = NSFont.monospacedDigitSystemFont(ofSize: NSFont.systemFontSize(for: .small) + 1, weight: .regular)
+    static let defaultIconSize: CGFloat = 16
     private let hasImage: Bool
     private var tipTag: NSView.ToolTipTag?
     private(set) var font = TextCellView.defaultFont
@@ -1442,6 +1452,13 @@ final class TextCellView: NSTableCellView, NSViewToolTipOwner {
     var image: NSImage? {
         didSet {
             if image !== oldValue { needsDisplay = true }
+        }
+    }
+
+    /// Side of the icon's square, in points. The text starts after it.
+    var iconSize = TextCellView.defaultIconSize {
+        didSet {
+            if iconSize != oldValue, hasImage { invalidate() }
         }
     }
 
@@ -1506,7 +1523,7 @@ final class TextCellView: NSTableCellView, NSViewToolTipOwner {
 
     private var textRect: NSRect {
         let b = bounds
-        let x: CGFloat = hasImage ? 23 : 4
+        let x: CGFloat = hasImage ? iconSize + 7 : 4
         let height = ceil(font.ascender - font.descender + font.leading)
         return NSRect(x: x, y: floor((b.height - height) / 2), width: max(0, b.width - x - 4), height: height)
     }
@@ -1575,7 +1592,7 @@ final class TextCellView: NSTableCellView, NSViewToolTipOwner {
 
     override func draw(_ dirtyRect: NSRect) {
         if hasImage, let image {
-            let slot = NSRect(x: 1, y: floor((bounds.height - 16) / 2), width: 16, height: 16)
+            let slot = NSRect(x: 1, y: floor((bounds.height - iconSize) / 2), width: iconSize, height: iconSize)
             let rect = Self.aspectFit(image.size, in: slot)
             if image.isTemplate {
                 drawTinted(image, in: rect)

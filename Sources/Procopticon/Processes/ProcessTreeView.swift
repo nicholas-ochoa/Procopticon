@@ -89,6 +89,7 @@ struct ProcessTreeView: View {
             onDeleteKey: { ProcessActions.terminate($0) },
             controller: ProcessSelection.shared.table,
             font: settings.processListFont,
+            iconSize: settings.processListIconSize,
             isActive: active,
             topInset: topInset
         )

@@ -49,6 +49,8 @@ final class AppSettings: ObservableObject {
     }
     @Published var processListMonospaced: Bool { didSet { save("processListMonospaced", processListMonospaced) } }
     @Published var processListFontSize: Double { didSet { save("processListFontSize", processListFontSize) } }
+    /// Side of the icons in lists of processes, in points; rows grow to fit (see `processListIconSizes`).
+    @Published var processListIconSize: Double { didSet { save("processListIconSize", processListIconSize) } }
     @Published var appearance: AppearanceMode { didSet { save("appearance", appearance.rawValue); applyAppearance() } }
     @Published var accent: AccentChoice { didSet { save("accent", accent.rawValue); applyAccentColor() } }
     /// The color for `AccentChoice.custom`, kept while another choice is selected.
@@ -168,6 +170,8 @@ final class AppSettings: ObservableObject {
         searchUsesJavaScript = b("searchUsesJavaScript", false) && !regex
         processListMonospaced = b("processListMonospaced", false)
         processListFontSize = d("processListFontSize", Double(NSFont.systemFontSize(for: .small) + 1))
+        let iconSize = d("processListIconSize", Self.processListIconSizes[0])
+        processListIconSize = Self.processListIconSizes.contains(iconSize) ? iconSize : Self.processListIconSizes[0]
         appearance = AppearanceMode(rawValue: defaults.string(forKey: "appearance") ?? "") ?? .system
         accent = AccentChoice(rawValue: defaults.string(forKey: "accent") ?? "") ?? .system
         accentCustom = defaults.string(forKey: "accentCustom").flatMap(NSColor.init(hex:)) ?? .systemTeal
@@ -543,6 +547,10 @@ enum ApplicationPids {
 }
 
 extension AppSettings {
+    /// The icon sizes on offer, in points. The first is the default, the size of a standard list's
+    /// icons; the largest is what `ProcessIcons` renders icons sharply up to.
+    static let processListIconSizes: [Double] = [16, 18, 20, 24, 28, 32]
+
     /// Font for the process list (fixed-width when enabled).
     var processListFont: NSFont {
         let size = CGFloat(processListFontSize)

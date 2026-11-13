@@ -295,7 +295,7 @@ An optional menu bar graph shows CPU, memory, network, or disk usage. Clicking i
 
 The toolbar can be rearranged with *View ▸ Customize Toolbar…*. Its default groups are Quick Filters, Updates, Tools, and Privileges. The customization palette also includes Process Actions, Inspection Windows, Files & Programs, individual buttons such as Refresh and Settings, spacers, and the search field.
 
-*Settings ▸ Appearance* lets you change the process-list font and size, including a fixed-width font. You can select System, Light, or Dark appearance there or from *View ▸ Appearance*. Options to hide other users' processes, system processes, Apple-signed processes, and zombies, or to use a flat list, are also available.
+*Settings ▸ Appearance* lets you change the process-list font and size, including a fixed-width font, and the size of the icons beside process names, from the standard 16 points up to 32; rows grow taller to fit larger icons. You can select System, Light, or Dark appearance there or from *View ▸ Appearance*. Options to hide other users' processes, system processes, Apple-signed processes, and zombies, or to use a flat list, are also available.
 
 ## Privileges
 

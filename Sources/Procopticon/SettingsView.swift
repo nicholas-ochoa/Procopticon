@@ -276,6 +276,10 @@ struct AppearanceSettings: View {
                 Picker("Font size", selection: $settings.processListFontSize) {
                     ForEach([10.0, 11, 12, 13, 14, 15, 16], id: \.self) { Text("\(Int($0)) pt").tag($0) }
                 }
+                Picker("Icon size", selection: $settings.processListIconSize) {
+                    ForEach(AppSettings.processListIconSizes, id: \.self) { Text("\(Int($0)) pt").tag($0) }
+                }
+                .help("The size of the icons beside process names; rows grow taller to fit larger icons")
             }
             Section("Main window") {
                 Toggle("Show status bar", isOn: $settings.showStatusBar)

@@ -40,7 +40,8 @@ enum ProcessIcons {
     }
 
     /// The icon as plain bitmaps at the sizes cells and the hover card draw (16 pt at 1x and 2x,
-    /// and 4x for the card's 32 pt at 2x). Workspace icons hold many representations, some rendered on demand, and
+    /// and 4x for the card's 32 pt at 2x, which is also the largest icon size a list can be set
+    /// to). Workspace icons hold many representations, some rendered on demand, and
     /// drawing one picks, scales and color-converts a representation every time; table cells
     /// redraw constantly, so that was a large part of each frame.
     ///
