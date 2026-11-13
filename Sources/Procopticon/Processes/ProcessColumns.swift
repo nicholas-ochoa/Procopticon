@@ -22,6 +22,7 @@ enum ProcessColumns {
             }
             return text
         }
+        name.badge = { AppSettings.shared.showSandboxBadge && $0.record.sandboxed == true ? sandboxBadge : nil }
         name.richTooltip = { AnyView(ProcessToolTipView(item: $0)) }
         name.monospacedDigits = false
         cols.append(name)
@@ -379,6 +380,12 @@ enum ProcessColumns {
             }
         }
     }
+
+    /// The shield the hover card shows for a sandboxed process, for after its name (see
+    /// `AppSettings.showSandboxBadge`). Gray rather than the sandbox highlight's color: many
+    /// processes are sandboxed, and the names should still be what the eye lands on.
+    private static let sandboxBadge: CellBadge? = NSImage(systemSymbolName: "shield.lefthalf.filled", accessibilityDescription: "Sandboxed")
+        .map { CellBadge(image: $0, color: .secondaryLabelColor, label: "Sandboxed") }
 
     /// "In use", in the color of the menu bar's privacy indicators, for one sensor.
     private static func sensorColumn(_ id: String, _ title: String, _ sensor: SensorUse, help: String) -> ProcessColumn {

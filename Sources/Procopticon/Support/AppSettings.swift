@@ -49,6 +49,8 @@ final class AppSettings: ObservableObject {
     }
     @Published var processListMonospaced: Bool { didSet { save("processListMonospaced", processListMonospaced) } }
     @Published var processListFontSize: Double { didSet { save("processListFontSize", processListFontSize) } }
+    /// Sandboxed processes get a small shield after their name in the process list.
+    @Published var showSandboxBadge: Bool { didSet { save("showSandboxBadge", showSandboxBadge) } }
     /// Side of the icons in lists of processes, in points; rows grow to fit (see `processListIconSizes`).
     @Published var processListIconSize: Double { didSet { save("processListIconSize", processListIconSize) } }
     @Published var appearance: AppearanceMode { didSet { save("appearance", appearance.rawValue); applyAppearance() } }
@@ -170,6 +172,7 @@ final class AppSettings: ObservableObject {
         searchUsesJavaScript = b("searchUsesJavaScript", false) && !regex
         processListMonospaced = b("processListMonospaced", false)
         processListFontSize = d("processListFontSize", Double(NSFont.systemFontSize(for: .small) + 1))
+        showSandboxBadge = b("showSandboxBadge", false)
         let iconSize = d("processListIconSize", Self.processListIconSizes[0])
         processListIconSize = Self.processListIconSizes.contains(iconSize) ? iconSize : Self.processListIconSizes[0]
         appearance = AppearanceMode(rawValue: defaults.string(forKey: "appearance") ?? "") ?? .system

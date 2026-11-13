@@ -23,6 +23,8 @@ struct TableColumnSpec<Item> {
     /// Ascending comparator; nil disables sorting by this column.
     var less: ((Item, Item) -> Bool)?
     var image: ((Item) -> NSImage?)?
+    /// A small symbol drawn after the text of a left-aligned column, marking a state of the item.
+    var badge: ((Item) -> CellBadge?)?
     var tooltip: ((Item) -> String?)?
     /// Shown in a styled panel (see `RichToolTipController`) in place of a standard tooltip.
     var richTooltip: ((Item) -> AnyView)?
@@ -61,6 +63,15 @@ struct TableColumnSpec<Item> {
             text($0).localizedStandardCompare(text($1)) == .orderedAscending
         })
     }
+}
+
+/// A symbol shown after a cell's text (see `TableColumnSpec.badge`).
+struct CellBadge: Equatable {
+    /// A template image; it's drawn in `color`, at the height of the text.
+    var image: NSImage
+    var color: NSColor
+    /// What the badge says, for VoiceOver.
+    var label: String
 }
 
 struct GraphCellData {
@@ -993,6 +1004,7 @@ final class OutlineTableCoordinator<Item>: NSObject, NSOutlineViewDataSource, NS
         if let imageFn = spec.image {
             cell.image = imageFn(node.value)
         }
+        cell.badge = spec.badge?(node.value)
         if let tip = spec.tooltip {
             let value = node.value
             cell.tooltipProvider = { tip(value) }
@@ -1455,6 +1467,17 @@ final class TextCellView: NSTableCellView, NSViewToolTipOwner {
         }
     }
 
+    /// Drawn after the text, which is cut short if need be to leave it room.
+    var badge: CellBadge? {
+        didSet {
+            if badge != oldValue { invalidate() }
+        }
+    }
+
+    /// The badge's square: as tall as the font's capitals and a little more, like a symbol set in the text.
+    private var badgeSide: CGFloat { ceil(font.capHeight) + 4 }
+    private static let badgeGap: CGFloat = 4
+
     /// Side of the icon's square, in points. The text starts after it.
     var iconSize = TextCellView.defaultIconSize {
         didSet {
@@ -1525,8 +1548,11 @@ final class TextCellView: NSTableCellView, NSViewToolTipOwner {
         let b = bounds
         let x: CGFloat = hasImage ? iconSize + 7 : 4
         let height = ceil(font.ascender - font.descender + font.leading)
-        return NSRect(x: x, y: floor((b.height - height) / 2), width: max(0, b.width - x - 4), height: height)
+        let badgeWidth = showsBadge ? badgeSide + Self.badgeGap : 0
+        return NSRect(x: x, y: floor((b.height - height) / 2), width: max(0, b.width - x - 4 - badgeWidth), height: height)
     }
+
+    private var showsBadge: Bool { badge != nil && alignment == .left }
 
     private var textColor: NSColor {
         backgroundStyle == .emphasized ? .alternateSelectedControlTextColor : .labelColor
@@ -1537,6 +1563,7 @@ final class TextCellView: NSTableCellView, NSViewToolTipOwner {
     private struct Line {
         var line: CTLine
         var x: CGFloat
+        var width: CGFloat
     }
     private var line: Line?
 
@@ -1582,7 +1609,7 @@ final class TextCellView: NSTableCellView, NSViewToolTipOwner {
         case .center: rect.midX - width / 2
         default: rect.minX
         }
-        return Line(line: line, x: x)
+        return Line(line: line, x: x, width: width)
     }
 
     override func viewDidChangeEffectiveAppearance() {
@@ -1595,7 +1622,7 @@ final class TextCellView: NSTableCellView, NSViewToolTipOwner {
             let slot = NSRect(x: 1, y: floor((bounds.height - iconSize) / 2), width: iconSize, height: iconSize)
             let rect = Self.aspectFit(image.size, in: slot)
             if image.isTemplate {
-                drawTinted(image, in: rect)
+                drawTinted(image, in: rect, color: textColor)
             } else {
                 image.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
             }
@@ -1604,6 +1631,13 @@ final class TextCellView: NSTableCellView, NSViewToolTipOwner {
         let rect = textRect
         let line = self.line ?? makeLine(in: rect)
         self.line = line
+        if showsBadge, let badge {
+            let side = badgeSide
+            let slot = NSRect(x: line.x + line.width + Self.badgeGap, y: floor((bounds.height - side) / 2), width: side, height: side)
+            // Uncolored in a selected row, like colored text.
+            drawTinted(badge.image, in: Self.aspectFit(badge.image.size, in: slot),
+                       color: backgroundStyle == .emphasized ? textColor : badge.color)
+        }
         // Baseline centered on the font's line height.
         let ascent = font.ascender, descent = -font.descender
         let top = rect.minY + (rect.height - ascent - descent) / 2
@@ -1626,13 +1660,13 @@ final class TextCellView: NSTableCellView, NSViewToolTipOwner {
         return NSRect(x: rect.midX - w / 2, y: rect.midY - h / 2, width: w, height: h)
     }
 
-    /// Template images (SF Symbols) take the text color, as an image view would give them.
-    private func drawTinted(_ image: NSImage, in rect: NSRect) {
+    /// Template images (SF Symbols) take a color, as an image view would give them the text's.
+    private func drawTinted(_ image: NSImage, in rect: NSRect, color: NSColor) {
         guard let context = NSGraphicsContext.current?.cgContext else { return }
         context.saveGState()
         context.beginTransparencyLayer(in: rect, auxiliaryInfo: nil)
         image.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
-        textColor.set()
+        color.set()
         rect.fill(using: .sourceIn)
         context.endTransparencyLayer()
         context.restoreGState()
@@ -1641,14 +1675,17 @@ final class TextCellView: NSTableCellView, NSViewToolTipOwner {
     /// Width the text needs on one line (for sizing columns to fit).
     var fittingWidth: CGFloat {
         let text = NSAttributedString(string: string, attributes: [.font: font])
-        return ceil(text.size().width) + textRect.minX + 4
+        return ceil(text.size().width) + textRect.minX + 4 + (showsBadge ? badgeSide + Self.badgeGap : 0)
     }
 
     // MARK: Accessibility
 
     override func isAccessibilityElement() -> Bool { true }
     override func accessibilityRole() -> NSAccessibility.Role? { .staticText }
-    override func accessibilityValue() -> Any? { string }
+    override func accessibilityValue() -> Any? {
+        guard showsBadge, let badge else { return string }
+        return "\(string), \(badge.label)"
+    }
 
     // MARK: Tooltips
 

@@ -280,6 +280,8 @@ struct AppearanceSettings: View {
                     ForEach(AppSettings.processListIconSizes, id: \.self) { Text("\(Int($0)) pt").tag($0) }
                 }
                 .help("The size of the icons beside process names; rows grow taller to fit larger icons")
+                Toggle("Badge sandboxed processes", isOn: $settings.showSandboxBadge)
+                    .help("Show a small shield after the name of each process that runs in the App Sandbox")
             }
             Section("Main window") {
                 Toggle("Show status bar", isOn: $settings.showStatusBar)

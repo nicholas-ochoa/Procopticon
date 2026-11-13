@@ -72,6 +72,7 @@ struct ProcessTreeView: View {
         .onReceive(NotificationCenter.default.publisher(for: .highlightsChanged)) { _ in highlightRevision &+= 1 }
         .onReceive(NotificationCenter.default.publisher(for: SigningCache.didUpdateNotification)) { _ in highlightRevision &+= 1 }
         .onReceive(ProcessSelection.shared.$followed.dropFirst()) { _ in highlightRevision &+= 1 }
+        .onChange(of: settings.showSandboxBadge) { highlightRevision &+= 1 }
     }
 
     private func table(topInset: CGFloat) -> some View {

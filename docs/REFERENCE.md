@@ -46,6 +46,8 @@ There are roughly 95 available columns. Most are hidden by default; right-click 
 
 The **Microphone**, **Camera**, and **Screen recording** columns identify processes using those resources. Microphone activity comes from Core Audio. macOS doesn't provide a direct API for camera and screen recording attribution, so Procopticon follows the Control Center privacy-indicator logs using `log stream`. That requires an administrator account. Starts and stops are also recorded in the Event Log.
 
+The **Sandboxed** column says whether a process runs in the App Sandbox. To see that without giving it a column, turn on *Settings ▸ Appearance ▸ Badge sandboxed processes*: each sandboxed process then has a small shield after its name, the one its hover card shows beside *Sandboxed*.
+
 The **Responding** column shows how long a hung application has been stuck. Its name also gains *(Not Responding)*, and the Event Log records when it stops and resumes responding.
 
 ### Search
@@ -295,7 +297,7 @@ An optional menu bar graph shows CPU, memory, network, or disk usage. Clicking i
 
 The toolbar can be rearranged with *View ▸ Customize Toolbar…*. Its default groups are Quick Filters, Updates, Tools, and Privileges. The customization palette also includes Process Actions, Inspection Windows, Files & Programs, individual buttons such as Refresh and Settings, spacers, and the search field.
 
-*Settings ▸ Appearance* lets you change the process-list font and size, including a fixed-width font, and the size of the icons beside process names, from the standard 16 points up to 32; rows grow taller to fit larger icons. You can select System, Light, or Dark appearance there or from *View ▸ Appearance*. Options to hide other users' processes, system processes, Apple-signed processes, and zombies, or to use a flat list, are also available.
+*Settings ▸ Appearance* lets you change the process-list font and size, including a fixed-width font, and the size of the icons beside process names, from the standard 16 points up to 32; rows grow taller to fit larger icons. *Badge sandboxed processes* is there too. You can select System, Light, or Dark appearance there or from *View ▸ Appearance*. Options to hide other users' processes, system processes, Apple-signed processes, and zombies, or to use a flat list, are also available.
 
 ## Privileges
 
