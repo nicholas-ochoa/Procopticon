@@ -198,15 +198,27 @@ enum ProcessColumns {
                             value: { $0.stats?.syscalls ?? 0 }, text: { $0.stats.map { Fmt.count(Int($0.syscalls)) } ?? "" }))
         cols.append(.number("syscallsDelta", "System calls delta", width: 90, visible: false, help: "System calls over the last update interval",
                             value: { $0.syscallsDelta }, text: { Fmt.delta($0.syscallsDelta) }))
-        cols.append(.number("wakeups", "Idle wake-ups", width: 90, visible: false,
+        cols.append(.number("wakeups", "Wake-ups", width: 90, visible: false,
                             help: "Times the process woke a CPU (idle and interrupt wake-ups) since it started",
                             value: { $0.stats?.wakeups ?? 0 }, text: { $0.stats.map { Fmt.count($0.wakeups) } ?? "" }))
+        cols.append(.number("idleWakeups", "Idle wake-ups", width: 90, visible: false,
+                            help: "Times the process brought the whole processor out of its idle state since it started; frequent ones cost the most energy",
+                            value: { $0.stats?.idleWakeups ?? 0 }, text: { $0.stats.map { Fmt.count($0.idleWakeups) } ?? "" }))
+        cols.append(.number("interruptWakeups", "Interrupt wake-ups", width: 90, visible: false,
+                            help: "Times an interrupt, such as a timer the process set, woke a CPU for it since it started",
+                            value: { $0.stats?.interruptWakeups ?? 0 }, text: { $0.stats.map { Fmt.count($0.interruptWakeups) } ?? "" }))
         cols.append(.number("wakeupsDelta", "Wake-ups delta", width: 80, visible: false, help: "Wake-ups over the last update interval",
                             value: { $0.wakeupsDelta }, text: { Fmt.delta($0.wakeupsDelta) }))
         cols.append(.number("power", "Power", width: 70, visible: false, help: "Estimated power draw from the kernel energy counters",
                             value: { $0.power }, text: { Fmt.watts($0.power) }))
+        cols.append(.number("averagePower", "Average power", width: 80, visible: false,
+                            help: "Estimated power draw averaged since the process started: its energy over its running time",
+                            value: { $0.averagePower }, text: { Fmt.watts($0.averagePower) }))
         cols.append(.number("energy", "Energy", width: 90, visible: false, help: "Total energy consumed since launch",
                             value: { $0.stats?.energyNj ?? 0 }, text: { e($0.stats?.energyNj) }))
+        cols.append(.number("billedEnergy", "Billed energy", width: 90, visible: false,
+                            help: "Energy other processes, such as system services, used doing work on this one's behalf since it started; not part of Energy",
+                            value: { $0.stats?.billedEnergy ?? 0 }, text: { e($0.stats?.billedEnergy) }))
         cols.append(ProcessColumn("preventingSleep", "Preventing Sleep", width: 90, visible: false,
                                   help: "Whether the process keeps the Mac awake with a power assertion: System (the Mac stays awake; the display may sleep) or Display (the display stays on too)",
                                   text: { $0.sleepPrevention?.title ?? "" },
@@ -318,6 +330,14 @@ enum ProcessColumns {
         netGraph.kind = .graph
         netGraph.graph = { GraphCellData(values: $0.netHistory.ordered, maxValue: max(1, $0.netHistory.maxValue), color: .systemTeal) }
         cols.append(netGraph)
+        var powerGraph = ProcessColumn("powerHistory", "Power history", width: 80, visible: false,
+                                       help: "Estimated power draw over the last 120 updates; sorts by current power",
+                                       text: { _ in "" }, less: { $0.power < $1.power })
+        powerGraph.kind = .graph
+        // Scaled to the row's own peak, but to no less than 10 mW, so an idle process's stray
+        // microwatts don't fill the graph.
+        powerGraph.graph = { GraphCellData(values: $0.powerHistory.ordered, maxValue: max(0.01, $0.powerHistory.maxValue), color: .systemYellow) }
+        cols.append(powerGraph)
 
         applyExportValues(&cols)
         return cols
@@ -336,15 +356,16 @@ enum ProcessColumns {
             "ioTotalRate": "bytes/s", "diskReadRate": "bytes/s", "diskWriteRate": "bytes/s", "netInRate": "bytes/s",
             "netOutRate": "bytes/s", "netRate": "bytes/s",
             "cpuTime": "s", "userTime": "s", "kernelTime": "s", "pTime": "s", "gpuTime": "s", "runningTime": "s",
-            "power": "W", "energy": "J",
+            "power": "W", "averagePower": "W", "energy": "J", "billedEnergy": "J",
         ]
         // Read from the process's task statistics; unknown (not zero) when it couldn't be inspected.
         let fromStats: Set<String> = [
             "cpu", "cpuUser", "cpuKernel", "memory", "peakMemory", "memoryDelta", "resident", "virtual", "wired", "neural",
             "compressed", "purgeable", "diskRead", "diskWrite", "logicalWrites", "ioTotalRate", "diskReadRate", "diskWriteRate",
             "cpuTime", "userTime", "kernelTime", "pTime", "priority", "threads", "runningThreads", "cycles", "cyclesDelta",
-            "instructions", "instructionsDelta", "ipc", "csw", "cswDelta", "syscalls", "syscallsDelta", "wakeups", "wakeupsDelta",
-            "power", "energy", "messages", "messagesDelta", "faults", "faultsDelta", "pageins", "cowFaults",
+            "instructions", "instructionsDelta", "ipc", "csw", "cswDelta", "syscalls", "syscallsDelta", "wakeups", "idleWakeups",
+            "interruptWakeups", "wakeupsDelta", "power", "averagePower", "energy", "billedEnergy", "messages", "messagesDelta",
+            "faults", "faultsDelta", "pageins", "cowFaults",
         ]
         func seconds(_ ns: UInt64?) -> ExportValue { ns.map { .number(Double($0) / 1e9) } ?? .null }
         func percent(_ v: Double) -> ExportValue { .number((v * 100).rounded() / 100) }
@@ -359,6 +380,7 @@ enum ProcessColumns {
             "pTime": { seconds($0.stats?.pTimeNs) },
             "gpuTime": { seconds($0.gpuTimeNs) },
             "energy": { p in p.stats.map { .number(Double($0.energyNj) / 1e9) } ?? .null },
+            "billedEnergy": { p in p.stats.map { .number(Double($0.billedEnergy) / 1e9) } ?? .null },
             "startTime": { .string(Date(timeIntervalSince1970: $0.record.startTime).formatted(.iso8601)) },
             "runningTime": { .number(((Date().timeIntervalSince1970 - $0.record.startTime) * 1000).rounded() / 1000) },
             "responsible": { p in p.record.responsiblePid.map { .integer(Int64($0)) } ?? .null },

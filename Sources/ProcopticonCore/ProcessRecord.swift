@@ -51,6 +51,7 @@ public struct TaskStats: Codable, Sendable {
     public var instructions: UInt64
     public var cycles: UInt64
     public var energyNj: UInt64
+    /// Nanojoules other processes used doing work on this one's behalf.
     public var billedEnergy: UInt64
     public var idleWakeups: UInt64
     public var interruptWakeups: UInt64

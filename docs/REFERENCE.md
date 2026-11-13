@@ -28,19 +28,19 @@ The main window shows a live process tree. Applications are listed by their actu
 
 ### Columns
 
-There are roughly 95 available columns. Most are hidden by default; right-click a column header to pick the ones you want. Hover over a truncated value to see it in full.
+There are roughly 100 available columns. Most are hidden by default; right-click a column header to pick the ones you want. Hover over a truncated value to see it in full.
 
 | | Columns |
 | --- | --- |
 | CPU | Usage, user/kernel CPU time, cycles, instructions, IPC |
-| Scheduling | Threads, context switches, system calls, wake-ups, nice/priority, Mach ports and messages, open files |
+| Scheduling | Threads, context switches, system calls, wake-ups (in total, and idle and interrupt wake-ups apart), nice/priority, Mach ports and messages, open files |
 | Memory | Physical footprint, peak, wired, compressed, purgeable, resident and virtual memory, page faults, jetsam priority band and memory limit |
 | Disk and network | Read/write and send/receive rates, total bytes and packets, including `nettop` counters. The Network rate column can combine inbound/outbound traffic using ↓/↑ arrows |
-| GPU and power | GPU usage and time, energy and power, power assertions, and whether a process is preventing sleep |
+| GPU and power | GPU usage and time, power now and averaged since the process started, energy used and energy billed to it for work done on its behalf, power assertions, and whether a process is preventing sleep |
 | Identity | User, parent/responsible PID, start time, command line, process title, description, bundle ID and version, architecture (arm64/Rosetta) |
 | Security | Sandbox status, code signature verification, signer, team ID, and quarantine download source |
 | Privacy | Microphone, camera and screen recording activity |
-| History | CPU, memory, disk, GPU and network graphs |
+| History | CPU, memory, disk, GPU, network and power graphs |
 
 **Process title** is separate from the executable name. It reports the title a process sets by replacing its first argument, as with Node's `process.title`, `setproctitle`, or `postgres: checkpointer`. It is blank for processes that haven't set a title, including those launched through a symlink or shim.
 

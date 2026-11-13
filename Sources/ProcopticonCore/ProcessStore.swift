@@ -50,6 +50,8 @@ public final class ProcessItem: Identifiable {
     public let gpuHistory: History
     /// Receive + send rate.
     public let netHistory: History
+    /// Estimated power draw, in watts.
+    public let powerHistory: History
     public let firstSeen: Date
     public let removedAt: Date?
     public let isInitial: Bool
@@ -98,6 +100,7 @@ public final class ProcessItem: Identifiable {
         ioHistory = s.ioHistory
         gpuHistory = s.gpuHistory
         netHistory = s.netHistory
+        powerHistory = s.powerHistory
         firstSeen = s.firstSeen
         removedAt = s.removedAt
         isInitial = s.isInitial
@@ -137,6 +140,14 @@ public final class ProcessItem: Identifiable {
     }
 
     public var ioTotalRate: Double { diskReadRate + diskWriteRate }
+
+    /// Watts averaged over the process's life so far: the energy it has used, over how long it has
+    /// run. Zero when its statistics couldn't be read.
+    public var averagePower: Double {
+        guard let stats else { return 0 }
+        let seconds = (removedAt ?? Date()).timeIntervalSince1970 - record.startTime
+        return seconds > 0 ? Double(stats.energyNj) / 1e9 / seconds : 0
+    }
     public var netTotalRate: Double { netInRate + netOutRate }
 
     /// Text used by the search filter.
@@ -185,6 +196,7 @@ final class ProcessState {
     var ioHistory = History(capacity: 120)
     var gpuHistory = History(capacity: 120)
     var netHistory = History(capacity: 120)
+    var powerHistory = History(capacity: 120)
     let firstSeen = Date()
     var removedAt: Date?
     let isInitial: Bool
@@ -260,6 +272,7 @@ final class ProcessState {
         ioHistory.append(diskReadRate + diskWriteRate)
         gpuHistory.append(gpu)
         netHistory.append(netInRate + netOutRate)
+        powerHistory.append(power)
     }
 
     /// Takes nettop's latest counters for the process (nil: no open sockets). Totals only grow:
