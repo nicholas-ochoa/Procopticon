@@ -81,6 +81,8 @@ Searches and filter settings can be saved together under a name. Apply them from
 
 Rows are highlighted by process state: newly started or terminated, hung, stopped, zombie, traced, running through Rosetta, elevated through setuid/sudo, unsigned, sandboxed, or using the microphone, camera, or screen recording. Applications, your processes, root processes, and service accounts can be distinguished too.
 
+A new install highlights the process kept in view and processes that are new, terminated, not responding, stopped, zombies, running through Rosetta, elevated, or using the microphone, camera, or screen recording. The other rules are off until you turn them on in *Settings ▸ Highlighting*.
+
 Highlight colors and their priority are configurable. In *Settings ▸ Highlighting*, you can add custom rules, each a [filter](#filters) and a color. For example, `memory > 2 * GB` could highlight processes in red.
 
 ### Alerts

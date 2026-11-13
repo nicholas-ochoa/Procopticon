@@ -403,10 +403,14 @@ enum HighlightRule: String, CaseIterable, Identifiable {
         }
     }
 
+    /// On in a new install: the states that are transient or unusual. The rest color most of the
+    /// list at once (who owns a process, how it's signed), so they wait to be asked for.
     var defaultEnabled: Bool {
         switch self {
-        case .application, .sandboxed: return false
-        default: return true
+        case .keptInView, .removed, .new, .notResponding, .sensors, .suspended, .zombie, .translated, .elevated:
+            return true
+        case .debugged, .unsigned, .sandboxed, .application, .ownProcesses, .systemProcesses, .daemons:
+            return false
         }
     }
 
