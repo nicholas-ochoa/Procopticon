@@ -124,7 +124,7 @@ extension ProcessExpressions {
             Field("threads", .number, "Number of threads") { maybe($0.stats?.threadCount) },
             Field("runningThreads", .number, "Threads running or ready to run") { maybe($0.stats?.runningThreads) },
             Field("fds", .number, "Open file descriptors") { maybe($0.record.fdCount) },
-            Field("ports", .number, "Mach ports it holds, while the Ports column counts them; otherwise null") { maybe($0.machPorts) },
+            Field("ports", .number, "Mach ports it holds, while the Mach ports column counts them; otherwise null") { maybe($0.machPorts) },
             Field("priority", .number, "Base scheduling priority") { maybe($0.stats?.priority) },
             Field("nice", .number, "Nice value, from −20 to 20") { number($0.record.nice) },
             Field("power", .number, "Estimated power draw in watts") { .number($0.power) },

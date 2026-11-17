@@ -517,7 +517,7 @@ struct GeneralTab: View {
 struct StatisticsTab: View {
     let item: ProcessItem
     let revision: Int
-    /// Counted once when the tab opens (lsmp, as root), unless the Ports column keeps it current.
+    /// Counted once when the tab opens (lsmp, as root), unless the Mach ports column keeps it current.
     @State private var ports: Int?
 
     var body: some View {

@@ -262,7 +262,7 @@ enum ProcessColumns {
         cols.append(.number("jetsamPriority", "Jetsam priority", width: 70, visible: false,
                             help: "The process's jetsam band: under memory pressure the system kills processes in lower bands first (0 idle, 100 foreground app, 180 the default for processes launchd doesn't manage); needs Show Details for All Processes",
                             value: { $0.record.jetsamPriority ?? -1 }, text: { $0.record.jetsamPriority.map { "\($0)" } ?? "" }))
-        cols.append(.number("ports", "Ports", width: 60, visible: false,
+        cols.append(.number("ports", "Mach ports", width: 85, visible: false,
                             help: "Mach ports the process holds (from lsmp). Needs Show Details for All Processes; counted every \(Int(ProcessStore.portCountInterval)) seconds while this column shows",
                             value: { $0.machPorts ?? -1 }, text: { $0.machPorts.map { Fmt.count($0) } ?? "" }))
         cols.append(.number("neural", "Neural Engine memory", width: 85, visible: false, help: "Memory used by the Neural Engine for the process",
