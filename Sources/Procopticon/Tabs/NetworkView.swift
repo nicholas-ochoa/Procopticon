@@ -10,9 +10,11 @@ struct NetworkView: View {
     @State private var hideListening = false
     @State private var hideLoopback = false
     @State private var protocolFilter = "All"
+    @AppStorage("NetworkTable.groupByProcess") private var groupByProcess = true
 
     var body: some View {
-        TableUnderToolbar {
+        let items = filtered
+        return TableUnderToolbar {
             FilterBar {
                 Text("Protocol").foregroundStyle(.secondary).fixedSize()
                 Picker(selection: $protocolFilter) {
@@ -23,6 +25,8 @@ struct NetworkView: View {
                 .pickerStyle(.segmented)
                 .fixedSize()
                 .help("Protocol")
+                Toggle("Group by process", isOn: $groupByProcess).toggleStyle(.checkbox).fixedSize()
+                    .help("List each process once, with its connections under it and those to the same place on one row")
                 Toggle("Hide listening", isOn: $hideListening).toggleStyle(.checkbox).fixedSize()
                 Toggle("Hide loopback", isOn: $hideLoopback).toggleStyle(.checkbox).fixedSize()
                 Toggle("Resolve addresses", isOn: $settings.resolveAddresses).toggleStyle(.checkbox).fixedSize()
@@ -30,24 +34,28 @@ struct NetworkView: View {
                 if Elevation.shared.mode == .standard {
                     Image(systemName: "lock").foregroundStyle(.secondary).help("Showing your processes only — authorize to see all connections")
                 }
-                Text("\(filtered.count) connections").foregroundStyle(.secondary).lineLimit(1)
+                Text("\(items.count) connections").foregroundStyle(.secondary).lineLimit(1)
             }
         } table: { topInset in
             OutlineTable(
-                roots: filtered,
-                children: nil,
+                roots: groupByProcess ? NetworkRow.grouped(items, isNew: store.isNew) : NetworkRow.list(items),
+                children: groupByProcess ? { $0.children } : nil,
                 revision: store.revision &+ search.hashValue &+ (settings.searchUsesRegex ? 4 : 0) &+ protocolFilter.hashValue &+ (hideListening ? 1 : 0) &+ (hideLoopback ? 2 : 0),
-                columns: Self.columns,
-                autosaveName: "NetworkTable",
-                key: { AnyHashable($0.id) },
+                columns: groupByProcess ? Self.treeColumns : Self.listColumns,
+                // Each has its own column layout: the tree's first column is far wider, and it
+                // has no use for the Remote column that the list can't do without.
+                autosaveName: groupByProcess ? "NetworkTree" : "NetworkList",
+                key: { $0.key },
                 rowStyle: { style($0) },
                 menu: { menu($0) },
-                onDoubleClick: { c in
-                    if let p = ProcessStore.shared.item(pid: c.connection.pid) { PropertiesWindow.open(p) }
+                onDoubleClick: { row in
+                    if let p = ProcessStore.shared.item(pid: row.pid) { PropertiesWindow.open(p) }
                 },
                 defaultSort: (column: "process", ascending: true),
                 isActive: active,
                 topInset: topInset)
+                // A list and a tree are different tables: start over rather than turn one into the other.
+                .id(groupByProcess)
         }
         .task(id: active) {
             // Enumerate sockets only while this tab is visible.
@@ -73,37 +81,38 @@ struct NetworkView: View {
             default: break
             }
             if hideListening, e.isListening || (e.proto == IPPROTO_UDP && e.remotePort == 0) { return false }
-            if hideLoopback, isLoopback(e.localAddress), isLoopback(e.remoteAddress) || e.remoteAddress == "*" { return false }
+            if hideLoopback, HostNames.isLoopback(e.localAddress), HostNames.isLoopback(e.remoteAddress) || e.remoteAddress == "*" {
+                return false
+            }
             if m.isEmpty { return true }
             return m.matchesAny(item.connection.processName, e.localAddress, e.remoteAddress, item.remoteHost, item.remoteService)
                 || m.matchesIdentifier("\(e.localPort)") || m.matchesIdentifier("\(e.remotePort)")
                 || m.matchesIdentifier("\(item.connection.pid)")
         }
+        .sorted(by: NetworkRow.inDisplayOrder)
     }
 
-    private func isLoopback(_ a: String) -> Bool {
-        a.hasPrefix("127.") || a == "::1"
-    }
-
-    private func style(_ c: ConnectionItem) -> RowStyle? {
+    private func style(_ row: NetworkRow) -> RowStyle? {
+        // A row of several sockets has them all in the same phase (see `NetworkRow.grouped`).
+        guard let c = row.entry?.first else { return nil }
         let h = AppSettings.shared.highlights
         if c.removedAt != nil, let s = h[.removed], s.enabled { return RowStyle(background: s.color.withAlphaComponent(0.5)) }
         if store.isNew(c), let s = h[.new], s.enabled { return RowStyle(background: s.color.withAlphaComponent(0.5)) }
         return nil
     }
 
-    private func menu(_ rows: [ConnectionItem]) -> NSMenu {
+    private func menu(_ rows: [NetworkRow]) -> NSMenu {
         let m = NSMenu()
-        guard let c = rows.first else { return m }
-        let pid = c.connection.pid
+        guard let row = rows.first else { return m }
+        let pid = row.pid
         m.add("Go to Process", image: "arrow.right.circle") { ProcessSelection.shared.reveal(pid: pid) }
         if let p = ProcessStore.shared.item(pid: pid) {
             m.add("Process Properties") { PropertiesWindow.open(p) }
             m.add("Terminate Process") { ProcessActions.terminate([p]) }
         }
-        m.addItem(.separator())
-        let remote = c.connection.endpoint.remoteAddress
+        let remote = row.entry?.endpoint.remoteAddress ?? ""
         if remote != "*", !remote.isEmpty {
+            m.addItem(.separator())
             m.add("Look Up Remote Address (whois)…") {
                 Reports.show(title: "whois \(remote)") {
                     ToolRunner.run("/usr/bin/whois", [remote], timeout: 30).combined
@@ -114,47 +123,173 @@ struct NetworkView: View {
         return m
     }
 
-    static let columns: [TableColumnSpec<ConnectionItem>] = {
-        var process = TableColumnSpec<ConnectionItem>.string("process", "Name", width: 180,
-                                                             help: "The process the socket belongs to") { $0.connection.processName }
-        process.image = { c in
-            if let p = ProcessStore.shared.item(pid: c.connection.pid) { return ProcessIcons.icon(for: p.record) }
+    /// A column of text about a connection, blank in a process's row. `styled` colors it. A row of
+    /// several sockets lists what they don't have in common.
+    private static func text(_ id: String, _ title: String, width: CGFloat, help: String,
+                             styled: ((ConnectionItem) -> NSAttributedString)? = nil,
+                             _ text: @escaping (ConnectionItem) -> String) -> TableColumnSpec<NetworkRow> {
+        var spec = TableColumnSpec<NetworkRow>.string(id, title, width: width, visible: false, help: help) { row in
+            guard let entry = row.entry else { return "" }
+            if entry.items.count == 1 { return text(entry.first) }
+            return ConnectionStyle.joined(entry.items.map { NSAttributedString(string: text($0)) }).string
+        }
+        if let styled {
+            spec.attributedText = { row in
+                guard let entry = row.entry else { return NSAttributedString() }
+                return entry.items.count == 1 ? styled(entry.first) : ConnectionStyle.joined(entry.items.map(styled))
+            }
+        }
+        return spec
+    }
+
+    /// A column of a number about a connection, blank in a process's row. `styled` colors it. A row
+    /// of several sockets lists their numbers, and sorts by the first.
+    private static func number<V: Comparable & ExpressibleByIntegerLiteral>(
+        _ id: String, _ title: String, width: CGFloat, help: String,
+        styled: ((ConnectionItem) -> NSAttributedString)? = nil,
+        value: @escaping (ConnectionItem) -> V, text: @escaping (ConnectionItem) -> String) -> TableColumnSpec<NetworkRow> {
+        let listed: (NetworkEntry) -> String = { entry in
+            if entry.items.count == 1 { return text(entry.first) }
+            return ConnectionStyle.joined(entry.items.map { NSAttributedString(string: text($0)) }).string
+        }
+        var spec = TableColumnSpec<NetworkRow>.number(id, title, width: width, visible: false, help: help,
+                                                      value: { $0.entry.map { value($0.first) } ?? 0 }, text: { $0.entry.map(listed) ?? "" })
+        spec.exportValue = { row in
+            guard let entry = row.entry else { return .null }
+            return entry.items.count == 1 ? ExportValue(value(entry.first), text: text(entry.first)) : .string(listed(entry))
+        }
+        if let styled {
+            spec.attributedText = { row in
+                guard let entry = row.entry else { return NSAttributedString() }
+                return entry.items.count == 1 ? styled(entry.first) : ConnectionStyle.joined(entry.items.map(styled))
+            }
+        }
+        return spec
+    }
+
+    static let treeColumns = columns(grouped: true)
+    static let listColumns = columns(grouped: false)
+
+    /// The two ends of a connection are each written in one column, address and port together, and
+    /// under its process a connection's row is named for its far end. The columns for the parts on
+    /// their own are there to sort by, hidden until asked for.
+    private static func columns(grouped: Bool) -> [TableColumnSpec<NetworkRow>] {
+        var process = TableColumnSpec<NetworkRow>("process", "Name", width: grouped ? 340 : 180,
+                                                  help: grouped ? "The process, and under it what each of its sockets is connected to or listens on"
+                                                      : "The process the socket belongs to",
+                                                  text: { row in
+            if case .connection(let entry, true) = row { return ConnectionStyle.label(entry).string }
+            return row.processName
+        }, less: { a, b in
+            // Under a process: what it listens on, then what it's connected to.
+            if case .connection(let x, true) = a, case .connection(let y, true) = b {
+                return NetworkRow.inDisplayOrder(x.first, y.first)
+            }
+            return a.processName.localizedStandardCompare(b.processName) == .orderedAscending
+        })
+        process.image = { row in
+            if row.isNested { return nil }
+            if let p = ProcessStore.shared.item(pid: row.pid) { return ProcessIcons.icon(for: p.record) }
             return ProcessIcons.executable
         }
+        process.attributedText = { row in
+            switch row {
+            case .process(let group): ConnectionStyle.group(group)
+            case .connection(let entry, true): ConnectionStyle.label(entry)
+            case .connection(let entry, false): NSAttributedString(string: entry.first.connection.processName)
+            }
+        }
+        process.tooltip = { row in
+            if case .connection(let entry, true) = row { return ConnectionStyle.summary(entry) }
+            return nil
+        }
+        process.monospacedDigits = false
+
+        // Blank under the process's row, which has it; copying and exporting still include it.
+        var pid = TableColumnSpec<NetworkRow>.number("pid", "PID", width: 60, help: "Process ID", value: { $0.pid }, text: { "\($0.pid)" })
+        pid.attributedText = { $0.isNested ? NSAttributedString() : NSAttributedString(string: "\($0.pid)") }
+
+        var proto = text("proto", "Protocol", width: 60, help: "TCP or UDP; TCP6 and UDP6 are IPv6") { $0.connection.endpoint.protocolName }
+        proto.defaultVisible = true
+
+        var remote = TableColumnSpec<NetworkRow>(
+            "remote", "Remote", width: 300, visible: !grouped,
+            help: "The far end: its host name where one is known, or its address, then the port and the service registered "
+                + "for that port number",
+            text: { $0.entry.map { ConnectionStyle.remote($0.first).string } ?? "" },
+            less: { a, b in
+                guard let x = a.entry, let y = b.entry else { return false }
+                let e = x.endpoint, f = y.endpoint
+                let name = x.first.remoteHost.isEmpty ? e.remoteAddress : x.first.remoteHost
+                let other = y.first.remoteHost.isEmpty ? f.remoteAddress : y.first.remoteHost
+                let order = e.hasPeer && f.hasPeer ? name.compare(other, options: [.numeric, .caseInsensitive]) : .orderedSame
+                if order != .orderedSame { return order == .orderedAscending }
+                return (e.hasPeer ? 1 : 0, e.remotePort) < (f.hasPeer ? 1 : 0, f.remotePort)
+            })
+        remote.attributedText = { $0.entry.map { ConnectionStyle.remote($0.first) } ?? NSAttributedString() }
+
+        var local = TableColumnSpec<NetworkRow>(
+            "local", "Local", width: 150,
+            help: "The near end: the port alone for a connection, and the address too for a socket that listens "
+                + "(* is every address of this Mac)",
+            text: { $0.entry.map(ConnectionStyle.localText) ?? "" },
+            less: { a, b in
+                guard let e = a.entry?.endpoint, let f = b.entry?.endpoint else { return false }
+                return (e.localPort, e.localAddress) < (f.localPort, f.localAddress)
+            })
+        local.attributedText = { $0.entry.map(ConnectionStyle.local) ?? NSAttributedString() }
+
+        var state = text("state", "State", width: 90,
+                         help: "TCP connection state, such as Listen or Established (blank for UDP)",
+                         styled: { ConnectionStyle.state($0.connection.endpoint) }) { $0.connection.endpoint.stateName }
+        state.defaultVisible = true
+
         return [
             process,
-            .number("pid", "PID", width: 60, help: "Process ID", value: { $0.connection.pid }, text: { "\($0.connection.pid)" }),
-            .string("proto", "Protocol", width: 60, help: "TCP or UDP; TCP6 and UDP6 are IPv6") { $0.connection.endpoint.protocolName },
-            .string("laddr", "Local address", width: 150, help: "Local IP address (* means any)") { $0.connection.endpoint.localAddress },
-            .number("lport", "Local port", width: 70, help: "Local port", value: { $0.connection.endpoint.localPort }, text: { p in
+            pid,
+            proto,
+            remote,
+            local,
+            state,
+            text("laddr", "Local address", width: 150, help: "Local IP address (* means any)",
+                 styled: { ConnectionStyle.address($0.connection.endpoint.localAddress) }) { $0.connection.endpoint.localAddress },
+            number("lport", "Local port", width: 70, help: "Local port", styled: { ConnectionStyle.port($0.connection.endpoint.localPort) },
+                   value: { $0.connection.endpoint.localPort }, text: { p in
                 let e = p.connection.endpoint
                 return e.localPort == 0 ? "" : "\(e.localPort)"
             }),
-            .string("lhost", "Local host", width: 120, visible: false, help: "Local address resolved to a host name") { $0.localHost },
-            .string("lservice", "Local service", width: 90, visible: false,
-                    help: "Service name for the local port (from /etc/services)") { $0.localService },
-            .string("raddr", "Remote address", width: 150,
-                    help: "Remote IP address") { $0.connection.endpoint.remoteAddress == "*" ? "" : $0.connection.endpoint.remoteAddress },
-            .number("rport", "Remote port", width: 75, help: "Remote port", value: { $0.connection.endpoint.remotePort }, text: { p in
+            text("lhost", "Local host", width: 120, help: "Local address resolved to a host name",
+                 styled: { ConnectionStyle.host($0.localHost, address: $0.connection.endpoint.localAddress) }) { $0.localHost },
+            text("lservice", "Local service", width: 90,
+                 help: "The service registered for the local port number (from /etc/services)") { $0.localService },
+            text("raddr", "Remote address", width: 150, help: "Remote IP address",
+                 styled: { ConnectionStyle.address($0.connection.endpoint.remoteAddress == "*" ? "" : $0.connection.endpoint.remoteAddress) }) {
+                $0.connection.endpoint.remoteAddress == "*" ? "" : $0.connection.endpoint.remoteAddress
+            },
+            number("rport", "Remote port", width: 75, help: "Remote port", styled: { ConnectionStyle.port($0.connection.endpoint.remotePort) },
+                   value: { $0.connection.endpoint.remotePort }, text: { p in
                 let e = p.connection.endpoint
                 return e.remotePort == 0 ? "" : "\(e.remotePort)"
             }),
-            .string("rhost", "Remote host", width: 200,
-                    help: "Remote address resolved to a host name, when that's turned on in Settings") { $0.remoteHost },
-            .string("rservice", "Remote service", width: 90, help: "Service name for the remote port (from /etc/services)") { $0.remoteService },
-            .string("state", "State", width: 90,
-                    help: "TCP connection state, such as Listen or Established (blank for UDP)") { $0.connection.endpoint.stateName },
-            .number("sendq", "Send queue", width: 70, visible: false,
-                    help: "Bytes waiting in the socket's send buffer",
-                    value: { $0.connection.endpoint.sendQueue }, text: { "\($0.connection.endpoint.sendQueue)" }),
-            .number("recvq", "Receive queue", width: 70, visible: false,
-                    help: "Bytes received but not yet read by the process",
-                    value: { $0.connection.endpoint.recvQueue }, text: { "\($0.connection.endpoint.recvQueue)" }),
-            .number("fd", "FD", width: 50, visible: false,
-                    help: "The socket's file descriptor number in the process",
-                    value: { $0.connection.fd }, text: { "\($0.connection.fd)" }),
+            text("rhost", "Remote host", width: 200,
+                 help: "Remote address resolved to a host name, when that's turned on in Settings",
+                 styled: { ConnectionStyle.host($0.remoteHost, address: $0.connection.endpoint.remoteAddress) }) { $0.remoteHost },
+            text("rservice", "Remote service", width: 90,
+                 help: "The service registered for the remote port number (from /etc/services), such as https for 443. "
+                     + "It's looked up from the number alone, so it's what the port is usually for") { $0.remoteService },
+            number("sendq", "Send queue", width: 70,
+                   help: "Bytes waiting in the socket's send buffer",
+                   styled: { ConnectionStyle.queue($0.connection.endpoint.sendQueue) },
+                   value: { $0.connection.endpoint.sendQueue }, text: { "\($0.connection.endpoint.sendQueue)" }),
+            number("recvq", "Receive queue", width: 70,
+                   help: "Bytes received but not yet read by the process",
+                   styled: { ConnectionStyle.queue($0.connection.endpoint.recvQueue) },
+                   value: { $0.connection.endpoint.recvQueue }, text: { "\($0.connection.endpoint.recvQueue)" }),
+            number("fd", "FD", width: 50,
+                   help: "The socket's file descriptor number in the process",
+                   value: { $0.connection.fd }, text: { "\($0.connection.fd)" }),
         ]
-    }()
+    }
 }
 
 struct DiskView: View {

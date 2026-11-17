@@ -195,3 +195,38 @@ public enum PortNames {
         return name
     }
 }
+
+extension PortNames {
+    /// Whether the system picked the port itself, for the local end of an outgoing connection
+    /// (macOS hands out the IANA dynamic range, 49152 and up). Such a number says nothing about
+    /// what the connection is for.
+    public static func isEphemeral(_ port: UInt16) -> Bool { port >= 49152 }
+}
+
+/// What a connection's addresses and host names say, for showing the telling parts of them.
+public enum HostNames {
+    /// Whether an address, as `SocketEndpoint` writes it, never leaves this Mac.
+    public static func isLoopback(_ address: String) -> Bool {
+        address.hasPrefix("127.") || address == "::1"
+    }
+
+    /// Second-level labels that registries of two-letter domains sell names under ("example.co.uk").
+    private static let registrySecondLevel: Set<String> = ["ac", "co", "com", "edu", "go", "gov", "mil", "ne", "net", "or", "org"]
+
+    /// Splits a host name where the domain someone registered begins: "lb-140-82-113-26-iad." and
+    /// "github.com". Reverse DNS names are mostly a provider's machine naming, and the registered
+    /// domain is the part that says whose machine it is. A guess from the name's shape rather than
+    /// the public suffix list, which is fine for choosing what to dim.
+    public static func split(_ host: String) -> (prefix: String, domain: String) {
+        var labels = host.split(separator: ".", omittingEmptySubsequences: false)
+        // A fully qualified name's final dot stays with the domain.
+        if labels.last?.isEmpty == true { labels.removeLast() }
+        guard labels.count > 2, let top = labels.last, !top.allSatisfy(\.isNumber), !labels.contains(where: \.isEmpty) else {
+            return ("", host)
+        }
+        let keep = top.count == 2 && registrySecondLevel.contains(labels[labels.count - 2].lowercased()) ? 3 : 2
+        guard labels.count > keep else { return ("", host) }
+        let prefix = labels.dropLast(keep).joined(separator: ".") + "."
+        return (prefix, String(host.dropFirst(prefix.count)))
+    }
+}

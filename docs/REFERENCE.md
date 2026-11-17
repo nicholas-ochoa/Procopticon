@@ -188,7 +188,13 @@ Open a process to inspect it in a separate window. Its sidebar contains the foll
 
 The **Services** tab lists launchd jobs in the system and current GUI domains: daemons, agents, login items, and XPC services, including unloaded jobs. It displays PID, status, last exit code, start conditions, and whether each job is enabled. Jobs can be started, stopped, restarted, loaded (`bootstrap`), unloaded (`bootout`), enabled, or disabled. You can also view live `launchctl print` output or the job's property list.
 
-The **Network** tab lists TCP and UDP endpoints, their owning processes, reverse-DNS hostnames, and recognized service names. New and closed connections are highlighted.
+The **Network** tab lists TCP and UDP endpoints, their owning processes, reverse-DNS hostnames, and the service registered for each port number (for example `https` for 443). New and closed connections are highlighted.
+
+With *Group by process* on, each process is listed once, with the number of its sockets after its name and its connections under it. A connection's row is named for its far end (`github.com:443 https`), and a socket that waits for connections for the port it listens on. Sockets of a process that differ only in their local port or file descriptor share a row, marked with how many they are (`×4`); hover over it to see each one. Turn grouping off for a single list with a row per socket.
+
+Each end of a connection has one column, address and port together. *Remote* shows the host name where one is known. *Local* shows only the port for a connection, since the address is nearly always this Mac's own, and the address too for a listening socket: `*` means it accepts connections on every address, `127.0.0.1` only from this Mac. The address, port, host name and service of each end are also available as columns of their own, hidden by default, to sort by.
+
+Values are colored so that the telling ones stand out. Loopback addresses, ports the system picked itself (49152 and up), service names, and the part of a host name before its registered domain are dimmed. In the State column, *Listen* is blue, a connection still being set up is orange, and one that is closing is dimmed.
 
 The **Disk** tab shows disk throughput and totals per process, with history graphs.
 

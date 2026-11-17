@@ -71,6 +71,8 @@ public struct SocketEndpoint: Codable, Sendable, Hashable {
 
     public var isInternet: Bool { family == AF_INET || family == AF_INET6 }
     public var isListening: Bool { proto == IPPROTO_TCP && tcpState == 1 }
+    /// Whether the socket has another end: a TCP connection, or a UDP socket connected to an address.
+    public var hasPeer: Bool { remotePort != 0 || !(remoteAddress == "*" || remoteAddress.isEmpty) }
 
     public var summary: String {
         if family == AF_UNIX {
@@ -78,7 +80,7 @@ public struct SocketEndpoint: Codable, Sendable, Hashable {
         }
         if isInternet {
             let local = "\(Self.bracket(localAddress)):\(localPort)"
-            if remotePort == 0, remoteAddress == "*" || remoteAddress.isEmpty {
+            if !hasPeer {
                 return "\(protocolName) \(local)\(isListening ? " (listening)" : "")"
             }
             return "\(protocolName) \(local) → \(Self.bracket(remoteAddress)):\(remotePort) \(stateName)"
@@ -86,7 +88,8 @@ public struct SocketEndpoint: Codable, Sendable, Hashable {
         return protocolName
     }
 
-    static func bracket(_ addr: String) -> String {
+    /// An address as it's written before a port: IPv6 in brackets.
+    public static func bracket(_ addr: String) -> String {
         addr.contains(":") ? "[\(addr)]" : addr
     }
 }
